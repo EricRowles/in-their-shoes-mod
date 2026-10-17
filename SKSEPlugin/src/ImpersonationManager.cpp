@@ -517,6 +517,7 @@ namespace AlternateActors {
 
         if (!hasNextResponse) {
             IdleAIManager::GetSingleton().ClearCurrentDialogueItem();
+            IdleAIManager::GetSingleton().OnIdleChatterLineCompleted();
         }
 
         _inCompleteSpeaking.store(false);
@@ -1695,6 +1696,15 @@ namespace AlternateActors {
             }
         }
 
+        // Reset puppet follower state
+        if (auto* puppet = GetPuppet()) {
+            if (auto* base = skyrim_cast<RE::TESNPC*>(puppet->GetActorBase())) {
+                base->aiPackages.packages.clear();
+            }
+            puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
+            puppet->EvaluatePackage(false, false);
+        }
+
         _active.store(false, std::memory_order_release);
         _donorActor.store(nullptr, std::memory_order_release);
         _playerActor.store(nullptr, std::memory_order_release);
@@ -1765,7 +1775,22 @@ namespace AlternateActors {
             }
         }
 
-        // 1. Set PlayerTeammate flag if puppet follows player
+        // 1. Configure follow package and PlayerTeammate flag on puppet
+        if (auto* puppetBase = skyrim_cast<RE::TESNPC*>(a_puppet->GetActorBase())) {
+            puppetBase->aiPackages.packages.clear();
+            if (_options.puppetFollowsPlayer) {
+                auto* followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0005C84B); // PlayerFollowerPackage
+                if (!followPkg) {
+                    followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0004B037); // DefaultFollowPlayer
+                }
+                if (followPkg) {
+                    puppetBase->aiPackages.packages.push_front(followPkg);
+                    SKSE::log::info("SetPuppet: Added follow package {:08X} to puppet base {:08X}",
+                        followPkg->GetFormID(), puppetBase->GetFormID());
+                }
+            }
+        }
+
         if (_options.puppetFollowsPlayer) {
             a_puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
         } else {
@@ -1786,6 +1811,21 @@ namespace AlternateActors {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
         _options.puppetFollowsPlayer = a_follows;
         if (auto* puppet = GetPuppet()) {
+            if (auto* puppetBase = skyrim_cast<RE::TESNPC*>(puppet->GetActorBase())) {
+                puppetBase->aiPackages.packages.clear();
+                if (a_follows) {
+                    auto* followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0005C84B); // PlayerFollowerPackage
+                    if (!followPkg) {
+                        followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0004B037); // DefaultFollowPlayer
+                    }
+                    if (followPkg) {
+                        puppetBase->aiPackages.packages.push_front(followPkg);
+                        SKSE::log::info("SetPuppetFollowsPlayer: Added follow package {:08X} to puppet base {:08X}",
+                            followPkg->GetFormID(), puppetBase->GetFormID());
+                    }
+                }
+            }
+
             if (a_follows) {
                 puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
                 if (_active.load(std::memory_order_acquire)) {
@@ -1870,6 +1910,31 @@ namespace AlternateActors {
                         donor->GetFormID());
                     if (IdleAIManager::GetSingleton().IsAIActive()) {
                         SyncDonorUpdatesToPlayer();
+                    }
+                }
+            }
+        }
+
+        // Puppet follower catch-up / cell sync leash
+        if (_active.load(std::memory_order_acquire) && _options.puppetFollowsPlayer) {
+            static auto lastPuppetCheckTime = std::chrono::steady_clock::time_point{};
+            auto now = std::chrono::steady_clock::now();
+            if (now - lastPuppetCheckTime > std::chrono::seconds(2)) {
+                lastPuppetCheckTime = now;
+                auto* puppet = GetPuppet();
+                auto* player = RE::PlayerCharacter::GetSingleton();
+                if (puppet && player && !puppet->IsInCombat()) {
+                    bool needsTeleport = false;
+                    if (puppet->GetParentCell() != player->GetParentCell()) {
+                        needsTeleport = true;
+                    } else if (puppet->GetPosition().GetDistance(player->GetPosition()) > 3500.0f) {
+                        needsTeleport = true;
+                    }
+                    if (needsTeleport) {
+                        puppet->MoveTo(player);
+                        puppet->EvaluatePackage(true, true);
+                        SKSE::log::info("Tick: Teleported puppet {:08X} to player to keep up.",
+                            puppet->GetFormID());
                     }
                 }
             }
@@ -2113,10 +2178,26 @@ namespace AlternateActors {
             if (auto* puppet = GetPuppet()) {
                 if (auto* base = skyrim_cast<RE::TESNPC*>(puppet->GetActorBase())) {
                     base->faceNPC = nullptr;
+                    base->aiPackages.packages.clear();
+                    if (_options.puppetFollowsPlayer) {
+                        auto* followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0005C84B);
+                        if (!followPkg) {
+                            followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0004B037);
+                        }
+                        if (followPkg) {
+                            base->aiPackages.packages.push_front(followPkg);
+                        }
+                    }
                 }
                 if (FaceManager::GetSingleton().HasSavedAppearance()) {
                     FaceManager::GetSingleton().RestoreOriginalPuppetAppearance(puppet);
                 }
+                if (_options.puppetFollowsPlayer) {
+                    puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
+                } else {
+                    puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
+                }
+                puppet->EvaluatePackage(true, true);
             }
         }
     }

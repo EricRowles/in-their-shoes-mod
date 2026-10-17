@@ -86,6 +86,10 @@ namespace AlternateActors::Papyrus {
         IdleAIManager::GetSingleton().SetIdleTimeout(a_seconds);
     }
 
+    void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
+        IdleAIManager::GetSingleton().SetIdleChatterTime(a_seconds);
+    }
+
     void SetControllingNPC(RE::StaticFunctionTag*, bool a_controlling) {
         IdleAIManager::GetSingleton().SetControllingNPC(a_controlling);
     }
@@ -225,6 +229,7 @@ namespace AlternateActors::Papyrus {
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
         a_vm->RegisterFunction("SetCombatAIEnabled", className, SetCombatAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
+        a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("SetControllingNPC", className, SetControllingNPC);
         a_vm->RegisterFunction("UpdateIdleAI", className, UpdateIdleAI);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);

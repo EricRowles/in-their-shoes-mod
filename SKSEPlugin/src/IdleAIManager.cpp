@@ -149,8 +149,6 @@ namespace AlternateActors {
                 auto* currentCell = player->GetParentCell();
                 if (currentCell && currentCell != _lastCell) {
                     _lastCell = currentCell;
-                    // On cell transition, allow idle dialogue evaluation after a short settle time (3s)
-                    _lastIdleChatterTime = std::chrono::steady_clock::now() - std::chrono::seconds(12);
                 }
             }
 
@@ -163,7 +161,9 @@ namespace AlternateActors {
             }
             auto now = std::chrono::steady_clock::now();
             float chatterElapsed = std::chrono::duration<float>(now - _lastIdleChatterTime).count();
-            if (chatterElapsed >= 15.0f && !ImpersonationManager::GetSingleton().IsPlayerSpeaking()) {
+            float chatterCooldown = _idleChatterTimeSeconds.load(std::memory_order_acquire);
+            float evalElapsed = std::chrono::duration<float>(now - _lastIdleEvalTime).count();
+            if (chatterElapsed >= chatterCooldown && evalElapsed >= 1.5f && !ImpersonationManager::GetSingleton().IsPlayerSpeaking()) {
                 static std::atomic<bool> s_taskQueued{ false };
                 if (!s_taskQueued.exchange(true)) {
                     if (auto* task = SKSE::GetTaskInterface()) {
@@ -373,6 +373,7 @@ namespace AlternateActors {
             }
         }
         _lastInputTime = std::chrono::steady_clock::now();
+        _lastIdleChatterTime = std::chrono::steady_clock::now();
         SKSE::log::info("IdleAIManager controlling NPC set to: {}", a_controlling);
     }
 
@@ -640,12 +641,10 @@ namespace AlternateActors {
         auto* currentCell = player->GetParentCell();
         if (currentCell && currentCell != _lastCell) {
             _lastCell = currentCell;
-            // On cell transition, allow evaluation after a short settle time (3s)
-            _lastIdleChatterTime = now - std::chrono::seconds(12);
         }
 
         float elapsed = std::chrono::duration<float>(now - _lastIdleChatterTime).count();
-        constexpr float kIdleChatterCooldown = 15.0f;
+        float kIdleChatterCooldown = _idleChatterTimeSeconds.load(std::memory_order_acquire);
         if (elapsed < kIdleChatterCooldown) {
             return false;
         }
@@ -766,6 +765,8 @@ namespace AlternateActors {
                 }
 
                 _lastIdleChatterTime = now;
+                SKSE::log::info("CheckAndTriggerIdleDialogue: triggered idle line, chatter cooldown set to {:.1f}s",
+                    _idleChatterTimeSeconds.load(std::memory_order_acquire));
                 return true;
             }
         }

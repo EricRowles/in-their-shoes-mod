@@ -7,6 +7,7 @@ Actor Property PlayerRef Auto
 ; MCM Property Variables
 bool Property IdleAIEnabled = True Auto
 Float Property IdleAITimeout = 5.0 Auto
+Float Property IdleChatterTime = 60.0 Auto
 bool Property CombatAIEnabled = True Auto
 bool Property NPCVoiceEnabled = True Auto
 bool Property PuppetFollowsPlayer = True Auto
@@ -14,6 +15,7 @@ bool Property PuppetFollowsPlayer = True Auto
 ; Option IDs
 int _oid_idleAI
 int _oid_idleTimeout
+int _oid_idleChatterTime
 int _oid_combatAI
 int _oid_npcVoice
 int _oid_puppetFollows
@@ -21,15 +23,20 @@ int _oid_revert
 bool _pendingRevert = false
 
 int function GetVersion()
-	return 5
+	return 7
 endFunction
 
 event OnVersionUpdate(int a_version)
 	ModName = "Alternate Actors NG"
 	Pages = None
 
+	if IdleChatterTime < 10.0
+		IdleChatterTime = 60.0
+	endif
+
 	AK_NG.SetIdleAIEnabled(IdleAIEnabled)
 	AK_NG.SetIdleAITimeout(IdleAITimeout)
+	AK_NG.SetIdleChatterTime(IdleChatterTime)
 	AK_NG.SetCombatAIEnabled(CombatAIEnabled)
 	AK_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
 	AK_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
@@ -39,8 +46,13 @@ event OnConfigInit()
 	ModName = "Alternate Actors NG"
 	Pages = None
 
+	if IdleChatterTime < 10.0
+		IdleChatterTime = 60.0
+	endif
+
 	AK_NG.SetIdleAIEnabled(IdleAIEnabled)
 	AK_NG.SetIdleAITimeout(IdleAITimeout)
+	AK_NG.SetIdleChatterTime(IdleChatterTime)
 	AK_NG.SetCombatAIEnabled(CombatAIEnabled)
 	AK_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
 	AK_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
@@ -51,6 +63,9 @@ function RefreshConfig()
 endFunction
 
 event OnPageReset(string page)
+	if IdleChatterTime < 10.0
+		IdleChatterTime = 60.0
+	endif
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
 	AddTextOption("Mod Version", akquest.akmodversion, OPTION_FLAG_DISABLED)
@@ -70,6 +85,7 @@ event OnPageReset(string page)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("Impersonation Settings")
 	_oid_npcVoice = AddToggleOption("NPC Voice", NPCVoiceEnabled)
+	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s")
 	_oid_puppetFollows = AddToggleOption("Puppet Follows Player", PuppetFollowsPlayer)
 	AddEmptyOption()
 
@@ -128,6 +144,11 @@ event OnOptionSliderOpen(int option)
 		SetSliderDialogDefaultValue(10.0)
 		SetSliderDialogRange(1.0, 120.0)
 		SetSliderDialogInterval(1.0)
+	elseif option == _oid_idleChatterTime
+		SetSliderDialogStartValue(IdleChatterTime)
+		SetSliderDialogDefaultValue(60.0)
+		SetSliderDialogRange(10.0, 600.0)
+		SetSliderDialogInterval(5.0)
 	endif
 endEvent
 
@@ -136,6 +157,10 @@ event OnOptionSliderAccept(int option, float value)
 		IdleAITimeout = value
 		SetSliderOptionValue(_oid_idleTimeout, IdleAITimeout, "{1} s")
 		AK_NG.SetIdleAITimeout(IdleAITimeout)
+	elseif option == _oid_idleChatterTime
+		IdleChatterTime = value
+		SetSliderOptionValue(_oid_idleChatterTime, IdleChatterTime, "{0} s")
+		AK_NG.SetIdleChatterTime(IdleChatterTime)
 	endif
 endEvent
 
@@ -148,6 +173,8 @@ event OnOptionHighlight(int option)
 		SetInfoText("Enables autonomous combat AI (attacking, blocking, distance closing) while idle in combat.")
 	elseif option == _oid_npcVoice
 		SetInfoText("Enables donor NPC voice comments and voice identity on the player while possessed.")
+	elseif option == _oid_idleChatterTime
+		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
 	elseif option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
 	elseif option == _oid_revert

@@ -50,6 +50,18 @@ namespace AlternateActors {
         void SetIdleTimeout(float a_seconds) { _idleTimeoutSeconds.store(a_seconds, std::memory_order_release); }
         float GetIdleTimeout() const { return _idleTimeoutSeconds.load(std::memory_order_acquire); }
 
+        void SetIdleChatterTime(float a_seconds) {
+            if (a_seconds < 10.0f) {
+                a_seconds = 60.0f;
+            }
+            _idleChatterTimeSeconds.store(a_seconds, std::memory_order_release);
+        }
+        float GetIdleChatterTime() const { return _idleChatterTimeSeconds.load(std::memory_order_acquire); }
+
+        void OnIdleChatterLineCompleted() {
+            _lastIdleChatterTime = std::chrono::steady_clock::now();
+        }
+
         void SetActiveDonorActor(RE::Actor* a_donor);
         RE::Actor* GetActiveDonorActor() const {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
@@ -82,6 +94,7 @@ namespace AlternateActors {
             _lastCell = nullptr;
             _currentIdleDialogueItem.reset();
             _lastIdleEvalTime = {};
+            _lastIdleChatterTime = std::chrono::steady_clock::now();
         }
 
     private:
@@ -98,6 +111,7 @@ namespace AlternateActors {
         std::atomic<bool> _aiActive{ false };
         std::atomic<bool> _inSelfDialogue{ false };
         std::atomic<float> _idleTimeoutSeconds{ 10.0f };
+        std::atomic<float> _idleChatterTimeSeconds{ 60.0f };
         RE::ActorHandle _activeDonorActor;
         std::chrono::steady_clock::time_point _lastPackageSyncTime{ std::chrono::steady_clock::now() };
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };

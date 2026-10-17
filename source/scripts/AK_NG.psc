@@ -55,6 +55,9 @@ Function SetCombatAIEnabled(Bool abEnabled) Global Native
 ; Sets the idle timeout in seconds before autonomous AI pathing begins (default 10.0s).
 Function SetIdleAITimeout(Float afSeconds) Global Native
 
+; Sets the idle chatter cooldown in seconds between ambient dialogue lines while impersonating an NPC (default 60.0s).
+Function SetIdleChatterTime(Float afSeconds) Global Native
+
 ; Sets whether the player is currently actively controlling an alternate NPC.
 Function SetControllingNPC(Bool abControlling) Global Native
 
