@@ -22,6 +22,8 @@
 #include "RE/A/AttackBlockHandler.h"
 #include "RE/P/Projectile.h"
 #include <SKSE/ContextHook.h>
+#include "RE/A/AIProcess.h"
+#include "RE/H/HighProcessData.h"
 #include "AliasManager.h"
 #include <random>
 #include <cmath>
@@ -159,7 +161,22 @@ namespace AlternateActors {
                     ImpersonationManager::GetSingleton().SyncDonorUpdatesToPlayer();
                 }
             }
-            CheckAndTriggerIdleDialogue();
+            auto now = std::chrono::steady_clock::now();
+            float chatterElapsed = std::chrono::duration<float>(now - _lastIdleChatterTime).count();
+            if (chatterElapsed >= 15.0f && !ImpersonationManager::GetSingleton().IsPlayerSpeaking()) {
+                static std::atomic<bool> s_taskQueued{ false };
+                if (!s_taskQueued.exchange(true)) {
+                    if (auto* task = SKSE::GetTaskInterface()) {
+                        task->AddTask([]() {
+                            s_taskQueued.store(false);
+                            IdleAIManager::GetSingleton().CheckAndTriggerIdleDialogue();
+                        });
+                    } else {
+                        s_taskQueued.store(false);
+                        CheckAndTriggerIdleDialogue();
+                    }
+                }
+            }
         }
         ImpersonationManager::GetSingleton().Tick();
     }
@@ -726,14 +743,23 @@ namespace AlternateActors {
             chosen = candidates[dist(rng)];
         }
 
-        _currentIdleDialogueItem = RE::make_smart<RE::DialogueItem>(chosen.quest, chosen.topic, chosen.info, player);
+        auto* speakerObj = donor ? static_cast<RE::TESObjectREFR*>(donor) : static_cast<RE::TESObjectREFR*>(player);
+        _currentIdleDialogueItem = RE::make_smart<RE::DialogueItem>(chosen.quest, chosen.topic, chosen.info, speakerObj);
         if (_currentIdleDialogueItem && !_currentIdleDialogueItem->responses.empty()) {
             auto* response = _currentIdleDialogueItem->responses.front();
             if (response) {
-                SKSE::log::info("Triggering autonomous idle dialogue on player: '{}' (topic {:08X}, info {:08X})",
-                    response->text.c_str(), chosen.topic->GetFormID(), chosen.info->GetFormID());
+                SKSE::log::info("Triggering autonomous idle dialogue on player: '{}' (topic {:08X}, info {:08X}, voice='{}', sound={:08X})",
+                    response->text.c_str(), chosen.topic->GetFormID(), chosen.info->GetFormID(),
+                    response->voice.c_str(),
+                    response->voiceSound ? static_cast<std::uint32_t>(response->voiceSound->GetFormID()) : 0);
 
-                player->UpdateInDialogue(response, false);
+                auto& impMgr = ImpersonationManager::GetSingleton();
+                _currentIdleDialogueItem->speaker = player;
+                if (!_currentIdleDialogueItem->currentResponse) {
+                    _currentIdleDialogueItem->currentResponse = reinterpret_cast<RE::BSSimpleList<RE::DialogueResponse*>::Node*>(&_currentIdleDialogueItem->responses);
+                }
+
+                impMgr.PlayIdleDialogueLine(response, chosen.info);
 
                 if (chosen.info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kSayOnce)) {
                     chosen.info->saidOnce = true;

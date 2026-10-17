@@ -23,6 +23,9 @@
 #include <RE/A/AIProcess.h>
 #include <RE/H/HighProcessData.h>
 #include <RE/S/SubtitleManager.h>
+#include <RE/P/PlayerCamera.h>
+#include <RE/B/BSAudioManager.h>
+#include <RE/I/ID.h>
 
 namespace AlternateActors {
 
@@ -298,6 +301,10 @@ namespace AlternateActors {
         auto* process = a_actor->GetActorRuntimeData().currentProcess;
         if (!process || !process->high) return;
 
+        auto* cam = RE::PlayerCamera::GetSingleton();
+        bool isFirstPerson = cam && cam->IsInFirstPerson();
+        auto actorPos = a_actor->GetPosition();
+
         auto* root3D = a_actor->Get3D();
         RE::NiAVObject* headNode = root3D ? root3D->GetObjectByName("NPC Head [Head]"sv) : nullptr;
         if (!headNode) {
@@ -306,11 +313,42 @@ namespace AlternateActors {
         if (!headNode && root3D) {
             headNode = root3D;
         }
-        if (!headNode) return;
 
+        RE::NiPoint3 soundPos = actorPos;
+        soundPos.z += 120.0f;  // Approximate humanoid head height above actor root
+
+        bool useHeadNode = false;
+        if (headNode && !isFirstPerson) {
+            float dist = headNode->world.translate.GetDistance(actorPos);
+            // Verify headNode world transform is valid and not stuck at (0,0,0)
+            if (dist < 400.0f && (headNode->world.translate.x != 0.0f || headNode->world.translate.y != 0.0f || headNode->world.translate.z != 0.0f)) {
+                soundPos = headNode->world.translate;
+                useHeadNode = true;
+            }
+        }
+
+        auto now = std::chrono::steady_clock::now();
         for (auto& handle : process->high->soundHandles) {
-            if (handle.IsValid() && handle.IsPlaying()) {
-                handle.SetPosition(headNode->world.translate);
+            if (handle.IsValid()) {
+                handle.SetPosition(soundPos);
+                if (headNode && useHeadNode) {
+                    handle.SetObjectToFollow(headNode);
+                }
+                handle.SetVolume(1.0f);
+            }
+        }
+
+        // Animate mouth phonemes while player is speaking if dialogueData is not driving facegen
+        if (a_actor == RE::PlayerCharacter::GetSingleton() && ImpersonationManager::GetSingleton()._playerSpeaking.load(std::memory_order_relaxed)) {
+            if (auto* faceData = a_actor->GetFaceGenAnimationData()) {
+                RE::BSSpinLockGuard locker(faceData->lock);
+                if (!faceData->dialogueData) {
+                    if (faceData->phoneme1.values && faceData->phoneme1.count > 0) {
+                        float t = std::chrono::duration<float>(now - ImpersonationManager::GetSingleton()._speechStartTime).count();
+                        float osc = 0.35f + 0.25f * std::sin(t * 18.0f) * std::cos(t * 7.0f);
+                        faceData->phoneme1.values[0] = std::clamp(osc, 0.0f, 0.7f);
+                    }
+                }
             }
         }
     }
@@ -354,6 +392,7 @@ namespace AlternateActors {
                         handle.Stop();
                     }
                 }
+                process->high->greetTopic.reset();
             }
 
             // Set kSoundFileDone and kVoiceFileDone so Character::UpdateInDialogue
@@ -365,6 +404,7 @@ namespace AlternateActors {
             _origPlayerSetSpeakingDone(a_player, true);
             if (auto* faceData = a_player->GetFaceGenAnimationData()) {
                 RE::BSSpinLockGuard locker(faceData->lock);
+                faceData->dialogueData = nullptr;
                 faceData->Reset(0.0f, false, true, false, false);
                 faceData->ClearExpressionOverride();
             }
@@ -375,6 +415,20 @@ namespace AlternateActors {
 
         auto* puppet = GetPuppet();
         if (puppet) {
+            // Stop any remaining sound handles on puppet and reset them
+            auto* proc = puppet->GetActorRuntimeData().currentProcess;
+            if (proc && proc->high) {
+                for (auto& handle : proc->high->soundHandles) {
+                    if (handle.IsValid()) {
+                        handle.Stop();
+                    }
+                    handle = RE::BSSoundHandle();
+                }
+                proc->high->voiceTimer = 0.0f;
+                proc->high->breathTimer = 0.0f;
+                proc->high->greetTopic.reset();
+            }
+
             // Set kSoundFileDone and kVoiceFileDone on puppet so Actor::IsCurrentlySpeaking (0x1406754B0)
             // returns false when the user clicks a dialogue option in DialogueMenu!
             puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSpeakingDone);
@@ -385,6 +439,7 @@ namespace AlternateActors {
             puppet->SetEmotionValue(0);
             if (auto* spkFace = puppet->GetFaceGenAnimationData()) {
                 RE::BSSpinLockGuard locker(spkFace->lock);
+                spkFace->dialogueData = nullptr;
                 spkFace->Reset(0.0f, false, true, false, false);
                 spkFace->ClearExpressionOverride();
             }
@@ -408,6 +463,17 @@ namespace AlternateActors {
             if (puppet) {
                 topicMgr->lastSpeaker = puppet->GetHandle();
             }
+            if (topicMgr->speaker == (puppet ? puppet->GetHandle() : RE::ObjectRefHandle()) ||
+                topicMgr->speaker == (a_player ? a_player->GetHandle() : RE::ObjectRefHandle())) {
+                topicMgr->speaker.reset();
+            }
+            if (topicMgr->currentTopicInfo) {
+                topicMgr->lastTopicInfo = topicMgr->currentTopicInfo;
+                topicMgr->currentTopicInfo = nullptr;
+            }
+
+            auto* ui = RE::UI::GetSingleton();
+            bool menuOpen = (ui && ui->IsMenuOpen("Dialogue Menu"sv)) || topicMgr->menuOpen;
 
             if (dial) {
                 if (hasNextResponse) {
@@ -419,24 +485,33 @@ namespace AlternateActors {
                     topicMgr->advanceRequested = true;
                     SKSE::log::info("CompleteSpeaking: advancing multi-line topic to next response (item: {:p})",
                         (void*)dial->currentResponse->item);
-                } else {
-                    // Final response in topic: do NOT wipe currentTopicInfo!
-                    // MenuTopicManager::FinishResponseOrRunPapyrus (0x1405EFDF0) and EndDialogue (0x1405F0AD0)
-                    // check currentTopicInfo to execute the End Papyrus script fragment (e.g. recruitment, quest stage).
-                    // We advance currentResponse to nullptr and trigger advanceRequested so MenuTopicManager
-                    // natively runs the End fragment and rebuilds the dialogue list.
+                } else if (menuOpen) {
                     dial->currentResponse = nullptr;
                     topicMgr->waitingToAdvance = true;
                     topicMgr->canSkip = true;
                     topicMgr->advanceRequested = true;
                     SKSE::log::info("CompleteSpeaking: topic finished, advancing to run End Papyrus fragment and return to menu");
+                } else {
+                    dial->currentResponse = nullptr;
+                    topicMgr->waitingToAdvance = false;
+                    topicMgr->canSkip = false;
+                    topicMgr->advanceRequested = false;
+                    topicMgr->lastSelectedDialogue = nullptr;
+                    SKSE::log::info("CompleteSpeaking: idle topic finished, cleanly reset MenuTopicManager");
                 }
             } else {
-                // Greeting line finished (no dial chain): preserve currentTopicInfo if present for greeting end fragments
-                topicMgr->waitingToAdvance = true;
-                topicMgr->canSkip = true;
-                topicMgr->advanceRequested = true;
-                SKSE::log::info("CompleteSpeaking: greeting line finished (wasGreeting: {})", wasGreeting);
+                if (menuOpen) {
+                    topicMgr->waitingToAdvance = true;
+                    topicMgr->canSkip = true;
+                    topicMgr->advanceRequested = true;
+                    SKSE::log::info("CompleteSpeaking: greeting line finished (wasGreeting: {})", wasGreeting);
+                } else {
+                    topicMgr->waitingToAdvance = false;
+                    topicMgr->canSkip = false;
+                    topicMgr->advanceRequested = false;
+                    topicMgr->lastSelectedDialogue = nullptr;
+                    SKSE::log::info("CompleteSpeaking: idle greeting finished, cleanly reset MenuTopicManager");
+                }
             }
         }
 
@@ -466,20 +541,47 @@ namespace AlternateActors {
 
         // Check if player clicked to advance/skip line via MenuTopicManager
         auto* topicMgr = RE::MenuTopicManager::GetSingleton();
-        if (topicMgr && topicMgr->advanceRequested && elapsed > 0.25f) {
+        auto* ui = RE::UI::GetSingleton();
+        bool menuOpen = (ui && ui->IsMenuOpen("Dialogue Menu"sv)) || (topicMgr && topicMgr->menuOpen);
+        if (menuOpen && topicMgr && topicMgr->advanceRequested && elapsed > 0.25f) {
             SKSE::log::info("Player requested dialogue line skip via MenuTopicManager (elapsed: {:.2f}s)", elapsed);
             CompleteSpeaking(player);
             return true;
         }
 
-        // 1. Check if audio sound handle on player is currently playing
+        auto checkHandleActive = [](const RE::BSSoundHandle& h) -> bool {
+            if (!h.IsValid()) return false;
+            if (h.IsPlaying()) return true;
+            auto st = h.state.get();
+            return (st == RE::BSSoundHandle::AssumedState::kPlaying ||
+                    st == RE::BSSoundHandle::AssumedState::kInitialized);
+        };
+
+        // 1. Check if audio sound handle on player or proxy puppet is currently playing
         bool soundPlaying = false;
         auto* process = player->GetActorRuntimeData().currentProcess;
         if (process && process->high) {
             for (auto& soundHandle : process->high->soundHandles) {
-                if (soundHandle.IsValid() && soundHandle.IsPlaying()) {
+                if (checkHandleActive(soundHandle)) {
                     soundPlaying = true;
                     break;
+                }
+            }
+        }
+        if (!soundPlaying) {
+            auto* puppet = GetPuppet();
+            if (puppet) {
+                auto* pproc = puppet->GetActorRuntimeData().currentProcess;
+                if (pproc && pproc->high) {
+                    for (auto& soundHandle : pproc->high->soundHandles) {
+                        if (checkHandleActive(soundHandle)) {
+                            soundPlaying = true;
+                            if (process && process->high && !process->high->soundHandles[0].IsValid()) {
+                                process->high->soundHandles[0] = soundHandle;
+                            }
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -497,6 +599,7 @@ namespace AlternateActors {
                 return false;
             }
         }
+
 
         // 2. Check BSFaceGenAnimationData phoneme completion on player
         bool phonemesActive = false;
@@ -520,6 +623,12 @@ namespace AlternateActors {
         }
 
         if (_speechHadSound.load(std::memory_order_acquire)) {
+            // Require minimum elapsed time of 0.5s before concluding that audio has finished
+            // to avoid racing with audio engine initialization.
+            if (elapsed < 0.5f) {
+                return false;
+            }
+
             // Audio was playing and has now finished!
             // Allow a brief grace period (up to 0.4s) if phonemes are still settling back to neutral
             if (phonemesActive && elapsed < 25.0f && _speechAudioEndTime == std::chrono::steady_clock::time_point{}) {
@@ -672,6 +781,173 @@ namespace AlternateActors {
         }
     }
 
+    bool ImpersonationManager::TryCreateDialogueSoundHandle(RE::Actor* a_actor, RE::DialogueResponse* a_response) {
+        if (!a_actor || !a_response) return false;
+        auto* process = a_actor->GetActorRuntimeData().currentProcess;
+        if (!process || !process->high) return false;
+
+        RE::BSSoundHandle soundHandle;
+        auto* audioMgr = RE::BSAudioManager::GetSingleton();
+        if (!audioMgr) return false;
+
+        if (a_response->voiceSound) {
+            audioMgr->GetSoundHandle(soundHandle, a_response->voiceSound);
+            if (soundHandle.IsValid()) {
+                SKSE::log::info("TryCreateDialogueSoundHandle: Created sound handle from voiceSound descriptor {:08X}",
+                    static_cast<std::uint32_t>(a_response->voiceSound->GetFormID()));
+            }
+        } else if (!a_response->voice.empty()) {
+            std::string voicePath = a_response->voice.c_str();
+            std::replace(voicePath.begin(), voicePath.end(), '/', '\\');
+            if (voicePath.length() >= 5 && _strnicmp(voicePath.c_str(), "data\\", 5) == 0) {
+                voicePath = voicePath.substr(5);
+            }
+
+            std::vector<std::string> pathCandidates;
+            auto addCandidate = [&](const std::string& p) {
+                if (std::find(pathCandidates.begin(), pathCandidates.end(), p) == pathCandidates.end()) {
+                    pathCandidates.push_back(p);
+                }
+            };
+
+            auto dotPos = voicePath.rfind('.');
+            std::string basePath = (dotPos != std::string::npos) ? voicePath.substr(0, dotPos) : voicePath;
+
+            addCandidate(basePath + ".fuz");
+            addCandidate(basePath + ".wav");
+            addCandidate(voicePath);
+
+            if (_strnicmp(basePath.c_str(), "sound\\", 6) == 0) {
+                std::string noSound = basePath.substr(6);
+                addCandidate(noSound + ".fuz");
+                addCandidate(noSound + ".wav");
+            } else {
+                std::string withSound = "sound\\" + basePath;
+                addCandidate(withSound + ".fuz");
+                addCandidate(withSound + ".wav");
+            }
+
+            const std::uint32_t flagOptions[] = { 0x10, 0x1A, 0x8010 };
+            for (auto flags : flagOptions) {
+                for (const auto& candidate : pathCandidates) {
+                    RE::BSResource::ID resID;
+                    resID.GenerateFromPath(candidate.c_str());
+                    audioMgr->GetSoundHandleByFile(soundHandle, resID, flags, 64);
+                    if (soundHandle.IsValid()) {
+                        SKSE::log::info("TryCreateDialogueSoundHandle: Successfully resolved sound handle using candidate '{}' (flags=0x{:X})",
+                            candidate, flags);
+                        break;
+                    }
+                }
+                if (soundHandle.IsValid()) break;
+            }
+        }
+
+        if (soundHandle.IsValid()) {
+            auto* headNode = a_actor->GetNodeByName("NPC Head [Head]");
+            if (headNode) {
+                soundHandle.SetObjectToFollow(headNode);
+            } else if (auto* root = a_actor->Get3D()) {
+                soundHandle.SetObjectToFollow(root);
+            }
+            soundHandle.SetPosition(a_actor->GetPosition());
+            soundHandle.SetVolume(1.0f);
+            soundHandle.Play();
+
+            SKSE::log::info("TryCreateDialogueSoundHandle: Playing sound handle id={:08X}, durMS={}, isPlaying={}",
+                soundHandle.soundID, soundHandle.GetDuration(), soundHandle.IsPlaying());
+
+            process->high->soundHandles[0] = soundHandle;
+            return true;
+        } else {
+            SKSE::log::warn("TryCreateDialogueSoundHandle: Failed to create sound handle for voice='{}'",
+                a_response->voice.c_str());
+            return false;
+        }
+    }
+
+    bool ImpersonationManager::PlayIdleDialogueLine(RE::DialogueResponse* a_response, RE::TESTopicInfo* a_info) {
+        if (!a_response) return false;
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!player) return false;
+
+        SKSE::log::info("PlayIdleDialogueLine: '{}' (topicInfo={:08X}, voice='{}', sound={:08X})",
+            a_response->text.c_str(),
+            a_info ? static_cast<std::uint32_t>(a_info->GetFormID()) : 0,
+            a_response->voice.c_str(),
+            a_response->voiceSound ? static_cast<std::uint32_t>(a_response->voiceSound->GetFormID()) : 0);
+
+        // Stop previous sounds on player
+        auto* playerProcess = player->GetActorRuntimeData().currentProcess;
+        if (playerProcess && playerProcess->high) {
+            for (auto& handle : playerProcess->high->soundHandles) {
+                if (handle.IsValid() && handle.IsPlaying()) {
+                    handle.Stop();
+                }
+                handle = RE::BSSoundHandle();
+            }
+        }
+
+        // Queue subtitle for player
+        if (!a_response->text.empty()) {
+            if (auto* subMgr = RE::SubtitleManager::GetSingleton()) {
+                RE::BSSpinLockGuard locker(subMgr->lock);
+                bool alreadyQueued = false;
+                for (auto& sub : subMgr->subtitles) {
+                    if (sub.subtitle == a_response->text.c_str()) {
+                        alreadyQueued = true;
+                        sub.speaker = player->GetHandle();
+                        sub.targetDistance = 0.0f;
+                        sub.forceDisplay = true;
+                        break;
+                    }
+                }
+                if (!alreadyQueued) {
+                    RE::SubtitleInfo subInfo;
+                    subInfo.speaker = player->GetHandle();
+                    subInfo.subtitle = a_response->text;
+                    subInfo.targetDistance = 0.0f;
+                    subInfo.forceDisplay = true;
+                    subMgr->subtitles.push_back(subInfo);
+                }
+            }
+        }
+
+        // Set facial emotion
+        if (a_response->useEmotion) {
+            player->SetEmotionType(a_response->animFaceArchType.get());
+            player->SetEmotionValue(a_response->percent);
+        }
+
+        // Update player speaking boolBits
+        player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSoundFileDone);
+        player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kVoiceFileDone);
+        player->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kSpeakingDone);
+        player->GetActorRuntimeData().voiceTimer = 0.0f;
+        _origPlayerSetSpeakingDone(player, false);
+
+        // Update expression state via Character::UpdateInDialogue
+        _origCharUpdateInDialogue(player, a_response, false);
+        *reinterpret_cast<std::uint8_t*>(reinterpret_cast<char*>(player) + 0x278) = 1;
+
+        // Start speech tracking (sets _playerSpeaking = true, computes _speechMinDuration)
+        OnDialogueResponseStarted(a_response);
+
+        // Create and play voice sound handle directly onto player
+        bool soundCreated = TryCreateDialogueSoundHandle(player, a_response);
+        if (soundCreated && playerProcess && playerProcess->high && playerProcess->high->soundHandles[0].IsValid()) {
+            auto dur = playerProcess->high->soundHandles[0].GetDuration();
+            if (dur > 0) {
+                std::lock_guard<std::recursive_mutex> lock(_mutex);
+                _speechMinDuration = std::max(_speechMinDuration, (static_cast<float>(dur) / 1000.0f) + 0.3f);
+                _speechHadSound.store(true, std::memory_order_release);
+            }
+        }
+
+        AttachSoundHandlesToHead(player);
+        return true;
+    }
+
     bool ImpersonationManager::HandleProxyDialogueOutput(RE::Actor* a_speaker, RE::DialogueResponse* a_response, bool a_unused) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !a_speaker) {
@@ -712,8 +988,6 @@ namespace AlternateActors {
                 }
             }
 
-            // Allow speech ONLY if actively in conversation:
-            // self-dialogue flag set, dialogue menu actively open, or MenuTopicManager active with this speaker.
             bool inActiveConversation = inSelf || menuOpen || inTopicWithSpeaker;
 
             if (isPuppet && (isGoodbye || !inActiveConversation)) {
@@ -755,18 +1029,17 @@ namespace AlternateActors {
                 playerResp.useEmotion = a_response->useEmotion;
                 playerResp.soundLip = a_response->soundLip;
 
-                // 2. Prepare puppet response clone: has text for topic advance,
-                // but completely stripped of audio, mouth phonemes, emotion, and speaking gestures.
+                // 2. Prepare puppet response clone: has text for topic advance.
                 RE::DialogueResponse puppetResp;
                 puppetResp.text = a_response->text;
                 puppetResp.animFaceArchType = RE::EmotionType::kNeutral;
                 puppetResp.percent = 0;
                 puppetResp.voice = ""sv;
+                puppetResp.voiceSound = nullptr;
+                puppetResp.soundLip = false;
                 puppetResp.speakerIdle = nullptr;
                 puppetResp.listenIdle = nullptr;
-                puppetResp.voiceSound = nullptr;
                 puppetResp.useEmotion = false;
-                puppetResp.soundLip = false;
 
                 // 3. Ensure player boolBits have kSoundFileDone and kVoiceFileDone set, kSpeakingDone cleared,
                 // so Character::UpdateInDialogue takes the new-speech branch
@@ -776,7 +1049,7 @@ namespace AlternateActors {
                 player->GetActorRuntimeData().voiceTimer = 0.0f;
                 _origPlayerSetSpeakingDone(player, false);
 
-                // 4. Ensure puppet has speakingDone cleared, and voiceDone/soundDone cleared so it stays silent
+                // 4. Ensure puppet speaking flags
                 a_speaker->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kSpeakingDone);
                 a_speaker->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kSoundFileDone);
                 a_speaker->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kVoiceFileDone);
@@ -817,17 +1090,31 @@ namespace AlternateActors {
                     player->SetEmotionValue(playerResp.percent);
                 }
                 _origCharUpdateInDialogue(player, &playerResp, a_unused);
-                AttachSoundHandlesToHead(player);
 
                 // Set player offset 0x278 = 1 so Character::UpdateSoundCallBack (0x14068E150) treats
                 // player voice completion as an external dialogue line rather than mode 2 (MenuTopicManager),
                 // preventing UpdateSoundCallBack from racing CompleteSpeaking and prematurely advancing MenuTopicManager.
                 *reinterpret_cast<std::uint8_t*>(reinterpret_cast<char*>(player) + 0x278) = 1;
 
-                // 8. Dispatch silent logical response to puppet (updates MenuTopicManager and subtitle display)
+                bool playerGotSound = false;
+                if (playerProcess && playerProcess->high) {
+                    for (auto& h : playerProcess->high->soundHandles) {
+                        if (h.IsValid() && h.IsPlaying()) {
+                            playerGotSound = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!playerGotSound) {
+                    TryCreateDialogueSoundHandle(player, &playerResp);
+                }
+                AttachSoundHandlesToHead(player);
+
+                // 8. Dispatch response to proxy puppet (advances MenuTopicManager and topic tree)
                 bool ret = _origCharUpdateInDialogue(a_speaker, &puppetResp, a_unused);
 
-                // Ensure puppet kSoundFileDone and kVoiceFileDone remain cleared while player is speaking
+                // Ensure puppet kSoundFileDone and kVoiceFileDone remain cleared while player is speaking in self-dialogue
                 a_speaker->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kSpeakingDone);
                 a_speaker->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kSoundFileDone);
                 a_speaker->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kVoiceFileDone);
@@ -936,14 +1223,32 @@ namespace AlternateActors {
                     }
                 }
 
-                // Ensure player boolBits allow Character::UpdateInDialogue to play audio and phonemes
+                // Set up player boolBits so native Character::UpdateInDialogue executes PlayVoice
                 a_this->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSoundFileDone);
                 a_this->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kVoiceFileDone);
                 a_this->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kSpeakingDone);
                 a_this->GetActorRuntimeData().voiceTimer = 0.0f;
+                _origPlayerSetSpeakingDone(a_this, false);
 
                 mgr.OnDialogueResponseStarted(a_response);
+
                 bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
+                *reinterpret_cast<std::uint8_t*>(reinterpret_cast<char*>(a_this) + 0x278) = 1;
+
+                auto* proc = a_this->GetActorRuntimeData().currentProcess;
+                bool hasSound = false;
+                if (proc && proc->high) {
+                    for (auto& h : proc->high->soundHandles) {
+                        if (h.IsValid() && h.IsPlaying()) {
+                            hasSound = true;
+                            break;
+                        }
+                    }
+                }
+                if (!hasSound) {
+                    mgr.TryCreateDialogueSoundHandle(a_this, a_response);
+                }
+
                 AttachSoundHandlesToHead(a_this);
                 return ret;
             }

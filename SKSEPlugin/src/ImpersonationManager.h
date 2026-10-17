@@ -112,6 +112,8 @@ namespace AlternateActors {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
             return _cloneMarker;
         }
+        bool PlayIdleDialogueLine(RE::DialogueResponse* a_response, RE::TESTopicInfo* a_info);
+        bool TryCreateDialogueSoundHandle(RE::Actor* a_actor, RE::DialogueResponse* a_response);
 
     private:
         ImpersonationManager() = default;
