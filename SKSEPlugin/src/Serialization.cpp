@@ -167,6 +167,9 @@ namespace InTheirShoes::Serialization {
         // 7. Save Impersonation State
         ImpersonationManager::GetSingleton().Save(a_serde);
 
+        // 8. Save Swapped Quest Aliases
+        ImpersonationManager::GetSingleton().SaveSwappedAliases(a_serde);
+
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
 
@@ -390,6 +393,12 @@ namespace InTheirShoes::Serialization {
                 case kImpersonationDataRecord: {
                     ImpersonationManager::GetSingleton().Load(a_serde, length);
                     SKSE::log::info("Loaded Impersonation state from co-save.");
+                    break;
+                }
+
+                case kAliasDataRecord: {
+                    ImpersonationManager::GetSingleton().LoadSwappedAliases(a_serde, length);
+                    SKSE::log::info("Loaded swapped quest aliases from co-save.");
                     break;
                 }
 

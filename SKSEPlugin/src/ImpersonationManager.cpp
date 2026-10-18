@@ -2070,7 +2070,7 @@ namespace InTheirShoes {
                 if (!inst || !inst->quest || !inst->alias) continue;
                 if (!inst->quest->IsRunning()) continue;
 
-                if (AliasManager::GetSingleton().IsModInternalQuest(inst->quest)) continue;
+                if (AliasManager::IsModInternalQuest(inst->quest)) continue;
 
                 if (inst->alias->QType() != "Ref"sv) continue;
                 auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
@@ -2083,7 +2083,7 @@ namespace InTheirShoes {
 
         for (const auto& [quest, aid] : toSwap) {
             quest->ForceRefIntoAlias(aid, a_player);
-            _swappedAliases.push_back({ quest, aid });
+            _swappedAliases.push_back({ quest->GetFormID(), aid, a_donor->GetFormID() });
             SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player {:08X} in quest {:08X} alias ID {}",
                 a_donor->GetFormID(), a_player->GetFormID(), quest->GetFormID(), aid);
         }
@@ -2094,14 +2094,91 @@ namespace InTheirShoes {
         if (_swappedAliases.empty()) return;
 
         auto* donor = a_donor ? a_donor : GetDonor();
+        auto* player = GetPlayer() ? GetPlayer() : RE::PlayerCharacter::GetSingleton();
+
         for (const auto& entry : _swappedAliases) {
-            if (entry.quest && donor) {
-                entry.quest->ForceRefIntoAlias(entry.aliasID, donor);
-                SKSE::log::info("RestoreSwappedAliases: Restored donor {:08X} into quest {:08X} alias ID {}",
-                    donor->GetFormID(), entry.quest->GetFormID(), entry.aliasID);
+            auto* quest = RE::TESForm::LookupByID<RE::TESQuest>(entry.questFormID);
+            if (!quest || !quest->IsRunning()) {
+                SKSE::log::info("RestoreSwappedAliases: Quest {:08X} is stopped or missing, skipping alias ID {}",
+                    entry.questFormID, entry.aliasID);
+                continue;
             }
+
+            auto* targetDonor = donor ? donor : RE::TESForm::LookupByID<RE::Actor>(entry.donorFormID);
+            if (!targetDonor) {
+                SKSE::log::warn("RestoreSwappedAliases: Could not resolve donor {:08X} for quest {:08X} alias ID {}",
+                    entry.donorFormID, entry.questFormID, entry.aliasID);
+                continue;
+            }
+
+            // Safety guard: Find the alias and ensure player is still in it before forcing donor back!
+            RE::BGSBaseAlias* baseAlias = nullptr;
+            for (auto* a : quest->aliases) {
+                if (a && a->aliasID == entry.aliasID) {
+                    baseAlias = a;
+                    break;
+                }
+            }
+
+            if (baseAlias && baseAlias->QType() == "Ref"sv) {
+                auto* refAlias = static_cast<RE::BGSRefAlias*>(baseAlias);
+                auto* currentRef = refAlias->GetReference();
+                if (player && currentRef && currentRef != player && currentRef != targetDonor) {
+                    SKSE::log::info("RestoreSwappedAliases: Alias ID {} in quest {:08X} no longer holds player (holds {:08X}), skipping restoration.",
+                        entry.aliasID, entry.questFormID, currentRef->GetFormID());
+                    continue;
+                }
+            }
+
+            quest->ForceRefIntoAlias(entry.aliasID, targetDonor);
+            SKSE::log::info("RestoreSwappedAliases: Restored donor {:08X} into quest {:08X} alias ID {}",
+                targetDonor->GetFormID(), quest->GetFormID(), entry.aliasID);
         }
         _swappedAliases.clear();
+    }
+
+    void ImpersonationManager::SaveSwappedAliases(SKSE::SerializationInterface* a_serde) {
+        if (!a_serde) return;
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+        if (_swappedAliases.empty()) return;
+
+        if (a_serde->OpenRecord(Serialization::kAliasDataRecord, Serialization::kSerializationVersion)) {
+            std::uint32_t count = static_cast<std::uint32_t>(_swappedAliases.size());
+            a_serde->WriteRecordData(&count, sizeof(count));
+            for (const auto& entry : _swappedAliases) {
+                a_serde->WriteRecordData(&entry.questFormID, sizeof(entry.questFormID));
+                a_serde->WriteRecordData(&entry.aliasID, sizeof(entry.aliasID));
+                a_serde->WriteRecordData(&entry.donorFormID, sizeof(entry.donorFormID));
+            }
+            SKSE::log::info("Saved {} swapped aliases into co-save.", count);
+        }
+    }
+
+    void ImpersonationManager::LoadSwappedAliases(SKSE::SerializationInterface* a_serde, std::uint32_t a_length) {
+        if (!a_serde) return;
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+
+        _swappedAliases.clear();
+        if (a_length < sizeof(std::uint32_t)) return;
+
+        std::uint32_t count = 0;
+        if (!a_serde->ReadRecordData(&count, sizeof(count))) return;
+
+        for (std::uint32_t i = 0; i < count; ++i) {
+            RE::FormID questID = 0;
+            std::uint32_t aliasID = 0;
+            RE::FormID donorID = 0;
+
+            if (!a_serde->ReadRecordData(&questID, sizeof(questID))) break;
+            if (!a_serde->ReadRecordData(&aliasID, sizeof(aliasID))) break;
+            if (!a_serde->ReadRecordData(&donorID, sizeof(donorID))) break;
+
+            if (a_serde->ResolveFormID(questID, questID) && a_serde->ResolveFormID(donorID, donorID)) {
+                _swappedAliases.push_back({ questID, aliasID, donorID });
+            }
+        }
+        SKSE::log::info("Loaded and resolved {} swapped aliases from co-save.", _swappedAliases.size());
     }
 
     // --- Co-Save Serialization ---
@@ -2318,6 +2395,31 @@ namespace InTheirShoes {
                     puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
                 }
                 puppet->EvaluatePackage(true, true);
+            }
+
+            // Post-load fail-safe verification and recovery for swapped aliases
+            if (donor && player) {
+                if (_swappedAliases.empty()) {
+                    auto* playerAliasArray = player->extraList.GetByType<RE::ExtraAliasInstanceArray>();
+                    if (playerAliasArray) {
+                        RE::BSReadLockGuard locker(playerAliasArray->lock);
+                        for (auto* inst : playerAliasArray->aliases) {
+                            if (!inst || !inst->quest || !inst->alias) continue;
+                            if (!inst->quest->IsRunning() || AliasManager::IsModInternalQuest(inst->quest)) continue;
+                            if (inst->alias->QType() != "Ref"sv) continue;
+                            auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
+                            if (refAlias->GetReference() == player) {
+                                if (refAlias->fillData.uniqueActor.uniqueActor == donor->GetActorBase()) {
+                                    _swappedAliases.push_back({ inst->quest->GetFormID(), refAlias->aliasID, donor->GetFormID() });
+                                    SKSE::log::info("OnPostLoadGame: Reconstructed swapped alias ID {} in quest {:08X} for donor {:08X}",
+                                        refAlias->aliasID, inst->quest->GetFormID(), donor->GetFormID());
+                                }
+                            }
+                        }
+                    }
+                }
+                SKSE::log::info("OnPostLoadGame: Verified {} active swapped aliases for donor {:08X}",
+                    _swappedAliases.size(), donor->GetFormID());
             }
         }
     }

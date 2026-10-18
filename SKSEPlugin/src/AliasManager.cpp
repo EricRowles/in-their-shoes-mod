@@ -28,20 +28,31 @@ namespace InTheirShoes {
         };
         std::vector<AliasPkgEntry> entries;
 
-        auto* aliasArray = a_actor->extraList.GetByType<RE::ExtraAliasInstanceArray>();
-        if (aliasArray) {
-            RE::BSReadLockGuard locker(aliasArray->lock);
-            for (auto* inst : aliasArray->aliases) {
-                if (!inst || !inst->quest || !inst->instancedPackages) continue;
-                if (!inst->quest->IsRunning()) continue;
+        auto collectFromActor = [&](RE::Actor* actor) {
+            if (!actor) return;
+            auto* aliasArray = actor->extraList.GetByType<RE::ExtraAliasInstanceArray>();
+            if (aliasArray) {
+                RE::BSReadLockGuard locker(aliasArray->lock);
+                for (auto* inst : aliasArray->aliases) {
+                    if (!inst || !inst->quest || !inst->instancedPackages) continue;
+                    if (!inst->quest->IsRunning()) continue;
 
-                std::int8_t priority = inst->quest->data.priority;
-                for (auto* pkg : *inst->instancedPackages) {
-                    if (pkg) {
-                        entries.push_back({ priority, pkg });
+                    std::int8_t priority = inst->quest->data.priority;
+                    for (auto* pkg : *inst->instancedPackages) {
+                        if (pkg) {
+                            entries.push_back({ priority, pkg });
+                        }
                     }
                 }
             }
+        };
+
+        collectFromActor(a_actor);
+
+        // If checking donor and impersonation has swapped aliases to player, also inspect player
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (player && a_actor != player) {
+            collectFromActor(player);
         }
 
         // Sort by quest priority descending (higher priority quests evaluate first)

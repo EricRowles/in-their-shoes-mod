@@ -153,12 +153,17 @@ namespace InTheirShoes::Papyrus {
         if (a_target->IsPlayerRef()) {
             return 2;
         }
-        auto lifeState = a_target->GetLifeState();
-        if (lifeState == RE::ACTOR_LIFE_STATE::kDead ||
-            lifeState == RE::ACTOR_LIFE_STATE::kDying ||
-            lifeState == RE::ACTOR_LIFE_STATE::kBleedout ||
-            lifeState == RE::ACTOR_LIFE_STATE::kEssentialDown ||
-            a_target->IsDead() || a_target->IsInKillMove()) {
+        auto* actorState = a_target->AsActorState();
+        if (actorState) {
+            auto lifeState = actorState->GetLifeState();
+            if (lifeState == RE::ACTOR_LIFE_STATE::kDead ||
+                lifeState == RE::ACTOR_LIFE_STATE::kDying ||
+                lifeState == RE::ACTOR_LIFE_STATE::kBleedout ||
+                lifeState == RE::ACTOR_LIFE_STATE::kEssentialDown) {
+                return 3;
+            }
+        }
+        if (a_target->IsDead() || a_target->IsInKillMove()) {
             return 3;
         }
         if (a_target->IsGhost()) {

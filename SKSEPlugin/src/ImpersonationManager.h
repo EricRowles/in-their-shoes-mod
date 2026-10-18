@@ -90,6 +90,8 @@ namespace InTheirShoes {
 
         void Save(SKSE::SerializationInterface* a_serde);
         void Load(SKSE::SerializationInterface* a_serde, std::uint32_t a_length);
+        void SaveSwappedAliases(SKSE::SerializationInterface* a_serde);
+        void LoadSwappedAliases(SKSE::SerializationInterface* a_serde, std::uint32_t a_length);
         void OnRevert();
         void OnPostLoadGame();
 
@@ -192,8 +194,9 @@ namespace InTheirShoes {
         std::uint32_t _dialogueSoundID{ static_cast<std::uint32_t>(-1) };
 
         struct SwappedAlias {
-            RE::TESQuest* quest{ nullptr };
+            RE::FormID questFormID{ 0 };
             std::uint32_t aliasID{ 0 };
+            RE::FormID donorFormID{ 0 };
         };
         std::vector<SwappedAlias> _swappedAliases;
         void SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player);

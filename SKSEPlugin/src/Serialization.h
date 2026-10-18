@@ -12,6 +12,7 @@ namespace InTheirShoes::Serialization {
     inline constexpr std::uint32_t kStatDataRecord = 'STAT';
     inline constexpr std::uint32_t kIdleAIDataRecord = 'IDLE';
     inline constexpr std::uint32_t kImpersonationDataRecord = 'IMPR';
+    inline constexpr std::uint32_t kAliasDataRecord = 'ALIS';
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);
