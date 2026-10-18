@@ -556,20 +556,15 @@ namespace InTheirShoes {
         }
     }
 
-    static bool QuestRelatesToDonor(RE::TESQuest* a_quest, RE::Actor* a_donor, const RE::TESFile* a_donorFile) {
+    static bool QuestRelatesToDonor(RE::TESQuest* a_quest, RE::Actor* a_donor, const RE::TESFile* a_donorFile, const std::unordered_set<RE::TESQuest*>& a_donorActiveQuests) {
         if (!a_quest || !a_donor) return false;
         // 1. Same source plugin as the donor NPC
         if (a_donorFile && a_quest->GetFile(0) == a_donorFile) {
             return true;
         }
         // 2. Donor has an active alias instance for this quest
-        if (auto* aliasArray = a_donor->extraList.GetByType<RE::ExtraAliasInstanceArray>()) {
-            RE::BSReadLockGuard locker(aliasArray->lock);
-            for (auto* inst : aliasArray->aliases) {
-                if (inst && inst->quest == a_quest) {
-                    return true;
-                }
-            }
+        if (a_donorActiveQuests.contains(a_quest)) {
+            return true;
         }
         // 3. Quest aliases explicitly point to donor
         for (auto* baseAlias : a_quest->aliases) {
@@ -682,12 +677,22 @@ namespace InTheirShoes {
         };
         std::vector<Candidate> candidates;
 
+        std::unordered_set<RE::TESQuest*> donorActiveQuests;
+        if (auto* aliasArray = donor->extraList.GetByType<RE::ExtraAliasInstanceArray>()) {
+            RE::BSReadLockGuard locker(aliasArray->lock);
+            for (auto* inst : aliasArray->aliases) {
+                if (inst && inst->quest) {
+                    donorActiveQuests.insert(inst->quest);
+                }
+            }
+        }
+
         const auto& quests = dataHandler->GetFormArray<RE::TESQuest>();
         for (auto* quest : quests) {
             if (!quest || !quest->IsRunning()) continue;
 
             // Only evaluate quests relevant to this donor (avoids querying unrelated mods)
-            if (!QuestRelatesToDonor(quest, donor, donorFile)) {
+            if (!QuestRelatesToDonor(quest, donor, donorFile, donorActiveQuests)) {
                 continue;
             }
 

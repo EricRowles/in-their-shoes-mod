@@ -10,7 +10,7 @@ Bool Function CloneAppearance(Actor a_donor, Actor a_target) Global Native
 Bool Function CopyAppearance(Actor a_donor, Actor a_target) Global Native
 
 ; Restores a_target's original appearance from before the last CloneAppearance call.
-Bool Function RevertAppearance(Actor a_target, bool a_update3D) Global Native
+Bool Function RevertAppearance(Actor a_target, Bool a_update3D = true) Global Native
 
 ; Stores a_player's current inventory into a_storageFollower (if provided) then transfers a_donor's
 ; inventory + dynamic spells to a_player. Pass None for a_storageFollower if DragonbornFollower is not used.

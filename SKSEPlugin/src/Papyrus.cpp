@@ -19,8 +19,8 @@ namespace InTheirShoes::Papyrus {
         return FaceManager::GetSingleton().CopyAppearance(a_donor, a_target);
     }
 
-    bool RevertAppearance(RE::StaticFunctionTag*, RE::Actor* a_target) {
-        return FaceManager::GetSingleton().RevertAppearance(a_target);
+    bool RevertAppearance(RE::StaticFunctionTag*, RE::Actor* a_target, bool a_update3D) {
+        return FaceManager::GetSingleton().RevertAppearance(a_target, a_update3D);
     }
 
     bool TransferInventoryToPlayer(RE::StaticFunctionTag*, RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {

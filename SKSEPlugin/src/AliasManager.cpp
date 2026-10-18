@@ -8,9 +8,11 @@ namespace InTheirShoes {
 
         static RE::TESQuest* s_modQuest = nullptr;
 
-        if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
-            // We only have the one quest in this mod...
-            s_modQuest = dataHandler->LookupForm<RE::TESQuest>(0x00000D92, "InTheirShoes.esp"sv);
+        if (!s_modQuest) {
+            if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
+                // We only have the one quest in this mod...
+                s_modQuest = dataHandler->LookupForm<RE::TESQuest>(0x00000D92, "InTheirShoes.esp"sv);
+            }
         }
         return a_quest == s_modQuest;
     }

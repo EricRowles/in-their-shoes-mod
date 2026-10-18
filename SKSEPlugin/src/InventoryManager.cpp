@@ -12,9 +12,15 @@ namespace InTheirShoes {
         static RE::SpellItem* s_impersonateSpell = nullptr;
         static RE::SpellItem* s_revertSpell = nullptr;
 
-        if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
-            s_impersonateSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000D69, "InTheirShoes.esp"sv);
-            s_revertSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000802, "InTheirShoes.esp"sv);
+        if (!s_impersonateSpell || !s_revertSpell) {
+            if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
+                if (!s_impersonateSpell) {
+                    s_impersonateSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000D69, "InTheirShoes.esp"sv);
+                }
+                if (!s_revertSpell) {
+                    s_revertSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000802, "InTheirShoes.esp"sv);
+                }
+            }
         }
 
         return (a_spell == s_impersonateSpell || a_spell == s_revertSpell);
