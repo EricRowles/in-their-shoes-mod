@@ -7,7 +7,7 @@
 #include "IdleAIManager.h"
 #include "ImpersonationManager.h"
 
-namespace AlternateActors::Serialization {
+namespace InTheirShoes::Serialization {
 
     void Register() {
         auto* serde = SKSE::GetSerializationInterface();
@@ -415,7 +415,7 @@ namespace AlternateActors::Serialization {
         StatManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         ImpersonationManager::GetSingleton().OnRevert();
-        SKSE::log::info("Reverted all AlternateActors saved manager states.");
+        SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
 }

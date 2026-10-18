@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.23)
 
 project(
-    AlternateActorsNG
+    InTheirShoes
     VERSION 1.0.0
     LANGUAGES CXX
 )
@@ -50,6 +50,6 @@ target_precompile_headers(${PROJECT_NAME} PRIVATE
 
 # Configure output directories
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    OUTPUT_NAME "AlternateActorsNG"
+    OUTPUT_NAME "InTheirShoes"
     SUFFIX ".dll"
 )

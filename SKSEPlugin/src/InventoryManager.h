@@ -4,7 +4,7 @@
 #include <vector>
 #include <unordered_set>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     class InventoryManager {
     public:

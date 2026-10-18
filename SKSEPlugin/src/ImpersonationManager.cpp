@@ -26,8 +26,11 @@
 #include <RE/P/PlayerCamera.h>
 #include <RE/B/BSAudioManager.h>
 #include <RE/I/ID.h>
+#include <RE/B/BGSRefAlias.h>
+#include <RE/E/ExtraAliasInstanceArray.h>
+#include <RE/T/TESQuest.h>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     enum class IdentityCondition : std::uint8_t {
         kGetInFaction = 0,
@@ -383,6 +386,27 @@ namespace AlternateActors {
         auto* dial = topicMgr ? topicMgr->lastSelectedDialogue : nullptr;
         bool hasNextResponse = (dial && dial->currentResponse && dial->currentResponse->next);
 
+        auto clearFaceGenPhonemes = [](RE::BSFaceGenAnimationData* faceData) {
+            if (!faceData) return;
+            RE::BSSpinLockGuard locker(faceData->lock);
+            faceData->dialogueData = nullptr;
+            auto zeroKeyframe = [](RE::BSFaceGenKeyframeMultiple& kf) {
+                if (kf.values && kf.count > 0 && kf.count < 128) {
+                    std::memset(kf.values, 0, kf.count * sizeof(float));
+                    kf.isUpdated = true;
+                }
+            };
+            zeroKeyframe(faceData->phoneme1);
+            zeroKeyframe(faceData->phoneme3);
+            zeroKeyframe(faceData->phenomeKeyFrame);
+            zeroKeyframe(faceData->modifier1);
+            zeroKeyframe(faceData->modifier3);
+            zeroKeyframe(faceData->modifierKeyFrame);
+            zeroKeyframe(faceData->expressionKeyFrame);
+            faceData->Reset(0.0f, false, true, false, false);
+            faceData->ClearExpressionOverride();
+        };
+
         if (a_player) {
             // Stop any remaining sound handles on player
             auto* process = a_player->GetActorRuntimeData().currentProcess;
@@ -402,12 +426,7 @@ namespace AlternateActors {
             a_player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kVoiceFileDone);
             a_player->GetActorRuntimeData().voiceTimer = 0.0f;
             _origPlayerSetSpeakingDone(a_player, true);
-            if (auto* faceData = a_player->GetFaceGenAnimationData()) {
-                RE::BSSpinLockGuard locker(faceData->lock);
-                faceData->dialogueData = nullptr;
-                faceData->Reset(0.0f, false, true, false, false);
-                faceData->ClearExpressionOverride();
-            }
+            clearFaceGenPhonemes(a_player->GetFaceGenAnimationData());
             // Clear current emotion and reset face
             a_player->SetEmotionType(RE::EmotionType::kNeutral);
             a_player->SetEmotionValue(0);
@@ -437,12 +456,7 @@ namespace AlternateActors {
             puppet->GetActorRuntimeData().voiceTimer = 0.0f;
             puppet->SetEmotionType(RE::EmotionType::kNeutral);
             puppet->SetEmotionValue(0);
-            if (auto* spkFace = puppet->GetFaceGenAnimationData()) {
-                RE::BSSpinLockGuard locker(spkFace->lock);
-                spkFace->dialogueData = nullptr;
-                spkFace->Reset(0.0f, false, true, false, false);
-                spkFace->ClearExpressionOverride();
-            }
+            clearFaceGenPhonemes(puppet->GetFaceGenAnimationData());
             _origCharSetSpeakingDone(puppet, true);
         }
 
@@ -965,6 +979,15 @@ namespace AlternateActors {
             auto* puppet = GetPuppet();
             bool isPuppet = (puppet && a_speaker == puppet);
 
+            // If MenuTopicManager is active with an external NPC (not puppet, not donor), suppress proxy speech on player!
+            if (topicMgr && topicMgr->speaker &&
+                (!puppet || topicMgr->speaker != puppet->GetHandle()) &&
+                (!donor || topicMgr->speaker != donor->GetHandle())) {
+                SKSE::log::info("HandleProxyDialogueOutput: Suppressing proxy dialogue because external speaker {:08X} is active",
+                    topicMgr->speaker.native_handle());
+                return false;
+            }
+
             bool inTopicWithSpeaker = false;
             if (topicMgr && (isPuppet || isDonor)) {
                 auto spkHandle = a_speaker->GetHandle();
@@ -1189,11 +1212,26 @@ namespace AlternateActors {
 
     bool ImpersonationManager::Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
         if (a_this && a_response != nullptr) {
-            SKSE::log::info("Player {:08X} speaking dialogue line: '{}'",
-                static_cast<std::uint32_t>(a_this->GetFormID()),
-                a_response->text.c_str());
             auto& mgr = ImpersonationManager::GetSingleton();
             if (mgr.IsActive()) {
+                auto* topicMgr = RE::MenuTopicManager::GetSingleton();
+                auto* puppet = mgr.GetPuppet();
+                auto* donor = mgr.GetDonor();
+
+                // If MenuTopicManager is active with an external NPC (speaker != puppet && speaker != donor)
+                // or external NPC is greeting the player, suppress player proxy speech so the player does not
+                // speak their greeting dialogue or speak over the NPC!
+                if (topicMgr && topicMgr->speaker &&
+                    (!puppet || topicMgr->speaker != puppet->GetHandle()) &&
+                    (!donor || topicMgr->speaker != donor->GetHandle())) {
+                    SKSE::log::info("Hook_Player_UpdateInDialogue: Suppressed player proxy speech while external NPC speaker {:08X} is active",
+                        topicMgr->speaker.native_handle());
+                    return _origPlayerUpdateInDialogue(a_this, nullptr, a_unused);
+                }
+
+                SKSE::log::info("Player {:08X} speaking dialogue line: '{}'",
+                    static_cast<std::uint32_t>(a_this->GetFormID()),
+                    a_response->text.c_str());
                 if (a_response->useEmotion) {
                     a_this->SetEmotionType(a_response->animFaceArchType.get());
                     a_this->SetEmotionValue(a_response->percent);
@@ -1387,6 +1425,8 @@ namespace AlternateActors {
                             }
                         }
                     }
+                } else if (a_flag) {
+                    IdleAIManager::GetSingleton().SetInSelfDialogue(false);
                 }
             }
         }
@@ -1574,20 +1614,15 @@ namespace AlternateActors {
 
         auto* dataHandler = RE::TESDataHandler::GetSingleton();
         if (dataHandler) {
-            auto* malePuppet = dataHandler->LookupForm<RE::TESNPC>(0x00000D93, "Alternate Actors NG.esp"sv);
-            auto* femalePuppet = dataHandler->LookupForm<RE::TESNPC>(0x00000D94, "Alternate Actors NG.esp"sv);
-            _puppetBaseMale.store(malePuppet, std::memory_order_release);
-            _puppetBaseFemale.store(femalePuppet, std::memory_order_release);
-            SKSE::log::info("Resolved puppet base forms: male={:08X}, female={:08X}",
-                malePuppet ? malePuppet->GetFormID() : 0,
-                femalePuppet ? femalePuppet->GetFormID() : 0);
+            auto* puppetNPC = dataHandler->LookupForm<RE::TESNPC>(0x00000D93, "InTheirShoes.esp"sv);
+            _puppetBase.store(puppetNPC, std::memory_order_release);
 
-            auto* marker = dataHandler->LookupForm<RE::TESObjectREFR>(0x00000D97, "Alternate Actors NG.esp"sv);
+            auto* marker = dataHandler->LookupForm<RE::TESObjectREFR>(0x00000D97, "InTheirShoes.esp"sv);
             if (marker) {
-                _cloneMarker = marker->GetHandle();
-                SKSE::log::info("Resolved clone marker: {:08X}", marker->GetFormID());
+                _storageMarker = marker->GetHandle();
+                SKSE::log::info("Resolved storage marker: {:08X}", marker->GetFormID());
             } else {
-                SKSE::log::warn("Failed to resolve clone marker 0x00000D97 from Alternate Actors NG.esp!");
+                SKSE::log::warn("Failed to resolve storage marker 0x00000D97 from InTheirShoes.esp!");
             }
         }
     }
@@ -1658,6 +1693,9 @@ namespace AlternateActors {
         // Clear packages from player
         ClearPlayerPackages();
 
+        // Swap donor's quest aliases to player so quest scene dialogue routes to player
+        SwapDonorAliasesToPlayer(a_donor, a_player);
+
         return 1;
     }
 
@@ -1673,6 +1711,9 @@ namespace AlternateActors {
         SKSE::log::info("Ending impersonation of donor {:08X}",
             donor ? static_cast<std::uint32_t>(donor->GetFormID()) : static_cast<std::uint32_t>(_savedDonorFormID)
         );
+
+        // Restore swapped quest aliases back to donor
+        RestoreSwappedAliases(donor);
 
         // Clear packages from player
         ClearPlayerPackages();
@@ -1737,7 +1778,7 @@ namespace AlternateActors {
             base->faceNPC = nullptr;
         }
 
-        // Ensure saved appearance exists before configuring puppet on initial possession
+        // Ensure saved appearance exists before configuring puppet on initial impersonation
         if (!FaceManager::GetSingleton().HasSavedAppearance()) {
             auto* player = RE::PlayerCharacter::GetSingleton();
             if (player) {
@@ -1856,6 +1897,35 @@ namespace AlternateActors {
                 AttachSoundHandlesToHead(player);
             }
             CheckPlayerSpeakingDone();
+        } else {
+            // Keep mouth closed when player is not actively speaking
+            static auto lastPhonemeCheck = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration<float>(now - lastPhonemeCheck).count() > 0.5f) {
+                lastPhonemeCheck = now;
+                if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+                    if (auto* faceData = player->GetFaceGenAnimationData()) {
+                        bool hasOpenMouth = false;
+                        auto checkAndZero = [&hasOpenMouth](RE::BSFaceGenKeyframeMultiple& kf) {
+                            if (kf.values && kf.count > 0 && kf.count < 128) {
+                                for (std::uint32_t i = 0; i < kf.count; ++i) {
+                                    if (kf.values[i] > 0.01f) {
+                                        hasOpenMouth = true;
+                                        kf.values[i] = 0.0f;
+                                    }
+                                }
+                                if (hasOpenMouth) {
+                                    kf.isUpdated = true;
+                                }
+                            }
+                        };
+                        RE::BSSpinLockGuard locker(faceData->lock);
+                        checkAndZero(faceData->phoneme1);
+                        checkAndZero(faceData->phoneme3);
+                        checkAndZero(faceData->phenomeKeyFrame);
+                    }
+                }
+            }
         }
 
         if (FaceManager::GetSingleton().NeedsPuppetPost3DUpdate()) {
@@ -1894,7 +1964,7 @@ namespace AlternateActors {
         // Donor holding-cell leash
         if (_active.load(std::memory_order_acquire)) {
             auto* donor = GetDonor();
-            auto markerHandle = _cloneMarker;
+            auto markerHandle = _storageMarker;
             auto marker = markerHandle.get();
             if (donor && marker) {
                 bool needsLeash = false;
@@ -1983,6 +2053,55 @@ namespace AlternateActors {
         if (playerBase) {
             playerBase->aiPackages.packages.clear();
         }
+    }
+
+    void ImpersonationManager::SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player) {
+        if (!a_donor || !a_player) return;
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        _swappedAliases.clear();
+
+        auto* aliasArray = a_donor->extraList.GetByType<RE::ExtraAliasInstanceArray>();
+        if (!aliasArray) return;
+
+        std::vector<std::pair<RE::TESQuest*, std::uint32_t>> toSwap;
+        {
+            RE::BSReadLockGuard locker(aliasArray->lock);
+            for (auto* inst : aliasArray->aliases) {
+                if (!inst || !inst->quest || !inst->alias) continue;
+                if (!inst->quest->IsRunning()) continue;
+
+                if (AliasManager::GetSingleton().IsModInternalQuest(inst->quest)) continue;
+
+                if (inst->alias->QType() != "Ref"sv) continue;
+                auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
+
+                if (refAlias->GetReference() == a_donor) {
+                    toSwap.emplace_back(inst->quest, refAlias->aliasID);
+                }
+            }
+        }
+
+        for (const auto& [quest, aid] : toSwap) {
+            quest->ForceRefIntoAlias(aid, a_player);
+            _swappedAliases.push_back({ quest, aid });
+            SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player {:08X} in quest {:08X} alias ID {}",
+                a_donor->GetFormID(), a_player->GetFormID(), quest->GetFormID(), aid);
+        }
+    }
+
+    void ImpersonationManager::RestoreSwappedAliases(RE::Actor* a_donor) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (_swappedAliases.empty()) return;
+
+        auto* donor = a_donor ? a_donor : GetDonor();
+        for (const auto& entry : _swappedAliases) {
+            if (entry.quest && donor) {
+                entry.quest->ForceRefIntoAlias(entry.aliasID, donor);
+                SKSE::log::info("RestoreSwappedAliases: Restored donor {:08X} into quest {:08X} alias ID {}",
+                    donor->GetFormID(), entry.quest->GetFormID(), entry.aliasID);
+            }
+        }
+        _swappedAliases.clear();
     }
 
     // --- Co-Save Serialization ---
@@ -2113,6 +2232,7 @@ namespace AlternateActors {
     void ImpersonationManager::OnRevert() {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
         ClearPlayerPackages();
+        _swappedAliases.clear();
         _active.store(false, std::memory_order_release);
         _donorActor.store(nullptr, std::memory_order_release);
         _playerActor.store(nullptr, std::memory_order_release);

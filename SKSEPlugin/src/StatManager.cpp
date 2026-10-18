@@ -1,7 +1,7 @@
 #include "PCH.h"
 #include "StatManager.h"
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     constexpr RE::ActorValue kCoreStatsAndSkills[] = {
         // Attributes

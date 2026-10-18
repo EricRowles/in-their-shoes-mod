@@ -4,7 +4,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     class AliasManager {
     public:
@@ -19,7 +19,7 @@ namespace AlternateActors {
         // sorted by quest priority (highest priority first).
         std::vector<RE::TESPackage*> GetAliasPackages(RE::Actor* a_actor) const;
 
-        // Checks whether a quest is an internal Alternate Actors controller quest
+        // Checks whether a quest is an internal InTheirShoes controller quest
         static bool IsModInternalQuest(RE::TESQuest* a_quest);
 
     private:

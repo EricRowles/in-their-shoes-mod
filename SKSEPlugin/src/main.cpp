@@ -7,7 +7,7 @@
 
 SKSEPluginInfo(
     .Version = { 1, 0, 0, 0 },
-    .Name = "AlternateActorsNG",
+    .Name = "InTheirShoes",
     .Author = "Antigravity",
     .SupportEmail = "",
     .StructCompatibility = SKSE::StructCompatibility::Independent,
@@ -20,7 +20,7 @@ void InitializeLogging() {
         return;
     }
 
-    *path /= "AlternateActorsNG.log"sv;
+    *path /= "InTheirShoes.log"sv;
 
     std::vector<spdlog::sink_ptr> sinks;
     sinks.push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true));
@@ -38,11 +38,11 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
     if (!a_msg) return;
 
     if (a_msg->type == SKSE::MessagingInterface::kInputLoaded) {
-        AlternateActors::IdleAIManager::GetSingleton().Initialize();
+        InTheirShoes::IdleAIManager::GetSingleton().Initialize();
     } else if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-        AlternateActors::ImpersonationManager::GetSingleton().Initialize();
+        InTheirShoes::ImpersonationManager::GetSingleton().Initialize();
     } else if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame) {
-        AlternateActors::ImpersonationManager::GetSingleton().OnPostLoadGame();
+        InTheirShoes::ImpersonationManager::GetSingleton().OnPostLoadGame();
     }
 }
 
@@ -58,7 +58,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse) {
     // Register Papyrus Native functions
     auto* papyrus = SKSE::GetPapyrusInterface();
     if (papyrus) {
-        papyrus->Register(AlternateActors::Papyrus::Register);
+        papyrus->Register(InTheirShoes::Papyrus::Register);
     } else {
         SKSE::log::error("Failed to obtain SKSE Papyrus Interface!");
         return false;
@@ -71,7 +71,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse) {
     }
 
     // Register Co-Save Serialization
-    AlternateActors::Serialization::Register();
+    InTheirShoes::Serialization::Register();
 
     SKSE::log::info("{} loaded successfully.", plugin->GetName());
     return true;

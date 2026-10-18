@@ -13,7 +13,7 @@ namespace RE {
     class TESClass;
 }
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     class IdleAIManager : 
         public RE::BSTEventSink<RE::InputEvent*>,

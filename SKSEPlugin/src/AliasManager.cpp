@@ -1,13 +1,13 @@
 #include "PCH.h"
 #include "AliasManager.h"
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     bool AliasManager::IsModInternalQuest(RE::TESQuest* a_quest) {
         if (!a_quest) return false;
         if (const auto* edid = a_quest->GetFormEditorID()) {
             std::string_view sv(edid);
-            if (sv.starts_with("AKControl") || sv.starts_with("AK_") || sv.starts_with("AlternateActors")) {
+            if (sv.starts_with("ITS_")) {
                 return true;
             }
         }
@@ -18,9 +18,7 @@ namespace AlternateActors {
         if (file) {
             std::string fn(file->GetFilename());
             std::transform(fn.begin(), fn.end(), fn.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (fn.find("alternate actors") != std::string::npos ||
-                fn.find("alternateactors") != std::string::npos ||
-                fn.find("ak_") != std::string::npos) {
+            if (fn.find("its_") != std::string::npos) {
                 return true;
             }
         }

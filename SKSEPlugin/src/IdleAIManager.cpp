@@ -28,7 +28,7 @@
 #include <random>
 #include <cmath>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     void IdleAIManager::Initialize() {
         if (!_initialized) {
@@ -230,6 +230,9 @@ namespace AlternateActors {
                 // NOT during transient Scaleform menu hide events while lines are playing
                 if (isGoodbye || (!isSpeaking && !isGreeting && (!topicMgr || !topicMgr->menuOpen))) {
                     _inSelfDialogue.store(false, std::memory_order_release);
+                    if (isSpeaking) {
+                        ImpersonationManager::GetSingleton().CompleteSpeaking(RE::PlayerCharacter::GetSingleton());
+                    }
                     auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
                     auto* donor = ImpersonationManager::GetSingleton().GetDonor();
                     if (puppet && donor) {
@@ -623,6 +626,12 @@ namespace AlternateActors {
 
         // Skip if in combat
         if (player->IsInCombat()) {
+            return false;
+        }
+
+        // Skip if any dialogue conversation, greeting, or topic is active
+        auto* topicMgr = RE::MenuTopicManager::GetSingleton();
+        if (topicMgr && (topicMgr->isGreetingPlayer || topicMgr->menuOpen || topicMgr->speaker || topicMgr->lastSpeaker || topicMgr->currentTopicInfo || topicMgr->lastSelectedDialogue)) {
             return false;
         }
 

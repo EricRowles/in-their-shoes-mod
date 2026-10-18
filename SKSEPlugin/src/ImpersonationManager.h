@@ -6,7 +6,7 @@
 #include <string>
 #include <cstdint>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     struct ImpersonationOptions {
         bool npcVoice{ true };
@@ -54,13 +54,11 @@ namespace AlternateActors {
         RE::BGSVoiceType* GetOrigPlayerVoiceType() const { return _origPlayerVoiceType.load(std::memory_order_acquire); }
         bool IsPuppetBase(const RE::TESNPC* a_npc) const {
             if (!a_npc) return false;
-            return a_npc == _puppetBaseMale.load(std::memory_order_acquire) ||
-                   a_npc == _puppetBaseFemale.load(std::memory_order_acquire);
+            return a_npc == _puppetBase.load(std::memory_order_acquire);
         }
         bool IsPuppetBase(const RE::TESForm* a_form) const {
             if (!a_form) return false;
-            return a_form == static_cast<const RE::TESForm*>(_puppetBaseMale.load(std::memory_order_acquire)) ||
-                   a_form == static_cast<const RE::TESForm*>(_puppetBaseFemale.load(std::memory_order_acquire));
+            return a_form == static_cast<const RE::TESForm*>(_puppetBase.load(std::memory_order_acquire));
         }
         void SetPuppet(RE::Actor* a_puppet);
         RE::Actor* GetPuppet() const {
@@ -108,9 +106,9 @@ namespace AlternateActors {
         bool HandleProxyDialogueOutput(RE::Actor* a_speaker, RE::DialogueResponse* a_response, bool a_unused);
         void SyncDonorUpdatesToPlayer();
         void ClearPlayerPackages();
-        RE::ObjectRefHandle GetCloneMarker() const {
+        RE::ObjectRefHandle GetStorageMarker() const {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _cloneMarker;
+            return _storageMarker;
         }
         bool PlayIdleDialogueLine(RE::DialogueResponse* a_response, RE::TESTopicInfo* a_info);
         bool TryCreateDialogueSoundHandle(RE::Actor* a_actor, RE::DialogueResponse* a_response);
@@ -178,13 +176,12 @@ namespace AlternateActors {
         RE::FormID _savedDonorFormID{ 0 };
         std::atomic<RE::BGSVoiceType*> _donorVoiceType{ nullptr };
         std::atomic<RE::BGSVoiceType*> _origPlayerVoiceType{ nullptr };
-        std::atomic<RE::TESNPC*> _puppetBaseMale{ nullptr };
-        std::atomic<RE::TESNPC*> _puppetBaseFemale{ nullptr };
+        std::atomic<RE::TESNPC*> _puppetBase{ nullptr };
         std::atomic<bool> _npcVoiceEnabled{ true };
         std::string _donorName;
         std::string _origPlayerName;
         RE::ActorHandle _puppetHandle;
-        RE::ObjectRefHandle _cloneMarker;
+        RE::ObjectRefHandle _storageMarker;
 
         std::atomic<bool> _playerSpeaking{ false };
         std::atomic<bool> _inCompleteSpeaking{ false };
@@ -193,6 +190,14 @@ namespace AlternateActors {
         std::chrono::steady_clock::time_point _speechAudioEndTime{ std::chrono::steady_clock::time_point{} };
         float _speechMinDuration{ 2.0f };
         std::uint32_t _dialogueSoundID{ static_cast<std::uint32_t>(-1) };
+
+        struct SwappedAlias {
+            RE::TESQuest* quest{ nullptr };
+            std::uint32_t aliasID{ 0 };
+        };
+        std::vector<SwappedAlias> _swappedAliases;
+        void SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
+        void RestoreSwappedAliases(RE::Actor* a_donor);
 
         ImpersonationOptions _options;
         std::vector<RetargetedPackageTarget> _retargetedPackages;

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace AlternateActors::Serialization {
+namespace InTheirShoes::Serialization {
 
     inline constexpr std::uint32_t kSerializationVersion = 1;
 

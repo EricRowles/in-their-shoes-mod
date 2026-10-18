@@ -5,7 +5,7 @@
 #include <vector>
 #include "RE/N/NiColor.h"
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     struct FaceSnapshot {
         RE::TESRace* race{ nullptr };

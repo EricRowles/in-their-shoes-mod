@@ -1,5 +1,5 @@
 #pragma once
 
-namespace AlternateActors::Papyrus {
+namespace InTheirShoes::Papyrus {
     bool Register(RE::BSScript::IVirtualMachine* a_vm);
 }

@@ -4,7 +4,7 @@
 #include <vector>
 #include <unordered_map>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     struct StatSnapshot {
         std::unordered_map<std::uint32_t, float> baseValues;

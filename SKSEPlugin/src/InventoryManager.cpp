@@ -4,7 +4,7 @@
 #include <cctype>
 #include <unordered_set>
 
-namespace AlternateActors {
+namespace InTheirShoes {
 
     static bool IsModSystemSpell(RE::SpellItem* a_spell) {
         if (!a_spell) return false;
@@ -16,9 +16,7 @@ namespace AlternateActors {
         if (file) {
             std::string fn(file->GetFilename());
             std::transform(fn.begin(), fn.end(), fn.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (fn.find("alternate actors") != std::string::npos ||
-                fn.find("alternateactors") != std::string::npos ||
-                fn.find("ak_") != std::string::npos) {
+            if (fn.find("its_") != std::string::npos) {
                 return true;
             }
         }

@@ -9,7 +9,7 @@
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
 
-namespace AlternateActors::Papyrus {
+namespace InTheirShoes::Papyrus {
 
     bool CloneAppearance(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_target) {
         return FaceManager::GetSingleton().CloneAppearance(a_donor, a_target);
@@ -29,18 +29,6 @@ namespace AlternateActors::Papyrus {
 
     bool RestoreInventoryFromPlayer(RE::StaticFunctionTag*, RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
         return InventoryManager::GetSingleton().RestoreAndTransferFromPlayer(a_player, a_donor, a_storageFollower);
-    }
-
-    bool TransferFactions(RE::StaticFunctionTag*, RE::Actor*, RE::Actor*) {
-        return true;
-    }
-
-    bool RestoreFactions(RE::StaticFunctionTag*, RE::Actor*) {
-        return true;
-    }
-
-    bool CopyFactions(RE::StaticFunctionTag*, RE::Actor*, RE::Actor*) {
-        return true;
     }
 
     bool TransferStats(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_player) {
@@ -76,10 +64,6 @@ namespace AlternateActors::Papyrus {
 
     void SetIdleAIEnabled(RE::StaticFunctionTag*, bool a_enabled) {
         IdleAIManager::GetSingleton().SetIdleAIEnabled(a_enabled);
-    }
-
-    void SetCombatAIEnabled(RE::StaticFunctionTag*, bool) {
-        // Combat AI subsystem removed per proxy system simplification (requirements_new.md)
     }
 
     void SetIdleAITimeout(RE::StaticFunctionTag*, float a_seconds) {
@@ -162,7 +146,7 @@ namespace AlternateActors::Papyrus {
         ImpersonationManager::GetSingleton().SetPuppet(a_puppet);
     }
 
-    std::int32_t ValidatePossessTarget(RE::StaticFunctionTag*, RE::Actor* a_target) {
+    std::int32_t ValidateImpersonateTarget(RE::StaticFunctionTag*, RE::Actor* a_target) {
         if (!a_target) {
             return 1;
         }
@@ -211,23 +195,19 @@ namespace AlternateActors::Papyrus {
             return false;
         }
 
-        constexpr std::string_view className = "AK_NG";
+        constexpr std::string_view className = "ITS_NG";
 
         a_vm->RegisterFunction("CloneAppearance", className, CloneAppearance);
         a_vm->RegisterFunction("CopyAppearance", className, CopyAppearance);
         a_vm->RegisterFunction("RevertAppearance", className, RevertAppearance);
         a_vm->RegisterFunction("TransferInventoryToPlayer", className, TransferInventoryToPlayer);
         a_vm->RegisterFunction("RestoreInventoryFromPlayer", className, RestoreInventoryFromPlayer);
-        a_vm->RegisterFunction("TransferFactions", className, TransferFactions);
-        a_vm->RegisterFunction("RestoreFactions", className, RestoreFactions);
-        a_vm->RegisterFunction("CopyFactions", className, CopyFactions);
         a_vm->RegisterFunction("TransferStats", className, TransferStats);
         a_vm->RegisterFunction("CopyStats", className, CopyStats);
         a_vm->RegisterFunction("RestoreStats", className, RestoreStats);
         a_vm->RegisterFunction("ApplyDonorProfile", className, ApplyDonorProfile);
         a_vm->RegisterFunction("RestorePlayerProfile", className, RestorePlayerProfile);
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
-        a_vm->RegisterFunction("SetCombatAIEnabled", className, SetCombatAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
         a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("SetControllingNPC", className, SetControllingNPC);
@@ -241,10 +221,10 @@ namespace AlternateActors::Papyrus {
         a_vm->RegisterFunction("SetPuppetFollowsPlayer", className, SetPuppetFollowsPlayer);
         a_vm->RegisterFunction("SetPuppetActor", className, SetPuppetActor);
         a_vm->RegisterFunction("GetOriginalPlayerName", className, GetOriginalPlayerName);
-        a_vm->RegisterFunction("ValidatePossessTarget", className, ValidatePossessTarget);
+        a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
 
 
-        SKSE::log::info("Registered AK_NG Papyrus functions.");
+        SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;
     }
 

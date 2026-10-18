@@ -1,7 +1,6 @@
-Scriptname AKControlMCMScript extends SKI_ConfigBase 
-; This script powers Alternate Actors' MCM Menu using reliable Option-ID handlers
+Scriptname ITS_MCMScript extends SKI_ConfigBase 
 
-AKControlQuestScript property akquest auto
+ITS_QuestScript property ITS_Quest auto
 Actor Property PlayerRef Auto
 
 ; MCM Property Variables
@@ -23,39 +22,37 @@ int _oid_revert
 bool _pendingRevert = false
 
 int function GetVersion()
-	return 7
+	return 1
 endFunction
 
 event OnVersionUpdate(int a_version)
-	ModName = "Alternate Actors NG"
+	ModName = "In Their Shoes"
 	Pages = None
 
 	if IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	endif
 
-	AK_NG.SetIdleAIEnabled(IdleAIEnabled)
-	AK_NG.SetIdleAITimeout(IdleAITimeout)
-	AK_NG.SetIdleChatterTime(IdleChatterTime)
-	AK_NG.SetCombatAIEnabled(CombatAIEnabled)
-	AK_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
-	AK_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
+	ITS_NG.SetIdleAITimeout(IdleAITimeout)
+	ITS_NG.SetIdleChatterTime(IdleChatterTime)
+	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
 endEvent
 
 event OnConfigInit()
-	ModName = "Alternate Actors NG"
+	ModName = "In Their Shoes"
 	Pages = None
 
 	if IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	endif
 
-	AK_NG.SetIdleAIEnabled(IdleAIEnabled)
-	AK_NG.SetIdleAITimeout(IdleAITimeout)
-	AK_NG.SetIdleChatterTime(IdleChatterTime)
-	AK_NG.SetCombatAIEnabled(CombatAIEnabled)
-	AK_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
-	AK_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
+	ITS_NG.SetIdleAITimeout(IdleAITimeout)
+	ITS_NG.SetIdleChatterTime(IdleChatterTime)
+	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
 endEvent
 
 function RefreshConfig()
@@ -68,7 +65,7 @@ event OnPageReset(string page)
 	endif
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
-	AddTextOption("Mod Version", akquest.akmodversion, OPTION_FLAG_DISABLED)
+	AddTextOption("Mod Version", ITS_Quest.ITS_ModVersion, OPTION_FLAG_DISABLED)
 	AddTextOption("Status", "Config Active", OPTION_FLAG_DISABLED)
 	AddEmptyOption()
 
@@ -89,7 +86,7 @@ event OnPageReset(string page)
 	_oid_puppetFollows = AddToggleOption("Puppet Follows Player", PuppetFollowsPlayer)
 	AddEmptyOption()
 
-	If akquest.Alias_OriginalDonor.GetActorReference()
+	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
 	Else
 		_oid_revert = AddTextOption("Return to Body", "Already in Body", OPTION_FLAG_DISABLED)
@@ -100,21 +97,20 @@ event OnOptionSelect(int option)
 	if option == _oid_idleAI
 		IdleAIEnabled = !IdleAIEnabled
 		SetToggleOptionValue(_oid_idleAI, IdleAIEnabled)
-		AK_NG.SetIdleAIEnabled(IdleAIEnabled)
+		ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
 	elseif option == _oid_combatAI
 		CombatAIEnabled = !CombatAIEnabled
 		SetToggleOptionValue(_oid_combatAI, CombatAIEnabled)
-		AK_NG.SetCombatAIEnabled(CombatAIEnabled)
 	elseif option == _oid_npcVoice
 		NPCVoiceEnabled = !NPCVoiceEnabled
 		SetToggleOptionValue(_oid_npcVoice, NPCVoiceEnabled)
-		AK_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+		ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
 	elseif option == _oid_puppetFollows
 		PuppetFollowsPlayer = !PuppetFollowsPlayer
 		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
-		AK_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+		ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
 	elseif option == _oid_revert
-		if akquest.Alias_OriginalDonor.GetActorReference()
+		if ITS_Quest.Alias_OriginalDonor.GetActorReference()
 			Debug.Notification("Close the menu to return to your body.")
 			_pendingRevert = true
 			SetTextOptionValue(_oid_revert, "Pending Menu Close...")
@@ -130,8 +126,8 @@ event OnConfigClose()
 endEvent
 
 event OnUpdate()
-	if akquest.Alias_OriginalDonor.GetActorReference()
-		akquest.akrevert(PlayerRef)
+	if ITS_Quest.Alias_OriginalDonor.GetActorReference()
+		ITS_Quest.ITS_Revert(PlayerRef)
 	endif
 endEvent
 
@@ -156,11 +152,11 @@ event OnOptionSliderAccept(int option, float value)
 	if option == _oid_idleTimeout
 		IdleAITimeout = value
 		SetSliderOptionValue(_oid_idleTimeout, IdleAITimeout, "{1} s")
-		AK_NG.SetIdleAITimeout(IdleAITimeout)
+		ITS_NG.SetIdleAITimeout(IdleAITimeout)
 	elseif option == _oid_idleChatterTime
 		IdleChatterTime = value
 		SetSliderOptionValue(_oid_idleChatterTime, IdleChatterTime, "{0} s")
-		AK_NG.SetIdleChatterTime(IdleChatterTime)
+		ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	endif
 endEvent
 
@@ -172,7 +168,7 @@ event OnOptionHighlight(int option)
 	elseif option == _oid_combatAI
 		SetInfoText("Enables autonomous combat AI (attacking, blocking, distance closing) while idle in combat.")
 	elseif option == _oid_npcVoice
-		SetInfoText("Enables donor NPC voice comments and voice identity on the player while possessed.")
+		SetInfoText("Enables donor NPC voice comments and voice identity on the player while impersonating.")
 	elseif option == _oid_idleChatterTime
 		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
 	elseif option == _oid_puppetFollows
