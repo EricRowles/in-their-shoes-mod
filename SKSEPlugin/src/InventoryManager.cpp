@@ -8,19 +8,16 @@ namespace InTheirShoes {
 
     static bool IsModSystemSpell(RE::SpellItem* a_spell) {
         if (!a_spell) return false;
-        
-        auto* file = a_spell->GetDescriptionOwnerFile();
-        if (!file) {
-            file = a_spell->GetFile(0);
+
+        static RE::SpellItem* s_impersonateSpell = nullptr;
+        static RE::SpellItem* s_revertSpell = nullptr;
+
+        if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
+            s_impersonateSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000D69, "InTheirShoes.esp"sv);
+            s_revertSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000802, "InTheirShoes.esp"sv);
         }
-        if (file) {
-            std::string fn(file->GetFilename());
-            std::transform(fn.begin(), fn.end(), fn.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (fn.find("its_") != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
+
+        return (a_spell == s_impersonateSpell || a_spell == s_revertSpell);
     }
 
     static bool IsCastableSpell(RE::SpellItem* a_spell) {

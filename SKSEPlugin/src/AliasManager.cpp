@@ -5,24 +5,14 @@ namespace InTheirShoes {
 
     bool AliasManager::IsModInternalQuest(RE::TESQuest* a_quest) {
         if (!a_quest) return false;
-        if (const auto* edid = a_quest->GetFormEditorID()) {
-            std::string_view sv(edid);
-            if (sv.starts_with("ITS_")) {
-                return true;
-            }
+
+        static RE::TESQuest* s_modQuest = nullptr;
+
+        if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
+            // We only have the one quest in this mod...
+            s_modQuest = dataHandler->LookupForm<RE::TESQuest>(0x00000D92, "InTheirShoes.esp"sv);
         }
-        auto* file = a_quest->GetDescriptionOwnerFile();
-        if (!file) {
-            file = a_quest->GetFile(0);
-        }
-        if (file) {
-            std::string fn(file->GetFilename());
-            std::transform(fn.begin(), fn.end(), fn.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (fn.find("its_") != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
+        return a_quest == s_modQuest;
     }
 
     std::vector<RE::TESPackage*> AliasManager::GetAliasPackages(RE::Actor* a_actor) const {
