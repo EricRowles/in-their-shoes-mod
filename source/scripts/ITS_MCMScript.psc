@@ -75,7 +75,7 @@ event OnPageReset(string page)
 	AddHeaderOption("Autonomous AI")
 	_oid_idleAI = AddToggleOption("Idle AI Pathing", IdleAIEnabled)
 	_oid_idleTimeout = AddSliderOption("Idle AI Delay", IdleAITimeout, "{1} s")
-	_oid_combatAI = AddToggleOption("Autonomous Combat AI", CombatAIEnabled)
+	_oid_combatAI = AddToggleOption("Autonomous Combat AI", CombatAIEnabled, OPTION_FLAG_HIDDEN)
 
 	; Right Column: Puppet & Voice Settings
 	SetCursorPosition(5)

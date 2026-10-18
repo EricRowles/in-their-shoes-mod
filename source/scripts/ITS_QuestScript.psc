@@ -173,7 +173,7 @@ function ITS_Revert(actor a_player)
 		a_player.StopCombat()
 
 		if OriginalDonorRef
-			OriginalDonorRef.moveto(a_player)
+			OriginalDonorRef.moveto(ITS_TempMarker)
 			OriginalDonorRef.StopCombat()
 		EndIf
 		a_player.RemoveSpell(ITS_RevertSpell)

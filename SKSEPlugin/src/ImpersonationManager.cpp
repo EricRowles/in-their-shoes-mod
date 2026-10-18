@@ -1617,12 +1617,12 @@ namespace InTheirShoes {
             auto* puppetNPC = dataHandler->LookupForm<RE::TESNPC>(0x00000D93, "InTheirShoes.esp"sv);
             _puppetBase.store(puppetNPC, std::memory_order_release);
 
-            auto* marker = dataHandler->LookupForm<RE::TESObjectREFR>(0x00000D97, "InTheirShoes.esp"sv);
+            auto* marker = dataHandler->LookupForm<RE::TESObjectREFR>(0x00000807, "InTheirShoes.esp"sv);
             if (marker) {
                 _storageMarker = marker->GetHandle();
                 SKSE::log::info("Resolved storage marker: {:08X}", marker->GetFormID());
             } else {
-                SKSE::log::warn("Failed to resolve storage marker 0x00000D97 from InTheirShoes.esp!");
+                SKSE::log::warn("Failed to resolve storage marker 0x00000807 from InTheirShoes.esp!");
             }
         }
     }
