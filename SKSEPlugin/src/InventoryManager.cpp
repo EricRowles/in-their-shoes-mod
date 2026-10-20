@@ -35,6 +35,20 @@ namespace InTheirShoes {
                 spellType == RE::MagicSystem::SpellType::kVoicePower);
     }
 
+    static bool SafeIsQuestObject(const RE::InventoryEntryData* a_entryData) {
+        if (!a_entryData) return false;
+        __try {
+            return a_entryData->IsQuestObject();
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
+    static bool IsQuestItem(RE::TESBoundObject* a_boundObj, const RE::InventoryEntryData* a_entryData) {
+        if (!a_boundObj) return false;
+        return SafeIsQuestObject(a_entryData);
+    }
+
     bool InventoryManager::StashPlayerDynamicSpells(RE::Actor* a_player) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (!a_player) return false;
@@ -155,15 +169,27 @@ namespace InTheirShoes {
         RE::SpellItem* rightSpell = nullptr;
         RE::TESShout* shout = nullptr;
 
-        // 1. Clear the target's non-quest inventory
+        // 1. Clear the target's non-quest inventory in two passes:
+        // Pass 1: Identify non-quest items to remove BEFORE any RemoveItem calls mutate inventory extra lists
+        struct ItemRecord {
+            RE::TESBoundObject* object{ nullptr };
+            std::int32_t count{ 0 };
+        };
+        std::vector<ItemRecord> itemsToRemove;
+
         auto toInv = a_toActor->GetInventory();
         for (const auto& [boundObj, entryPair] : toInv) {
             std::int32_t count = entryPair.first;
             const auto& entryData = entryPair.second;
 
             if (!boundObj || count <= 0) continue;
-            if (entryData && entryData->IsQuestObject()) continue;
-            a_toActor->RemoveItem(boundObj, count, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+            if (IsQuestItem(boundObj, entryData.get())) continue;
+            itemsToRemove.push_back({ boundObj, count });
+        }
+
+        // Pass 2: Remove items without touching stale or invalidated InventoryEntryData pointers
+        for (const auto& entry : itemsToRemove) {
+            a_toActor->RemoveItem(entry.object, entry.count, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
         }
 
         // 2. Get equipped spells
@@ -210,14 +236,15 @@ namespace InTheirShoes {
             }
         }
 
-        // 4. Transfer items
-        std::int32_t itemsTransferred = 0;
+        // 4. Transfer items in two passes:
+        // Pass 1: Identify items to transfer and update quest tracking BEFORE any RemoveItem calls
+        std::vector<ItemRecord> itemsToTransfer;
         for (const auto& [boundObj, entryPair] : fromInv) {
             std::int32_t count = entryPair.first;
             const auto& entryData = entryPair.second;
             if (!boundObj || count <= 0) continue;
 
-            bool isQuest = entryData && entryData->IsQuestObject();
+            bool isQuest = IsQuestItem(boundObj, entryData.get());
             if (isQuest) {
                 if (a_fromActor->IsPlayerRef() && !a_toActor->IsPlayerRef()) {
                     // Player to follower or donor:
@@ -232,7 +259,13 @@ namespace InTheirShoes {
                 }
             }
 
-            a_fromActor->RemoveItem(boundObj, count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
+            itemsToTransfer.push_back({ boundObj, count });
+        }
+
+        // Pass 2: Transfer items without touching stale or invalidated InventoryEntryData pointers
+        std::int32_t itemsTransferred = 0;
+        for (const auto& entry : itemsToTransfer) {
+            a_fromActor->RemoveItem(entry.object, entry.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
             itemsTransferred++;
         }
 
