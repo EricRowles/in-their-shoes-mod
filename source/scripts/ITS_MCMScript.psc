@@ -5,7 +5,7 @@ Actor Property PlayerRef Auto
 
 ; MCM Property Variables
 bool Property IdleAIEnabled = True Auto
-Float Property IdleAITimeout = 5.0 Auto
+Float Property IdleAITimeout = 10.0 Auto
 Float Property IdleChatterTime = 60.0 Auto
 bool Property CombatAIEnabled = True Auto
 bool Property NPCVoiceEnabled = True Auto
@@ -144,7 +144,7 @@ event OnOptionSliderOpen(int option)
 		SetSliderDialogStartValue(IdleChatterTime)
 		SetSliderDialogDefaultValue(60.0)
 		SetSliderDialogRange(10.0, 600.0)
-		SetSliderDialogInterval(5.0)
+		SetSliderDialogInterval(10.0)
 	endif
 endEvent
 
