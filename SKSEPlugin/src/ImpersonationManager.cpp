@@ -1442,13 +1442,9 @@ namespace InTheirShoes {
     }
 
     RE::BGSLocation* ImpersonationManager::Hook_Player_GetEditorLocation1(const RE::TESObjectREFR* a_this) {
-        if (a_this) {
-            auto& mgr = ImpersonationManager::GetSingleton();
-            if (mgr.IsActive()) {
-                auto* donor = mgr.GetDonor();
-                if (donor) {
-                    return donor->GetEditorLocation1();
-                }
+        if (a_this && ImpersonationManager::GetSingleton().IsActive()) {
+            if (auto* loc = a_this->GetCurrentLocation()) {
+                return loc;
             }
         }
         return _origPlayerGetEditorLocation1(a_this);
@@ -1461,14 +1457,13 @@ namespace InTheirShoes {
         RE::TESForm*& a_outWorldOrCell,
         RE::TESObjectCELL* a_fallback)
     {
-        if (a_this) {
-            auto& mgr = ImpersonationManager::GetSingleton();
-            if (mgr.IsActive()) {
-                auto* donor = mgr.GetDonor();
-                if (donor) {
-                    return donor->GetEditorLocation2(a_outPos, a_outRot, a_outWorldOrCell, a_fallback);
-                }
-            }
+        if (a_this && ImpersonationManager::GetSingleton().IsActive()) {
+            a_outPos = a_this->GetPosition();
+            a_outRot = a_this->GetAngle();
+            auto* cell = a_this->GetParentCell();
+            auto* world = a_this->GetWorldspace();
+            a_outWorldOrCell = world ? static_cast<RE::TESForm*>(world) : static_cast<RE::TESForm*>(cell);
+            return true;
         }
         return _origPlayerGetEditorLocation2(a_this, a_outPos, a_outRot, a_outWorldOrCell, a_fallback);
     }
@@ -1519,6 +1514,8 @@ namespace InTheirShoes {
         if (_hooksInstalled) return;
 
         // Hook TESQuest::ForceRefIntoAlias (RELOCATION_ID(24523, 25052)) via context hook
+        // POSSIBLY UNSAFE: A 5-byte context hook cuts into 'sub rsp, 20h' (total 6 bytes at 0x3CDEE0 in AE 1.6.1170),
+        // corrupting the instruction stream and causing severe stack corruption on every call to ForceRefIntoAlias.
         auto forceRefAddr = REL::RelocationID(24523, 25052).address();
         if (SKSE::stl::install_context_hook(forceRefAddr, 5, &Hook_ForceRefIntoAlias, -5)) {
             SKSE::log::info("Installed TESQuest::ForceRefIntoAlias context hook at {:016X}", forceRefAddr);
@@ -2002,7 +1999,7 @@ namespace InTheirShoes {
                     }
                     if (needsTeleport) {
                         puppet->MoveTo(player);
-                        puppet->EvaluatePackage(true, true);
+                        puppet->EvaluatePackage(false, false);
                         SKSE::log::info("Tick: Teleported puppet {:08X} to player to keep up.",
                             puppet->GetFormID());
                     }

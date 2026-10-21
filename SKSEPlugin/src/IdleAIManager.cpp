@@ -318,6 +318,16 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || player->IsInCombat()) return;
 
+        auto* ui = RE::UI::GetSingleton();
+        if (ui && (ui->GameIsPaused() || ui->IsModalMenuOpen() || ui->IsItemMenuOpen() ||
+            ui->IsApplicationMenuOpen() || ui->IsMenuOpen("Dialogue Menu"sv) || ui->IsMenuOpen("Console"sv) ||
+            ui->IsMenuOpen("Loading Menu"sv) || ui->IsMenuOpen("Crafting Menu"sv) || ui->IsMenuOpen("RaceSex Menu"sv) ||
+            ui->IsMenuOpen("Barter Menu"sv) || ui->IsMenuOpen("Container Menu"sv) || ui->IsMenuOpen("Journal Menu"sv) ||
+            ui->IsMenuOpen("MapMenu"sv) || ui->IsMenuOpen("StatsMenu"sv) || ui->IsMenuOpen("InventoryMenu"sv) ||
+            ui->IsMenuOpen("MagicMenu"sv) || ui->IsMenuOpen("TweenMenu"sv))) {
+            return;
+        }
+
         auto* pc = RE::PlayerControls::GetSingleton();
         if (pc) {
             _savedUserRunning = pc->data.running;
