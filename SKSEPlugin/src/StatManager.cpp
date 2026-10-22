@@ -90,40 +90,4 @@ namespace InTheirShoes {
         return ApplySnapshot(a_toActor, snapshot);
     }
 
-    bool StatManager::TransferStatsToPlayer(RE::Actor* a_player, RE::Actor* a_donor) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player || !a_donor) {
-            SKSE::log::warn("TransferStatsToPlayer called with null actor pointers.");
-            return false;
-        }
-
-        // Save player's original stats if not already saved
-        if (!_hasSavedStats) {
-            if (CaptureSnapshot(a_player, _savedPlayerStats)) {
-                _hasSavedStats = true;
-                SKSE::log::info("Saved original stats of player actor {:08X} before transfer.",
-                    static_cast<std::uint32_t>(a_player->GetFormID()));
-            }
-        }
-
-        return CopyStats(a_donor, a_player);
-    }
-
-    bool StatManager::RestoreStatsFromPlayer(RE::Actor* a_player) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
-
-        if (!_hasSavedStats) {
-            SKSE::log::warn("RestoreStatsFromPlayer called with no saved stats.");
-            return false;
-        }
-
-        bool result = ApplySnapshot(a_player, _savedPlayerStats);
-        if (result) {
-            _hasSavedStats = false;
-            SKSE::log::info("Restored original player stats successfully.");
-        }
-        return result;
-    }
-
 }

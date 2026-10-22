@@ -43,15 +43,9 @@ function ITS_Maintenance()
 		PlayerRef.RemoveSpell(ITS_RevertSpell)
 	EndIf
 
-	; Synchronize SKSE Native settings from MCM properties on game load
+	; Synchronize SKSE Native settings from MCM properties on game load.
+	; The impersonation session itself (donor, puppet) is restored natively from the co-save.
 	ITS_MCM.PushConfig()
-
-	If OriginalDonorRef
-		PlayerPuppetRef = Alias_PlayerPuppet.GetActorReference()
-		If PlayerPuppetRef
-			ITS_NG.SetPuppetActor(PlayerPuppetRef)
-		EndIf
-	EndIf
 EndFunction
 
 ; Morph Complete Function -----------------------------------------------------------------------------------
@@ -91,43 +85,30 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 	; Ensure puppet alias is filled and vanilla activation is blocked
 	Actor currentPuppet = Alias_PlayerPuppet.GetActorReference()
 	If !currentPuppet
-		currentPuppet = ITS_TempPlayer
-		Alias_PlayerPuppet.ForceRefTo(currentPuppet)
+		Alias_PlayerPuppet.ForceRefTo(ITS_TempPlayer)
 		currentPuppet = Alias_PlayerPuppet.GetActorReference()
 	EndIf
 	PlayerPuppetRef = currentPuppet
 	PlayerPuppetRef.BlockActivation(True)
 
-	; Handle donor-to-donor switch vs initial Dragonborn-to-donor impersonation
-	OriginalDonorRef = Alias_OriginalDonor.GetActorReference()
-	If OriginalDonorRef
-		ITS_NG.EndImpersonation()
-		OriginalDonorRef.moveto(a_donor)
-		OriginalDonorRef.StopCombat()
-		Utility.Wait(0.1)
-		ITS_NG.RestoreInventoryFromPlayer(PlayerRef, OriginalDonorRef, None)
-		ITS_NG.CopyStats(PlayerRef, OriginalDonorRef)
-		OriginalDonorRef.EvaluatePackage()
-		ITS_NG.ApplyDonorProfile(a_donor, PlayerRef, None)
-	Else
-		; Move puppet into the loaded cell before morphing so its 3D is attached
+	; On the first impersonation, move the puppet into the loaded cell so its 3D is attached before morphing.
+	; On a donor-to-donor switch the puppet stays where it is and the old donor takes the new donor's place.
+	If !Alias_OriginalDonor.GetActorReference()
 		PlayerPuppetRef.moveto(a_donor)
 		Utility.Wait(0.1)
-		ITS_NG.ApplyDonorProfile(a_donor, PlayerRef, PlayerPuppetRef)
 	EndIf
-	
-	Alias_OriginalDonor.ForceRefTo(a_donor)
-	a_donor.moveto(ITS_StorageMarker)
-	
-	If !PlayerRef.HasSpell(ITS_RevertSpell)
-		PlayerRef.addspell(ITS_RevertSpell, False)
-	EndIf 
-	
-	ITS_NG.BeginImpersonation(a_donor, PlayerRef)
+
+	If ITS_NG.Impersonate(a_donor, PlayerPuppetRef)
+		Alias_OriginalDonor.ForceRefTo(a_donor)
+		If !PlayerRef.HasSpell(ITS_RevertSpell)
+			PlayerRef.addspell(ITS_RevertSpell, False)
+		EndIf
+		Debug.Notification("Control Swapped")
+	Else
+		Debug.Notification("Impersonation failed.")
+	EndIf
 
 	Game.FadeOutGame(false, true, 0.0, 0.4)
-
-	Debug.Notification("Control Swapped")
 EndFunction
 
 ; Revert Function -----------------------------------------------------------------------------------
@@ -138,21 +119,18 @@ function ITS_Revert(actor a_player)
 
 		Game.FadeOutGame(true, true, 0.0, 0.3)
 
-		ITS_NG.EndImpersonation()
-		
+		; Restore state first so the native donor leash is off before anyone moves
 		ITS_TempMarker.MoveTo(a_player)
-		a_player.moveto(PlayerPuppetRef)
-		
-		a_player.StopCombat()
+		ITS_NG.Revert()
+		a_player.RemoveSpell(ITS_RevertSpell)
 
+		; The player returns to the puppet's spot and the donor takes the player's old spot
+		a_player.moveto(PlayerPuppetRef)
+		a_player.StopCombat()
 		OriginalDonorRef.moveto(ITS_TempMarker)
 		OriginalDonorRef.StopCombat()
-		a_player.RemoveSpell(ITS_RevertSpell)
-		
-		ITS_NG.RestorePlayerProfile(PlayerRef, OriginalDonorRef, PlayerPuppetRef)
 
 		PlayerPuppetRef.BlockActivation(False)
-		ITS_NG.SetPuppetActor(None)
 		PlayerPuppetRef.moveto(ITS_StorageMarker)
 		ITS_TempMarker.moveto(ITS_StorageMarker)
 		Alias_OriginalDonor.Clear()

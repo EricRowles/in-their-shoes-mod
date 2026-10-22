@@ -231,8 +231,7 @@ namespace InTheirShoes {
         return true;
     }
 
-    bool FaceManager::ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
+    bool FaceManager::ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D, bool a_asPuppet) {
         if (!a_targetActor) return false;
 
         auto* base = a_targetActor->GetActorBase();
@@ -247,9 +246,7 @@ namespace InTheirShoes {
             targetNPC->originalRace = a_snapshot.race;
         }
 
-        auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
-        bool isPuppet = (puppet && a_targetActor == puppet) || ImpersonationManager::GetSingleton().IsPuppetBase(base);
-        if (!isPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != 0x07) {
+        if (!a_asPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != 0x07) {
             targetNPC->faceNPC = a_snapshot.faceNPC;
         } else {
             targetNPC->faceNPC = nullptr;
@@ -273,7 +270,7 @@ namespace InTheirShoes {
             targetNPC->actorData.actorBaseFlags.reset(RE::ACTOR_BASE_DATA::Flag::kFemale);
         }
 
-        if (isPuppet) {
+        if (a_asPuppet) {
             targetNPC->voiceType = nullptr;
         } else {
             targetNPC->voiceType = a_snapshot.voiceType;
@@ -391,8 +388,6 @@ namespace InTheirShoes {
         }
 
         if (a_update3D) {
-            a_targetActor->UpdateHairColor();
-            a_targetActor->UpdateSkinColor();
             a_targetActor->DoReset3D(true);
             a_targetActor->Update3DModel();
             a_targetActor->UpdateHairColor();
@@ -418,24 +413,7 @@ namespace InTheirShoes {
         return true;
     }
 
-    bool FaceManager::SaveBaselineAppearance(RE::Actor* a_player) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
-        if (_hasSavedAppearance) return true;
-
-        if (CaptureSnapshot(a_player, _savedOriginalAppearance)) {
-            _savedOriginalAppearance.faceNPC = nullptr;
-            _hasSavedAppearance = true;
-            RefreshOriginalVoice();
-            SKSE::log::info("Saved original baseline appearance of player {:08X}.",
-                static_cast<std::uint32_t>(a_player->GetFormID()));
-            return true;
-        }
-        return false;
-    }
-
     bool FaceManager::CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (!a_donor || !a_target) {
             SKSE::log::warn("CopyAppearance called with null actor pointers.");
             return false;
@@ -449,61 +427,6 @@ namespace InTheirShoes {
         }
 
         return ApplySnapshot(a_target, donorSnapshot);
-    }
-
-    bool FaceManager::CloneAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_donor || !a_target) {
-            SKSE::log::warn("CloneAppearance called with null actor pointers.");
-            return false;
-        }
-
-        SaveBaselineAppearance(a_target);
-        return CopyAppearance(a_donor, a_target);
-    }
-
-    bool FaceManager::RevertAppearance(RE::Actor* a_target, bool a_update3D) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_target) return false;
-
-        if (!_hasSavedAppearance) {
-            SKSE::log::warn("RevertAppearance called, but no original appearance was saved.");
-            return false;
-        }
-
-        bool result = ApplySnapshot(a_target, _savedOriginalAppearance, a_update3D);
-        if (result) {
-            _hasSavedAppearance = false;
-            RefreshOriginalVoice();
-            SKSE::log::info("Successfully reverted appearance of actor {:08X} to original (update3D={}).",
-                static_cast<std::uint32_t>(a_target->GetFormID()),
-                a_update3D);
-        }
-        return result;
-    }
-
-    bool FaceManager::RestoreDonorAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_donor || !a_target) return false;
-
-        SKSE::log::info("Restoring donor appearance from donor actor {:08X} onto actor {:08X}",
-            static_cast<std::uint32_t>(a_donor->GetFormID()),
-            static_cast<std::uint32_t>(a_target->GetFormID()));
-        return CopyAppearance(a_donor, a_target);
-    }
-
-    bool FaceManager::RestoreOriginalPuppetAppearance(RE::Actor* a_puppet) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_puppet) return false;
-
-        if (!_hasSavedAppearance) {
-            SKSE::log::warn("RestoreOriginalPuppetAppearance called, but no original appearance was saved.");
-            return false;
-        }
-
-        SKSE::log::info("Restoring original Dragonborn appearance onto puppet actor {:08X}",
-            static_cast<std::uint32_t>(a_puppet->GetFormID()));
-        return ApplySnapshot(a_puppet, _savedOriginalAppearance);
     }
 
 }

@@ -4,12 +4,11 @@
 
 namespace InTheirShoes::Serialization {
 
-    inline constexpr std::uint32_t kSerializationVersion = 3;
+    // v4: the Dragonborn's face/stats/spells are one BASE record; the session is one SESS record
+    inline constexpr std::uint32_t kSerializationVersion = 4;
 
-    inline constexpr std::uint32_t kFaceDataRecord = 'FACE';
-    inline constexpr std::uint32_t kInventoryDataRecord = 'INVN';
-    inline constexpr std::uint32_t kStatDataRecord = 'STAT';
-    inline constexpr std::uint32_t kImpersonationDataRecord = 'IMPR';
+    inline constexpr std::uint32_t kBaselineRecord = 'BASE';
+    inline constexpr std::uint32_t kSessionRecord = 'SESS';
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);

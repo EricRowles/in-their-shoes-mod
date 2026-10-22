@@ -1,7 +1,5 @@
 #pragma once
 
-#include <mutex>
-#include <vector>
 #include <unordered_map>
 
 namespace InTheirShoes {
@@ -10,6 +8,8 @@ namespace InTheirShoes {
         std::unordered_map<std::uint32_t, float> baseValues;
     };
 
+    // Stateless helpers for copying base attributes and skills between actors.
+    // The Dragonborn's original stats live in ImpersonationManager's Baseline.
     class StatManager {
     public:
         static StatManager& GetSingleton() {
@@ -17,48 +17,15 @@ namespace InTheirShoes {
             return instance;
         }
 
-        // Copies all stats and skills from donor to player, saving player's original stats
-        bool TransferStatsToPlayer(RE::Actor* a_player, RE::Actor* a_donor);
-
-        // Copies stats and skills from one actor to another without modifying saved player history
-        bool CopyStats(RE::Actor* a_fromActor, RE::Actor* a_toActor);
-
-        // Restores player's original stats and skills
-        bool RestoreStatsFromPlayer(RE::Actor* a_player);
-
-        // Helpers
         bool CaptureSnapshot(RE::Actor* a_actor, StatSnapshot& a_outSnapshot);
         bool ApplySnapshot(RE::Actor* a_targetActor, const StatSnapshot& a_snapshot);
-
-        void Clear() {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _savedPlayerStats.baseValues.clear();
-            _hasSavedStats = false;
-        }
-
-        bool HasSavedStats() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _hasSavedStats;
-        }
-        StatSnapshot GetSavedPlayerStats() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _savedPlayerStats;
-        }
-        void SetSavedPlayerStats(const StatSnapshot& a_snapshot) {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _savedPlayerStats = a_snapshot;
-            _hasSavedStats = true;
-        }
+        bool CopyStats(RE::Actor* a_fromActor, RE::Actor* a_toActor);
 
     private:
         StatManager() = default;
         ~StatManager() = default;
         StatManager(const StatManager&) = delete;
         StatManager& operator=(const StatManager&) = delete;
-
-        mutable std::recursive_mutex _mutex;
-        StatSnapshot _savedPlayerStats;
-        bool _hasSavedStats{ false };
     };
 
 }

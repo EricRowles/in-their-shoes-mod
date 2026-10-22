@@ -2,6 +2,7 @@ Scriptname ITS_MCMScript extends SKI_ConfigBase
 
 ITS_QuestScript property ITS_Quest auto
 Actor Property PlayerRef Auto
+GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the PlayerPuppet alias
 
 ; MCM Property Variables
 bool Property IdleAIEnabled = True Auto
@@ -36,6 +37,17 @@ function PushConfig()
 	ITS_NG.SetIdleAITimeout(IdleAITimeout)
 	ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ApplyPuppetFollows()
+endFunction
+
+function ApplyPuppetFollows()
+	if ITS_PuppetFollows
+		if PuppetFollowsPlayer
+			ITS_PuppetFollows.SetValue(1.0)
+		else
+			ITS_PuppetFollows.SetValue(0.0)
+		endif
+	endif
 	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
 endFunction
 
@@ -104,7 +116,7 @@ event OnOptionSelect(int option)
 	elseif option == _oid_puppetFollows
 		PuppetFollowsPlayer = !PuppetFollowsPlayer
 		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
-		ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+		ApplyPuppetFollows()
 	elseif option == _oid_revert
 		if ITS_Quest.Alias_OriginalDonor.GetActorReference()
 			Debug.Notification("Close the menu to return to your body.")

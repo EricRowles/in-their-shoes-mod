@@ -1,8 +1,6 @@
 #include "PCH.h"
 #include "Serialization.h"
 #include "FaceManager.h"
-#include "InventoryManager.h"
-#include "StatManager.h"
 #include "IdleAIManager.h"
 #include "DialogueManager.h"
 #include "ImpersonationManager.h"
@@ -23,11 +21,21 @@ namespace InTheirShoes::Serialization {
         SKSE::log::info("Registered SKSE Co-Save Serialization callbacks for ALTA.");
     }
 
-    static void WriteFaceSnapshotRecord(SKSE::SerializationInterface* a_serde, std::uint32_t a_recordType, const FaceSnapshot& a_face) {
-        if (!a_serde->OpenRecord(a_recordType, kSerializationVersion)) {
-            return;
-        }
+    static void WriteFormID(SKSE::SerializationInterface* a_serde, const RE::TESForm* a_form) {
+        RE::FormID id = a_form ? a_form->GetFormID() : 0;
+        a_serde->WriteRecordData(&id, sizeof(id));
+    }
 
+    template <class T>
+    static T* ReadForm(SKSE::SerializationInterface* a_serde) {
+        RE::FormID id = 0;
+        if (!a_serde->ReadRecordData(&id, sizeof(id)) || id == 0 || !a_serde->ResolveFormID(id, id)) {
+            return nullptr;
+        }
+        return RE::TESForm::LookupByID<T>(id);
+    }
+
+    static void WriteFaceSnapshot(SKSE::SerializationInterface* a_serde, const FaceSnapshot& a_face) {
         RE::FormID raceID = a_face.race ? a_face.race->GetFormID() : 0;
         RE::FormID faceNPCID = (a_face.faceNPC && a_face.faceNPC->GetFormID() != 0x07) ? a_face.faceNPC->GetFormID() : 0;
         RE::FormID hairColorID = a_face.hairColor ? a_face.hairColor->GetFormID() : 0;
@@ -86,72 +94,44 @@ namespace InTheirShoes::Serialization {
         a_serde->WriteRecordData(&faceDetailsID, sizeof(faceDetailsID));
     }
 
+    static void WriteBaseline(SKSE::SerializationInterface* a_serde, const Baseline& a_baseline) {
+        if (!a_serde->OpenRecord(kBaselineRecord, kSerializationVersion)) {
+            return;
+        }
+
+        WriteFaceSnapshot(a_serde, a_baseline.face);
+
+        std::uint32_t statCount = static_cast<std::uint32_t>(a_baseline.stats.baseValues.size());
+        a_serde->WriteRecordData(&statCount, sizeof(statCount));
+        for (const auto& [av, val] : a_baseline.stats.baseValues) {
+            a_serde->WriteRecordData(&av, sizeof(av));
+            a_serde->WriteRecordData(&val, sizeof(val));
+        }
+
+        const auto& spells = a_baseline.spells;
+        std::uint32_t spellCount = static_cast<std::uint32_t>(spells.addedSpells.size());
+        a_serde->WriteRecordData(&spellCount, sizeof(spellCount));
+        for (auto id : spells.addedSpells) {
+            a_serde->WriteRecordData(&id, sizeof(id));
+        }
+        WriteFormID(a_serde, spells.leftSpell);
+        WriteFormID(a_serde, spells.rightSpell);
+        WriteFormID(a_serde, spells.shout);
+    }
+
     void SaveCallback(SKSE::SerializationInterface* a_serde) {
         if (!a_serde) return;
 
-        // 1. Save Original Dragonborn Face Snapshot
-        if (FaceManager::GetSingleton().HasSavedAppearance()) {
-            WriteFaceSnapshotRecord(a_serde, kFaceDataRecord, FaceManager::GetSingleton().GetSavedAppearance());
+        auto& mgr = ImpersonationManager::GetSingleton();
+        if (const auto& baseline = mgr.GetBaseline()) {
+            WriteBaseline(a_serde, *baseline);
         }
-
-        // 2. Save Dynamic Spells, Quest Items & Equipped Spells
-        const auto& transferredSpells = InventoryManager::GetSingleton().GetTransferredSpellIDs();
-        const auto& savedPlayerSpells = InventoryManager::GetSingleton().GetSavedPlayerSpellIDs();
-        const auto& donorQuestItems = InventoryManager::GetSingleton().GetTransferredDonorQuestItems();
-        auto* savedLeftSpell = InventoryManager::GetSingleton().GetSavedPlayerLeftSpell();
-        auto* savedRightSpell = InventoryManager::GetSingleton().GetSavedPlayerRightSpell();
-        auto* savedShout = InventoryManager::GetSingleton().GetSavedPlayerShout();
-
-        if (!transferredSpells.empty() || !savedPlayerSpells.empty() || !donorQuestItems.empty() ||
-            savedLeftSpell || savedRightSpell || savedShout) {
-            if (a_serde->OpenRecord(kInventoryDataRecord, kSerializationVersion)) {
-                std::uint32_t transCount = static_cast<std::uint32_t>(transferredSpells.size());
-                a_serde->WriteRecordData(&transCount, sizeof(transCount));
-                for (auto id : transferredSpells) {
-                    a_serde->WriteRecordData(&id, sizeof(id));
-                }
-
-                std::uint32_t savedCount = static_cast<std::uint32_t>(savedPlayerSpells.size());
-                a_serde->WriteRecordData(&savedCount, sizeof(savedCount));
-                for (auto id : savedPlayerSpells) {
-                    a_serde->WriteRecordData(&id, sizeof(id));
-                }
-
-                std::uint32_t questCount = static_cast<std::uint32_t>(donorQuestItems.size());
-                a_serde->WriteRecordData(&questCount, sizeof(questCount));
-                for (auto id : donorQuestItems) {
-                    a_serde->WriteRecordData(&id, sizeof(id));
-                }
-
-                RE::FormID leftSpellID = savedLeftSpell ? savedLeftSpell->GetFormID() : 0;
-                RE::FormID rightSpellID = savedRightSpell ? savedRightSpell->GetFormID() : 0;
-                RE::FormID shoutID = savedShout ? savedShout->GetFormID() : 0;
-                a_serde->WriteRecordData(&leftSpellID, sizeof(leftSpellID));
-                a_serde->WriteRecordData(&rightSpellID, sizeof(rightSpellID));
-                a_serde->WriteRecordData(&shoutID, sizeof(shoutID));
-            }
-        }
-
-        // 3. Save Stats
-        if (StatManager::GetSingleton().HasSavedStats()) {
-            const auto& stats = StatManager::GetSingleton().GetSavedPlayerStats();
-            if (a_serde->OpenRecord(kStatDataRecord, kSerializationVersion)) {
-                std::uint32_t count = static_cast<std::uint32_t>(stats.baseValues.size());
-                a_serde->WriteRecordData(&count, sizeof(count));
-                for (const auto& [av, val] : stats.baseValues) {
-                    a_serde->WriteRecordData(&av, sizeof(av));
-                    a_serde->WriteRecordData(&val, sizeof(val));
-                }
-            }
-        }
-
-        // 4. Save the impersonation session (active flag, donor, puppet, swapped quest aliases)
-        ImpersonationManager::GetSingleton().Save(a_serde);
+        mgr.SaveSession(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
 
-    static bool ReadFaceSnapshotRecord(SKSE::SerializationInterface* a_serde, FaceSnapshot& a_outFace) {
+    static bool ReadFaceSnapshot(SKSE::SerializationInterface* a_serde, FaceSnapshot& a_outFace) {
         RE::FormID raceID = 0, faceNPCID = 0, hairColorID = 0, voiceTypeID = 0;
 
         if (!a_serde->ReadRecordData(&raceID, sizeof(raceID))) return false;
@@ -240,6 +220,33 @@ namespace InTheirShoes::Serialization {
         return true;
     }
 
+    static bool ReadBaseline(SKSE::SerializationInterface* a_serde, Baseline& a_out) {
+        if (!ReadFaceSnapshot(a_serde, a_out.face)) return false;
+
+        std::uint32_t statCount = 0;
+        if (!a_serde->ReadRecordData(&statCount, sizeof(statCount))) return false;
+        for (std::uint32_t i = 0; i < statCount; ++i) {
+            std::uint32_t av = 0;
+            float val = 0.0f;
+            if (!a_serde->ReadRecordData(&av, sizeof(av)) || !a_serde->ReadRecordData(&val, sizeof(val))) return false;
+            a_out.stats.baseValues[av] = val;
+        }
+
+        std::uint32_t spellCount = 0;
+        if (!a_serde->ReadRecordData(&spellCount, sizeof(spellCount))) return false;
+        for (std::uint32_t i = 0; i < spellCount; ++i) {
+            RE::FormID id = 0;
+            if (!a_serde->ReadRecordData(&id, sizeof(id))) return false;
+            if (a_serde->ResolveFormID(id, id)) {
+                a_out.spells.addedSpells.push_back(id);
+            }
+        }
+        a_out.spells.leftSpell = ReadForm<RE::SpellItem>(a_serde);
+        a_out.spells.rightSpell = ReadForm<RE::SpellItem>(a_serde);
+        a_out.spells.shout = ReadForm<RE::TESShout>(a_serde);
+        return true;
+    }
+
     void LoadCallback(SKSE::SerializationInterface* a_serde) {
         if (!a_serde) return;
 
@@ -251,103 +258,25 @@ namespace InTheirShoes::Serialization {
 
         while (a_serde->GetNextRecordInfo(type, version, length)) {
             if (version != kSerializationVersion) {
-                SKSE::log::warn("Skipping record {:08X} with mismatched version {}", type, version);
+                SKSE::log::warn("Skipping record {:08X} with unsupported version {}", type, version);
                 continue;
             }
 
             switch (type) {
-                case kFaceDataRecord: {
-                    FaceSnapshot face{};
-                    if (ReadFaceSnapshotRecord(a_serde, face)) {
-                        FaceManager::GetSingleton().SetSavedAppearance(face);
-                        SKSE::log::info("Loaded saved player face appearance from co-save.");
+                case kBaselineRecord: {
+                    Baseline baseline;
+                    if (ReadBaseline(a_serde, baseline)) {
+                        ImpersonationManager::GetSingleton().SetBaseline(std::move(baseline));
+                        SKSE::log::info("Loaded Dragonborn baseline from co-save.");
+                    } else {
+                        SKSE::log::warn("Baseline record is truncated; ignoring it.");
                     }
                     break;
                 }
 
-                case kInventoryDataRecord: {
-                    std::uint32_t transCount = 0;
-                    a_serde->ReadRecordData(&transCount, sizeof(transCount));
-                    for (std::uint32_t i = 0; i < transCount; ++i) {
-                        RE::FormID spellID = 0;
-                        a_serde->ReadRecordData(&spellID, sizeof(spellID));
-                        if (a_serde->ResolveFormID(spellID, spellID)) {
-                            InventoryManager::GetSingleton().AddTransferredSpellID(spellID);
-                        }
-                    }
-
-                    std::uint32_t savedCount = 0;
-                    a_serde->ReadRecordData(&savedCount, sizeof(savedCount));
-                    for (std::uint32_t i = 0; i < savedCount; ++i) {
-                        RE::FormID spellID = 0;
-                        a_serde->ReadRecordData(&spellID, sizeof(spellID));
-                        if (a_serde->ResolveFormID(spellID, spellID)) {
-                            InventoryManager::GetSingleton().AddSavedPlayerSpellID(spellID);
-                        }
-                    }
-
-                    std::uint32_t questCount = 0;
-                    if (a_serde->ReadRecordData(&questCount, sizeof(questCount))) {
-                        for (std::uint32_t i = 0; i < questCount; ++i) {
-                            RE::FormID qID = 0;
-                            a_serde->ReadRecordData(&qID, sizeof(qID));
-                            if (a_serde->ResolveFormID(qID, qID)) {
-                                InventoryManager::GetSingleton().AddTransferredDonorQuestItem(qID);
-                            }
-                        }
-                    }
-
-                    RE::FormID leftSpellID = 0, rightSpellID = 0, shoutID = 0;
-                    RE::SpellItem* leftSpell = nullptr;
-                    RE::SpellItem* rightSpell = nullptr;
-                    RE::TESShout* shout = nullptr;
-                    if (a_serde->ReadRecordData(&leftSpellID, sizeof(leftSpellID))) {
-                        if (leftSpellID && a_serde->ResolveFormID(leftSpellID, leftSpellID)) {
-                            leftSpell = RE::TESForm::LookupByID<RE::SpellItem>(leftSpellID);
-                        }
-                        if (a_serde->ReadRecordData(&rightSpellID, sizeof(rightSpellID))) {
-                            if (rightSpellID && a_serde->ResolveFormID(rightSpellID, rightSpellID)) {
-                                rightSpell = RE::TESForm::LookupByID<RE::SpellItem>(rightSpellID);
-                            }
-                        }
-                        if (a_serde->ReadRecordData(&shoutID, sizeof(shoutID))) {
-                            if (shoutID && a_serde->ResolveFormID(shoutID, shoutID)) {
-                                shout = RE::TESForm::LookupByID<RE::TESShout>(shoutID);
-                            }
-                        }
-                        InventoryManager::GetSingleton().SetSavedPlayerEquippedSpells(leftSpell, rightSpell, shout);
-                    }
-
-                    if (savedCount > 0 || leftSpell || rightSpell || shout) {
-                        InventoryManager::GetSingleton().SetHasDragonbornBaseline(true);
-                    }
-
-                    SKSE::log::info("Loaded {} transferred spells, {} saved player spells, and {} donor quest items from co-save.",
-                        transCount, savedCount, questCount);
+                case kSessionRecord:
+                    ImpersonationManager::GetSingleton().LoadSession(a_serde);
                     break;
-                }
-
-                case kStatDataRecord: {
-                    std::uint32_t count = 0;
-                    a_serde->ReadRecordData(&count, sizeof(count));
-                    StatSnapshot snapshot{};
-                    for (std::uint32_t i = 0; i < count; ++i) {
-                        std::uint32_t av = 0;
-                        float val = 0.0f;
-                        a_serde->ReadRecordData(&av, sizeof(av));
-                        a_serde->ReadRecordData(&val, sizeof(val));
-                        snapshot.baseValues[av] = val;
-                    }
-                    StatManager::GetSingleton().SetSavedPlayerStats(snapshot);
-                    SKSE::log::info("Loaded {} saved player stats from co-save.", count);
-                    break;
-                }
-
-                case kImpersonationDataRecord: {
-                    ImpersonationManager::GetSingleton().Load(a_serde);
-                    SKSE::log::info("Loaded Impersonation state from co-save.");
-                    break;
-                }
 
                 default:
                     SKSE::log::warn("Unknown record type {:08X} in co-save", type);
@@ -357,19 +286,9 @@ namespace InTheirShoes::Serialization {
     }
 
     void RevertCallback(SKSE::SerializationInterface*) {
-        if (FaceManager::GetSingleton().HasSavedAppearance()) {
-            auto* player = RE::PlayerCharacter::GetSingleton();
-            if (player && player->GetActorBase()) {
-                FaceManager::GetSingleton().RevertAppearance(player, false);
-                SKSE::log::info("Reverted player appearance to original before save load.");
-            }
-        }
-        FaceManager::GetSingleton().ClearSavedAppearance();
-        InventoryManager::GetSingleton().Clear();
-        StatManager::GetSingleton().Clear();
+        ImpersonationManager::GetSingleton().OnRevert();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
-        ImpersonationManager::GetSingleton().OnRevert();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 

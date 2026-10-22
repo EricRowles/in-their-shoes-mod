@@ -16,6 +16,9 @@
 
 namespace InTheirShoes {
 
+    constexpr RE::FormID kPlayerBaseID = 0x07;
+    constexpr RE::FormID kPlayerRefID = 0x14;
+
     enum class IdentityCondition : std::uint8_t {
         kGetInFaction = 0,
         kGetIsID,
@@ -41,9 +44,6 @@ namespace InTheirShoes {
         }
 
         auto* player = mgr.GetPlayer();
-        if (!player) {
-            player = RE::PlayerCharacter::GetSingleton();
-        }
         auto* donor = mgr.GetDonor();
         auto* puppet = mgr.GetPuppet();
         bool isSelfDialogue = DialogueManager::GetSingleton().IsInSelfDialogue();
@@ -144,7 +144,7 @@ namespace InTheirShoes {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             } else if constexpr (Cond == IdentityCondition::kGetIsAliasRef) {
                 double res = 0.0;
-                if (player && orig(player, a_p1, a_p2, res) && res != 0.0) {
+                if (orig(player, a_p1, a_p2, res) && res != 0.0) {
                     a_result = res;
                     return true;
                 }
@@ -160,7 +160,7 @@ namespace InTheirShoes {
                     a_result = res;
                     return true;
                 }
-                return orig(player ? player : a_thisObj, a_p1, a_p2, a_result);
+                return orig(player, a_p1, a_p2, a_result);
             }
         }
 
@@ -168,34 +168,30 @@ namespace InTheirShoes {
         if (evalAsDragonborn) {
             if constexpr (Cond == IdentityCondition::kGetIsID) {
                 auto* targetForm = static_cast<RE::TESForm*>(a_p1);
-                if (targetForm && (targetForm == player || (player && targetForm == player->GetActorBase()) ||
-                    targetForm->GetFormID() == 0x07 || targetForm->GetFormID() == 0x14)) {
+                if (targetForm && (targetForm == player || targetForm == player->GetActorBase() ||
+                    targetForm->GetFormID() == kPlayerBaseID || targetForm->GetFormID() == kPlayerRefID)) {
                     a_result = 1.0;
                     return true;
                 }
-                if (player) {
-                    return orig(player, a_p1, a_p2, a_result);
-                }
-                a_result = 0.0;
-                return true;
+                return orig(player, a_p1, a_p2, a_result);
             } else if constexpr (Cond == IdentityCondition::kGetIsVoiceType) {
                 auto* targetVoice = static_cast<RE::BGSVoiceType*>(a_p1);
                 auto* origVoice = mgr.GetOrigPlayerVoiceType();
                 a_result = (origVoice && targetVoice && targetVoice == origVoice) ? 1.0 : 0.0;
                 return true;
             } else if constexpr (Cond == IdentityCondition::kGetInFaction) {
-                return orig(player ? player : a_thisObj, a_p1, a_p2, a_result);
+                return orig(player, a_p1, a_p2, a_result);
             } else if constexpr (Cond == IdentityCondition::kGetFactionRank) {
-                return orig(player ? player : a_thisObj, a_p1, a_p2, a_result);
+                return orig(player, a_p1, a_p2, a_result);
             } else if constexpr (Cond == IdentityCondition::kGetIsReference) {
                 auto* targetRef = static_cast<RE::TESObjectREFR*>(a_p1);
-                if (player && targetRef && targetRef == player) {
+                if (targetRef && targetRef == player) {
                     a_result = 1.0;
                     return true;
                 }
-                return orig(player ? player : a_thisObj, a_p1, a_p2, a_result);
+                return orig(player, a_p1, a_p2, a_result);
             } else {
-                return orig(player ? player : a_thisObj, a_p1, a_p2, a_result);
+                return orig(player, a_p1, a_p2, a_result);
             }
         }
 
@@ -229,9 +225,6 @@ namespace InTheirShoes {
         }
 
         auto* player = mgr.GetPlayer();
-        if (!player) {
-            player = RE::PlayerCharacter::GetSingleton();
-        }
         auto* donor = mgr.GetDonor();
         auto* puppet = mgr.GetPuppet();
         bool isSelfDialogue = DialogueManager::GetSingleton().IsInSelfDialogue();
@@ -304,7 +297,7 @@ namespace InTheirShoes {
     RE::BGSVoiceType* ImpersonationManager::Hook_GetObjectVoiceType(const RE::TESNPC* a_this) {
         if (a_this) {
             auto& mgr = ImpersonationManager::GetSingleton();
-            auto* donorVoice = mgr._donorVoiceType.load(std::memory_order_acquire);
+            auto* donorVoice = mgr.GetDonorVoiceType();
             if (mgr.IsActive() && donorVoice) {
                 auto* player = RE::PlayerCharacter::GetSingleton();
                 if (player && a_this == player->GetActorBase()) {
@@ -315,8 +308,7 @@ namespace InTheirShoes {
                 }
 
                 auto* puppet = mgr.GetPuppet();
-                bool isPuppet = (puppet && a_this == puppet->GetActorBase()) || mgr.IsPuppetBase(a_this);
-                if (isPuppet) {
+                if (puppet && a_this == puppet->GetActorBase()) {
                     auto* topicMgr = RE::MenuTopicManager::GetSingleton();
                     if (topicMgr && topicMgr->forceGoodbye) {
                         return nullptr;
@@ -465,9 +457,6 @@ namespace InTheirShoes {
 
         auto* dataHandler = RE::TESDataHandler::GetSingleton();
         if (dataHandler) {
-            auto* puppetNPC = dataHandler->LookupForm<RE::TESNPC>(0x00000D93, "InTheirShoes.esp"sv);
-            _puppetBase.store(puppetNPC, std::memory_order_release);
-
             auto* marker = dataHandler->LookupForm<RE::TESObjectREFR>(0x00000807, "InTheirShoes.esp"sv);
             if (marker) {
                 _storageMarker = marker->GetHandle();
@@ -476,22 +465,6 @@ namespace InTheirShoes {
                 SKSE::log::warn("Failed to resolve storage marker 0x00000807 from InTheirShoes.esp!");
             }
         }
-    }
-
-    std::string ImpersonationManager::GetOrigPlayerName() const {
-        auto name = FaceManager::GetSingleton().GetSavedAppearanceName();
-        if (!name.empty()) return name;
-
-        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-            const char* dispName = player->GetDisplayFullName();
-            if (dispName && dispName[0] != '\0') return dispName;
-            if (const char* baseName = player->GetName()) return baseName;
-        }
-        return {};
-    }
-
-    RE::BGSVoiceType* ImpersonationManager::GetOrigPlayerVoiceType() const {
-        return FaceManager::GetSingleton().GetOriginalVoiceType();
     }
 
     void ImpersonationManager::AttachDonor(RE::Actor* a_donor) {
@@ -510,216 +483,221 @@ namespace InTheirShoes {
     void ImpersonationManager::AttachPuppet(RE::Actor* a_puppet) {
         _puppetKeepAlive.reset(a_puppet);
         _puppetActor.store(a_puppet, std::memory_order_release);
-        _puppetConfigured = false;
     }
 
-    std::int32_t ImpersonationManager::Begin(RE::Actor* a_donor, RE::Actor* a_player) {
-        if (!a_donor || !a_player) {
-            SKSE::log::warn("ImpersonationManager::Begin called with null actor!");
-            return 0;
+    void ImpersonationManager::SetBaseline(Baseline a_baseline) {
+        _baseline = std::move(a_baseline);
+        _origVoiceType.store(_baseline->face.voiceType, std::memory_order_release);
+    }
+
+    void ImpersonationManager::CaptureBaseline(RE::Actor* a_player) {
+        Baseline baseline;
+        FaceManager::GetSingleton().CaptureSnapshot(a_player, baseline.face);
+        StatManager::GetSingleton().CaptureSnapshot(a_player, baseline.stats);
+        InventoryManager::GetSingleton().StashPlayerSpells(a_player, baseline.spells);
+        SetBaseline(std::move(baseline));
+        SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
+    }
+
+    bool ImpersonationManager::Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet) {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!player || !a_donor || !a_puppet || a_donor == player || a_donor == a_puppet) {
+            SKSE::log::warn("Impersonate called with invalid actors.");
+            return false;
         }
+
+        auto& faces = FaceManager::GetSingleton();
+        auto& stats = StatManager::GetSingleton();
+        auto& inventory = InventoryManager::GetSingleton();
 
         if (IsActive()) {
-            End();
+            // Donor-to-donor switch: hand the current state back to the old donor, who takes the new donor's place
+            auto* oldDonor = GetDonor();
+            if (oldDonor == a_donor) return false;
+            EndSession();
+            if (oldDonor) {
+                ReturnStateToDonor(oldDonor);
+                oldDonor->MoveTo(a_donor);
+                oldDonor->StopCombat();
+                oldDonor->EvaluatePackage(false, false);
+            }
+        } else {
+            // First impersonation: the puppet takes on the Dragonborn's look, stats and gear
+            CaptureBaseline(player);
+            AttachPuppet(a_puppet);
+            ConfigurePuppet(a_puppet);
+            stats.CopyStats(player, a_puppet);
+            inventory.TransferAllItems(player, a_puppet, true, _donorQuestItems);
         }
 
-        {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
+        faces.CopyAppearance(a_donor, player);
+        stats.CopyStats(a_donor, player);
+        inventory.CopyDonorSpells(a_donor, player);
+        inventory.TransferAllItems(a_donor, player, false, _donorQuestItems);
 
-            AttachDonor(a_donor);
-            _active.store(true, std::memory_order_release);
+        if (auto marker = _storageMarker.get()) {
+            a_donor->MoveTo(marker.get());
+        }
 
-            SKSE::log::info("Beginning impersonation: Donor {:08X} ({}) -> Player {:08X}",
-                static_cast<std::uint32_t>(a_donor->GetFormID()),
-                a_donor->GetName(),
-                static_cast<std::uint32_t>(a_player->GetFormID())
-            );
+        BeginSession(a_donor);
+        return true;
+    }
 
-            IdleAIManager::GetSingleton().ClearPlayerPackages();
-            SwapDonorAliasesToPlayer(a_donor, a_player);
-            DialogueManager::GetSingleton().InvalidateIdleQuestCache();
+    bool ImpersonationManager::Revert() {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!player || !IsActive()) return false;
 
-            if (auto* puppet = GetPuppet()) {
-                ApplyPuppetFollowState(puppet);
-                puppet->EvaluatePackage(false, false);
-            }
+        auto* donor = GetDonor();
+        auto* puppet = GetPuppet();
+        EndSession();
+        if (donor) {
+            ReturnStateToDonor(donor);
+        }
+
+        if (_baseline) {
+            FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face);
+            StatManager::GetSingleton().ApplySnapshot(player, _baseline->stats);
+        }
+        if (puppet) {
+            InventoryManager::GetSingleton().TransferAllItems(puppet, player, false, _donorQuestItems);
+        }
+        if (_baseline) {
+            InventoryManager::GetSingleton().RestorePlayerSpells(player, _baseline->spells);
+        }
+
+        ReleasePuppet();
+        _baseline.reset();
+        _origVoiceType.store(nullptr, std::memory_order_release);
+        _donorQuestItems.clear();
+        SKSE::log::info("Reverted to the Dragonborn.");
+        return true;
+    }
+
+    void ImpersonationManager::ReturnStateToDonor(RE::Actor* a_donor) {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        StatManager::GetSingleton().CopyStats(player, a_donor);
+        InventoryManager::GetSingleton().TransferAllItems(player, a_donor, true, _donorQuestItems);
+        InventoryManager::GetSingleton().ReturnSpellsToDonor(player, a_donor);
+        _donorQuestItems.clear();
+    }
+
+    void ImpersonationManager::BeginSession(RE::Actor* a_donor) {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        AttachDonor(a_donor);
+        _active.store(true, std::memory_order_release);
+
+        SKSE::log::info("Beginning impersonation: Donor {:08X} ({})", a_donor->GetFormID(), a_donor->GetName());
+
+        IdleAIManager::GetSingleton().ClearPlayerPackages();
+        SwapDonorAliasesToPlayer(a_donor, player);
+        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
+
+        if (auto* puppet = GetPuppet()) {
+            ApplyPuppetFollowState(puppet);
+            puppet->EvaluatePackage(false, false);
         }
 
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
-        return 1;
     }
 
-    std::int32_t ImpersonationManager::End() {
-        {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            if (!IsActive()) {
-                return 0;
-            }
+    void ImpersonationManager::EndSession() {
+        auto* donor = GetDonor();
+        SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
-            auto* donor = GetDonor();
-            SKSE::log::info("Ending impersonation of donor {:08X}",
-                donor ? static_cast<std::uint32_t>(donor->GetFormID()) : 0u);
-
-            ForwardPuppetFactionsToDonor();
-            RestoreSwappedAliases(donor);
-            DialogueManager::GetSingleton().InvalidateIdleQuestCache();
-
-            IdleAIManager::GetSingleton().ClearPlayerPackages();
-            if (auto* pc = RE::PlayerCharacter::GetSingleton()) {
-                pc->SetAIDriven(false);
-                pc->EvaluatePackage(false, false);
-            }
-
-            _active.store(false, std::memory_order_release);
-            DetachDonor();
-        }
+        ForwardPuppetFactionsToDonor();
+        RestoreSwappedAliases(donor);
+        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
 
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
-        return 1;
+        if (auto* pc = RE::PlayerCharacter::GetSingleton()) {
+            pc->SetAIDriven(false);
+            pc->EvaluatePackage(false, false);
+        }
+
+        _active.store(false, std::memory_order_release);
+        DetachDonor();
     }
 
     void ImpersonationManager::ApplyPuppetFollowState(RE::Actor* a_puppet) {
-        if (auto* puppetBase = skyrim_cast<RE::TESNPC*>(a_puppet->GetActorBase())) {
-            puppetBase->aiPackages.packages.clear();
-            if (_puppetFollows.load(std::memory_order_acquire)) {
-                auto* followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0005C84B);
-                if (!followPkg) {
-                    followPkg = RE::TESForm::LookupByID<RE::TESPackage>(0x0004B037);
-                }
-                if (followPkg) {
-                    puppetBase->aiPackages.packages.push_front(followPkg);
-                    SKSE::log::info("ApplyPuppetFollowState: Added follow package {:08X} to puppet base {:08X}",
-                        followPkg->GetFormID(), puppetBase->GetFormID());
-                }
-            }
-        }
-
-        if (_puppetFollows.load(std::memory_order_acquire)) {
+        // The follow package itself lives on the PlayerPuppet alias, gated by the ITS_PuppetFollows global.
+        // Teammate status lets the puppet travel through load doors with the player.
+        if (_puppetFollows) {
             a_puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
         } else {
             a_puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
         }
     }
 
-    void ImpersonationManager::SetPuppet(RE::Actor* a_puppet) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_puppet) {
-            if (auto* oldPuppet = GetPuppet()) {
-                if (auto* base = skyrim_cast<RE::TESNPC*>(oldPuppet->GetActorBase())) {
-                    base->aiPackages.packages.clear();
-                }
-                oldPuppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
-                oldPuppet->EvaluatePackage(false, false);
-            }
-            AttachPuppet(nullptr);
-            return;
-        }
-
-        if (GetPuppet() == a_puppet && _puppetConfigured) {
-            return;
-        }
-
-        AttachPuppet(a_puppet);
-        ConfigurePuppet(a_puppet);
-        _puppetConfigured = true;
-    }
-
     void ImpersonationManager::ConfigurePuppet(RE::Actor* a_puppet) {
-        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-            FaceManager::GetSingleton().SaveBaselineAppearance(player);
+        if (_baseline) {
+            FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
         }
-
-        if (FaceManager::GetSingleton().HasSavedAppearance()) {
-            FaceManager::GetSingleton().RestoreOriginalPuppetAppearance(a_puppet);
-        }
-
         ApplyPuppetFollowState(a_puppet);
-
         a_puppet->AllowPCDialogue(true);
         a_puppet->AllowBleedoutDialogue(true);
         a_puppet->StopCombat();
         a_puppet->EvaluatePackage(true, true);
+        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), _puppetFollows);
+    }
 
-        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).",
-            static_cast<std::uint32_t>(a_puppet->GetFormID()), _puppetFollows.load(std::memory_order_acquire));
+    void ImpersonationManager::ReleasePuppet() {
+        if (auto* puppet = GetPuppet()) {
+            puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
+            puppet->EvaluatePackage(false, false);
+        }
+        AttachPuppet(nullptr);
     }
 
     void ImpersonationManager::SetPuppetFollowsPlayer(bool a_follows) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        _puppetFollows.store(a_follows, std::memory_order_release);
-        if (auto* puppet = GetPuppet()) {
-            ApplyPuppetFollowState(puppet);
+        _puppetFollows = a_follows;
+        auto* puppet = GetPuppet();
+        if (!puppet || !IsActive()) return;
 
-            if (a_follows && _active.load(std::memory_order_acquire)) {
-                auto* player = RE::PlayerCharacter::GetSingleton();
-                if (player) {
-                    if (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f) {
-                        puppet->MoveTo(player);
-                        SKSE::log::info("SetPuppetFollowsPlayer: Teleported puppet to player.");
-                    }
-                }
-            }
-            puppet->EvaluatePackage(true, true);
-            SKSE::log::info("Updated puppet follows player: {}", a_follows);
+        ApplyPuppetFollowState(puppet);
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (a_follows && player &&
+            (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f)) {
+            puppet->MoveTo(player);
+            SKSE::log::info("SetPuppetFollowsPlayer: Teleported puppet to player.");
         }
+        puppet->EvaluatePackage(true, true);
+        SKSE::log::info("Updated puppet follows player: {}", a_follows);
     }
 
     void ImpersonationManager::Tick() {
         IdleAIManager::GetSingleton().Update();
+        DialogueManager::GetSingleton().Update();
 
-        auto& dialMgr = DialogueManager::GetSingleton();
-        if (dialMgr.IsPlayerSpeaking()) {
-            auto* player = RE::PlayerCharacter::GetSingleton();
-            auto* ui = RE::UI::GetSingleton();
-            bool menuOpen = ui && ui->IsMenuOpen("Dialogue Menu"sv);
-            dialMgr.TickSpeech(player, menuOpen);
-        }
+        if (!IsActive() || _leashQueued) return;
 
-        dialMgr.UpdateIdleChatter();
+        auto* donor = GetDonor();
+        auto marker = _storageMarker.get();
+        if (!donor || !marker) return;
 
-        auto worldReady = []() {
-            auto* player = RE::PlayerCharacter::GetSingleton();
-            auto* ui = RE::UI::GetSingleton();
-            auto* cell = player ? player->GetParentCell() : nullptr;
-            return cell && cell->IsAttached() && player->Get3D() &&
-                   !(ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
-        };
+        bool needsLeash = donor->GetParentCell() != marker->GetParentCell() ||
+                          donor->GetPosition().GetDistance(marker->GetPosition()) > 500.0f;
+        if (!needsLeash) return;
 
-        if (_active.load(std::memory_order_acquire)) {
-            auto* donor = GetDonor();
-            auto markerHandle = _storageMarker;
-            auto marker = markerHandle.get();
-            if (donor && marker) {
-                bool needsLeash = false;
-                if (donor->GetParentCell() != marker->GetParentCell()) {
-                    needsLeash = true;
-                } else if (donor->GetPosition().GetDistance(marker->GetPosition()) > 500.0f) {
-                    needsLeash = true;
-                }
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* ui = RE::UI::GetSingleton();
+        auto* cell = player->GetParentCell();
+        bool worldReady = cell && cell->IsAttached() && player->Get3D() &&
+                          !(ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
+        if (!worldReady) return;
 
-                static std::atomic<bool> s_leashQueued{ false };
-                if (needsLeash && worldReady() && !s_leashQueued.exchange(true)) {
-                    SKSE::log::info("Tick: Donor {:08X} moved away from holding marker; leashing back.",
-                        donor->GetFormID());
-                    auto donorHandle = donor->GetHandle();
-                    SKSE::GetTaskInterface()->AddTask([donorHandle, markerHandle]() {
-                        s_leashQueued.store(false);
-                        auto d = donorHandle.get();
-                        auto m = markerHandle.get();
-                        if (!d || !m) return;
-                        d->MoveTo(m.get());
-                        if (IdleAIManager::GetSingleton().IsAIActive()) {
-                            IdleAIManager::GetSingleton().SyncDonorUpdatesToPlayer();
-                        }
-                    });
-                }
+        SKSE::log::info("Tick: Donor {:08X} moved away from holding marker; leashing back.", donor->GetFormID());
+        _leashQueued = true;
+        SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle(), markerHandle = _storageMarker]() {
+            ImpersonationManager::GetSingleton()._leashQueued = false;
+            auto d = donorHandle.get();
+            auto m = markerHandle.get();
+            if (d && m) {
+                d->MoveTo(m.get());
             }
-        }
+        });
     }
 
     void ImpersonationManager::SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player) {
-        if (!a_donor || !a_player) return;
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
         _swappedAliases.clear();
 
         auto* aliasArray = a_donor->extraList.GetByType<RE::ExtraAliasInstanceArray>();
@@ -730,13 +708,10 @@ namespace InTheirShoes {
             RE::BSReadLockGuard locker(aliasArray->lock);
             for (auto* inst : aliasArray->aliases) {
                 if (!inst || !inst->quest || !inst->alias) continue;
-                if (!inst->quest->IsRunning()) continue;
-
-                if (IsModInternalQuest(inst->quest)) continue;
-
+                if (!inst->quest->IsRunning() || IsModInternalQuest(inst->quest)) continue;
                 if (inst->alias->QType() != "Ref"sv) continue;
-                auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
 
+                auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
                 if (refAlias->GetReference() == a_donor) {
                     toSwap.emplace_back(inst->quest, refAlias->aliasID);
                 }
@@ -746,29 +721,17 @@ namespace InTheirShoes {
         for (const auto& [quest, aid] : toSwap) {
             quest->ForceRefIntoAlias(aid, a_player);
             _swappedAliases.push_back({ quest->GetFormID(), aid });
-            SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player {:08X} in quest {:08X} alias ID {}",
-                a_donor->GetFormID(), a_player->GetFormID(), quest->GetFormID(), aid);
+            SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player in quest {:08X} alias ID {}",
+                a_donor->GetFormID(), quest->GetFormID(), aid);
         }
     }
 
     void ImpersonationManager::RestoreSwappedAliases(RE::Actor* a_donor) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (_swappedAliases.empty()) return;
-
-        auto* donor = a_donor ? a_donor : GetDonor();
         auto* player = GetPlayer();
-
         for (const auto& entry : _swappedAliases) {
             auto* quest = RE::TESForm::LookupByID<RE::TESQuest>(entry.questFormID);
-            if (!quest || !quest->IsRunning()) {
-                SKSE::log::info("RestoreSwappedAliases: Quest {:08X} is stopped or missing, skipping alias ID {}",
-                    entry.questFormID, entry.aliasID);
-                continue;
-            }
-
-            auto* targetDonor = donor;
-            if (!targetDonor) {
-                SKSE::log::warn("RestoreSwappedAliases: No donor to restore into quest {:08X} alias ID {}",
+            if (!quest || !quest->IsRunning() || !a_donor) {
+                SKSE::log::info("RestoreSwappedAliases: Skipping quest {:08X} alias ID {} (quest stopped or no donor)",
                     entry.questFormID, entry.aliasID);
                 continue;
             }
@@ -782,171 +745,136 @@ namespace InTheirShoes {
             }
 
             if (baseAlias && baseAlias->QType() == "Ref"sv) {
-                auto* refAlias = static_cast<RE::BGSRefAlias*>(baseAlias);
-                auto* currentRef = refAlias->GetReference();
-                if (player && currentRef && currentRef != player && currentRef != targetDonor) {
-                    SKSE::log::info("RestoreSwappedAliases: Alias ID {} in quest {:08X} no longer holds player (holds {:08X}), skipping restoration.",
+                auto* currentRef = static_cast<RE::BGSRefAlias*>(baseAlias)->GetReference();
+                if (currentRef && currentRef != player && currentRef != a_donor) {
+                    SKSE::log::info("RestoreSwappedAliases: Alias ID {} in quest {:08X} now holds {:08X}, leaving it alone.",
                         entry.aliasID, entry.questFormID, currentRef->GetFormID());
                     continue;
                 }
             }
 
-            quest->ForceRefIntoAlias(entry.aliasID, targetDonor);
+            quest->ForceRefIntoAlias(entry.aliasID, a_donor);
             SKSE::log::info("RestoreSwappedAliases: Restored donor {:08X} into quest {:08X} alias ID {}",
-                targetDonor->GetFormID(), quest->GetFormID(), entry.aliasID);
+                a_donor->GetFormID(), quest->GetFormID(), entry.aliasID);
         }
         _swappedAliases.clear();
     }
 
-    void ImpersonationManager::Save(SKSE::SerializationInterface* a_serde) {
-        if (!a_serde) return;
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
+    void ImpersonationManager::SaveSession(SKSE::SerializationInterface* a_serde) const {
+        auto* donor = GetDonor();
+        auto* puppet = GetPuppet();
+        if (!IsActive() || !donor) return;
+        if (!a_serde->OpenRecord(Serialization::kSessionRecord, Serialization::kSerializationVersion)) return;
 
-        const bool active = IsActive();
-        const RE::FormID donorID = (active && GetDonor()) ? GetDonor()->GetFormID() : 0;
-        const RE::FormID puppetID = GetPuppet() ? GetPuppet()->GetFormID() : 0;
+        const RE::FormID donorID = donor->GetFormID();
+        const RE::FormID puppetID = puppet ? puppet->GetFormID() : 0;
+        a_serde->WriteRecordData(&donorID, sizeof(donorID));
+        a_serde->WriteRecordData(&puppetID, sizeof(puppetID));
 
-        if (!active && puppetID == 0) {
-            return;
+        const auto aliasCount = static_cast<std::uint32_t>(_swappedAliases.size());
+        a_serde->WriteRecordData(&aliasCount, sizeof(aliasCount));
+        for (const auto& entry : _swappedAliases) {
+            a_serde->WriteRecordData(&entry.questFormID, sizeof(entry.questFormID));
+            a_serde->WriteRecordData(&entry.aliasID, sizeof(entry.aliasID));
         }
 
-        if (a_serde->OpenRecord(Serialization::kImpersonationDataRecord, Serialization::kSerializationVersion)) {
-            a_serde->WriteRecordData(&active, sizeof(active));
-            a_serde->WriteRecordData(&donorID, sizeof(donorID));
-            a_serde->WriteRecordData(&puppetID, sizeof(puppetID));
-
-            const std::uint32_t count = static_cast<std::uint32_t>(_swappedAliases.size());
-            a_serde->WriteRecordData(&count, sizeof(count));
-            for (const auto& entry : _swappedAliases) {
-                a_serde->WriteRecordData(&entry.questFormID, sizeof(entry.questFormID));
-                a_serde->WriteRecordData(&entry.aliasID, sizeof(entry.aliasID));
-            }
-            SKSE::log::info("Saved impersonation session (active={}, {} swapped aliases).", active, count);
+        const auto itemCount = static_cast<std::uint32_t>(_donorQuestItems.size());
+        a_serde->WriteRecordData(&itemCount, sizeof(itemCount));
+        for (auto id : _donorQuestItems) {
+            a_serde->WriteRecordData(&id, sizeof(id));
         }
+        SKSE::log::info("Saved impersonation session ({} swapped aliases, {} donor quest items).", aliasCount, itemCount);
     }
 
-    void ImpersonationManager::Load(SKSE::SerializationInterface* a_serde) {
-        if (!a_serde) return;
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-
-        bool active = false;
+    void ImpersonationManager::LoadSession(SKSE::SerializationInterface* a_serde) {
         RE::FormID donorID = 0;
         RE::FormID puppetID = 0;
         std::uint32_t aliasCount = 0;
-
-        if (!a_serde->ReadRecordData(&active, sizeof(active)) ||
-            !a_serde->ReadRecordData(&donorID, sizeof(donorID)) ||
+        if (!a_serde->ReadRecordData(&donorID, sizeof(donorID)) ||
             !a_serde->ReadRecordData(&puppetID, sizeof(puppetID)) ||
             !a_serde->ReadRecordData(&aliasCount, sizeof(aliasCount))) {
-            SKSE::log::warn("Impersonation record is truncated; ignoring it.");
+            SKSE::log::warn("Impersonation session record is truncated; ignoring it.");
             return;
         }
 
-        _swappedAliases.clear();
+        std::vector<SwappedAlias> aliases;
         for (std::uint32_t i = 0; i < aliasCount; ++i) {
-            RE::FormID questID = 0;
-            std::uint32_t aliasID = 0;
-            if (!a_serde->ReadRecordData(&questID, sizeof(questID)) ||
-                !a_serde->ReadRecordData(&aliasID, sizeof(aliasID))) {
+            SwappedAlias entry;
+            if (!a_serde->ReadRecordData(&entry.questFormID, sizeof(entry.questFormID)) ||
+                !a_serde->ReadRecordData(&entry.aliasID, sizeof(entry.aliasID))) {
                 break;
             }
-            if (a_serde->ResolveFormID(questID, questID)) {
-                _swappedAliases.push_back({ questID, aliasID });
+            if (a_serde->ResolveFormID(entry.questFormID, entry.questFormID)) {
+                aliases.push_back(entry);
+            }
+        }
+
+        std::uint32_t itemCount = 0;
+        if (a_serde->ReadRecordData(&itemCount, sizeof(itemCount))) {
+            for (std::uint32_t i = 0; i < itemCount; ++i) {
+                RE::FormID id = 0;
+                if (a_serde->ReadRecordData(&id, sizeof(id)) && a_serde->ResolveFormID(id, id)) {
+                    _donorQuestItems.insert(id);
+                }
             }
         }
 
         if (puppetID != 0 && a_serde->ResolveFormID(puppetID, puppetID)) {
-            if (auto* puppet = RE::TESForm::LookupByID<RE::Actor>(puppetID)) {
-                AttachPuppet(puppet);
-                SKSE::log::info("Restored puppet {:08X} from co-save.", static_cast<std::uint32_t>(puppetID));
-            }
+            AttachPuppet(RE::TESForm::LookupByID<RE::Actor>(puppetID));
         }
 
-        if (active && donorID != 0 && a_serde->ResolveFormID(donorID, donorID)) {
-            auto* donor = RE::TESForm::LookupByID<RE::Actor>(donorID);
-            if (donor && RE::PlayerCharacter::GetSingleton()) {
-                AttachDonor(donor);
-                _active.store(true, std::memory_order_release);
-                SKSE::log::info("Restored impersonation state from co-save: Donor {:08X} ({} swapped aliases)",
-                    static_cast<std::uint32_t>(donorID), _swappedAliases.size());
-            } else {
-                _swappedAliases.clear();
-            }
+        RE::Actor* donor = nullptr;
+        if (a_serde->ResolveFormID(donorID, donorID)) {
+            donor = RE::TESForm::LookupByID<RE::Actor>(donorID);
         }
+        if (!donor) {
+            SKSE::log::warn("Impersonation session donor {:08X} no longer exists; session not restored.", donorID);
+            return;
+        }
+
+        AttachDonor(donor);
+        _swappedAliases = std::move(aliases);
+        _active.store(true, std::memory_order_release);
+        SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", donorID, _swappedAliases.size());
     }
 
     void ImpersonationManager::OnRevert() {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        IdleAIManager::GetSingleton().ClearPlayerPackages();
-        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
-        _swappedAliases.clear();
-        _active.store(false, std::memory_order_release);
-        DetachDonor();
-        SetPuppet(nullptr);
-    }
-
-    void ImpersonationManager::OnPostLoadGame() {
-        bool wasActive = false;
-        {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            wasActive = IsActive();
-            if (wasActive) {
-                auto* donor = GetDonor();
-                auto* player = GetPlayer();
-
-                if (donor && player) {
-                    SKSE::log::info("OnPostLoadGame: Queuing donor appearance restoration (donor: {:08X}, player: {:08X})",
-                        static_cast<std::uint32_t>(donor->GetFormID()),
-                        static_cast<std::uint32_t>(player->GetFormID()));
-
-                    if (auto* task = SKSE::GetTaskInterface()) {
-                        auto donorHandle = donor->GetHandle();
-                        auto playerHandle = player->GetHandle();
-                        task->AddTask([donorHandle, playerHandle]() {
-                            auto d = donorHandle.get();
-                            auto p = playerHandle.get();
-                            if (d && p) {
-                                FaceManager::GetSingleton().RestoreDonorAppearance(d.get(), p.get());
-                            }
-                        });
-                    }
-                }
-
-                if (auto* puppet = GetPuppet()) {
-                    ConfigurePuppet(puppet);
-                    _puppetConfigured = true;
-                }
-
-                if (donor && player) {
-                    if (_swappedAliases.empty()) {
-                        auto* playerAliasArray = player->extraList.GetByType<RE::ExtraAliasInstanceArray>();
-                        if (playerAliasArray) {
-                            RE::BSReadLockGuard locker(playerAliasArray->lock);
-                            for (auto* inst : playerAliasArray->aliases) {
-                                if (!inst || !inst->quest || !inst->alias) continue;
-                                if (!inst->quest->IsRunning() || IsModInternalQuest(inst->quest)) continue;
-                                if (inst->alias->QType() != "Ref"sv) continue;
-                                auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
-                                if (refAlias->GetReference() == player) {
-                                    if (refAlias->fillType.get() == RE::BGSBaseAlias::FILL_TYPE::kUniqueActor &&
-                                        refAlias->fillData.uniqueActor.uniqueActor == donor->GetActorBase()) {
-                                        _swappedAliases.push_back({ inst->quest->GetFormID(), refAlias->aliasID });
-                                        SKSE::log::info("OnPostLoadGame: Reconstructed swapped alias ID {} in quest {:08X} for donor {:08X}",
-                                            refAlias->aliasID, inst->quest->GetFormID(), donor->GetFormID());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    SKSE::log::info("OnPostLoadGame: Verified {} active swapped aliases for donor {:08X}",
-                        _swappedAliases.size(), donor->GetFormID());
-                }
+        // Put the in-memory player record back before another save loads over it
+        if (_baseline) {
+            if (auto* player = RE::PlayerCharacter::GetSingleton(); player && player->GetActorBase()) {
+                FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face, false);
             }
         }
 
-        if (wasActive) {
-            IdleAIManager::GetSingleton().OnImpersonationChanged(true);
+        IdleAIManager::GetSingleton().ClearPlayerPackages();
+        _active.store(false, std::memory_order_release);
+        DetachDonor();
+        AttachPuppet(nullptr);
+        _swappedAliases.clear();
+        _donorQuestItems.clear();
+        _baseline.reset();
+        _origVoiceType.store(nullptr, std::memory_order_release);
+        _leashQueued = false;
+    }
+
+    void ImpersonationManager::OnPostLoadGame() {
+        if (!IsActive()) return;
+
+        if (auto* donor = GetDonor()) {
+            // The player's record may have reloaded with stale appearance data; reapply the donor's look
+            SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle()]() {
+                if (auto d = donorHandle.get()) {
+                    FaceManager::GetSingleton().CopyAppearance(d.get(), RE::PlayerCharacter::GetSingleton());
+                }
+            });
         }
+
+        // The puppet's base record is not saved, so its appearance must be reapplied every load
+        if (auto* puppet = GetPuppet()) {
+            ConfigurePuppet(puppet);
+        }
+
+        IdleAIManager::GetSingleton().OnImpersonationChanged(true);
     }
 
 }

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <atomic>
-#include <mutex>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -41,6 +39,8 @@ namespace InTheirShoes {
         bool hasSkinTintColor{ false };
     };
 
+    // Stateless appearance capture/apply. The Dragonborn's saved appearance lives in
+    // ImpersonationManager's Baseline.
     class FaceManager {
     public:
         static FaceManager& GetSingleton() {
@@ -48,57 +48,13 @@ namespace InTheirShoes {
             return instance;
         }
 
-        // Captures the Dragonborn's baseline appearance if not already saved
-        bool SaveBaselineAppearance(RE::Actor* a_player);
-
-        // Clones full visual appearance from donor to target actor (saving target's original appearance if not yet saved)
-        bool CloneAppearance(RE::Actor* a_donor, RE::Actor* a_target);
-
-        // Copies visual appearance from donor to target actor without modifying saved history
-        bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
-
-        // Restores saved original appearance onto target actor
-        bool RevertAppearance(RE::Actor* a_target, bool a_update3D = true);
-
-        // Restores active donor appearance onto target actor directly from the donor actor
-        bool RestoreDonorAppearance(RE::Actor* a_donor, RE::Actor* a_target);
-
-        // Restores saved original Dragonborn appearance onto puppet actor
-        bool RestoreOriginalPuppetAppearance(RE::Actor* a_puppet);
-
-        // Snapshot utilities
         bool CaptureSnapshot(RE::Actor* a_actor, FaceSnapshot& a_outSnapshot);
-        bool ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D = true);
 
-        // State & Serialization
-        bool HasSavedAppearance() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _hasSavedAppearance;
-        }
-        FaceSnapshot GetSavedAppearance() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _savedOriginalAppearance;
-        }
-        void SetSavedAppearance(const FaceSnapshot& a_snapshot) {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _savedOriginalAppearance = a_snapshot;
-            _hasSavedAppearance = true;
-            RefreshOriginalVoice();
-        }
-        void ClearSavedAppearance() {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _savedOriginalAppearance = FaceSnapshot{};
-            _hasSavedAppearance = false;
-            RefreshOriginalVoice();
-        }
+        // a_asPuppet: the puppet gets the Dragonborn's look but no voice type or face template of its own
+        bool ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D = true, bool a_asPuppet = false);
 
-        // The Dragonborn's real name (empty if no appearance has been saved)
-        std::string GetSavedAppearanceName() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _hasSavedAppearance ? std::string(_savedOriginalAppearance.fullName.c_str()) : std::string();
-        }
-        // The Dragonborn's real voice type; lock-free because condition hooks read it constantly
-        RE::BGSVoiceType* GetOriginalVoiceType() const { return _origVoiceType.load(std::memory_order_acquire); }
+        // Copies the donor's current appearance onto the target
+        bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
     private:
         FaceManager() = default;
@@ -106,15 +62,7 @@ namespace InTheirShoes {
         FaceManager(const FaceManager&) = delete;
         FaceManager& operator=(const FaceManager&) = delete;
 
-        // Caller must hold _mutex
-        void RefreshOriginalVoice() {
-            _origVoiceType.store(_hasSavedAppearance ? _savedOriginalAppearance.voiceType : nullptr, std::memory_order_release);
-        }
-
-        mutable std::recursive_mutex _mutex;
-        std::atomic<RE::BGSVoiceType*> _origVoiceType{ nullptr };
-        FaceSnapshot _savedOriginalAppearance;
-        bool _hasSavedAppearance{ false };
+        // Head part arrays we allocated, so we never free one the engine owns
         std::unordered_set<void*> _allocatedHeadPartBuffers;
     };
 

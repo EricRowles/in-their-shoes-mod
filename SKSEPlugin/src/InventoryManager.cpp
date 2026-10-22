@@ -34,37 +34,49 @@ namespace InTheirShoes {
                 spellType == RE::MagicSystem::SpellType::kVoicePower);
     }
 
-    bool InventoryManager::StashPlayerDynamicSpells(RE::Actor* a_player) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
-
-        _playerSavedSpells.clear();
-        std::vector<RE::SpellItem*> toRemove;
-
-        auto& runtime = a_player->GetActorRuntimeData();
-        for (auto* spell : runtime.addedSpells) {
-            if (!spell || IsModSystemSpell(spell)) continue;
-
-            if (IsCastableSpell(spell)) {
-                _playerSavedSpells.push_back(spell->GetFormID());
-                toRemove.push_back(spell);
+    static bool IsBaseSpellOf(RE::SpellItem* a_spell, RE::TESNPC* a_base) {
+        auto* effects = a_base ? a_base->actorEffects : nullptr;
+        if (!effects) return false;
+        for (std::uint32_t i = 0; i < effects->numSpells; ++i) {
+            if (effects->spells[i] == a_spell) return true;
+        }
+        for (std::uint32_t i = 0; i < effects->numShouts; ++i) {
+            if (auto* shout = effects->shouts[i]) {
+                for (const auto& var : shout->variations) {
+                    if (var.spell == a_spell) return true;
+                }
             }
         }
-
-        for (auto* spell : toRemove) {
-            a_player->RemoveSpell(spell);
-        }
-
-        SKSE::log::info("Stashed {} player dynamic castable spells.", _playerSavedSpells.size());
-        return true;
+        return false;
     }
 
-    bool InventoryManager::RestorePlayerDynamicSpells(RE::Actor* a_player) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
+    static std::vector<RE::SpellItem*> GetCastableAddedSpells(RE::Actor* a_actor) {
+        std::vector<RE::SpellItem*> result;
+        for (auto* spell : a_actor->GetActorRuntimeData().addedSpells) {
+            if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
+                result.push_back(spell);
+            }
+        }
+        return result;
+    }
 
+    void InventoryManager::StashPlayerSpells(RE::Actor* a_player, SpellSnapshot& a_outSnapshot) {
+        auto& runtime = a_player->GetActorRuntimeData();
+        a_outSnapshot.leftSpell = skyrim_cast<RE::SpellItem*>(runtime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
+        a_outSnapshot.rightSpell = skyrim_cast<RE::SpellItem*>(runtime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
+        a_outSnapshot.shout = skyrim_cast<RE::TESShout*>(runtime.selectedPower);
+
+        a_outSnapshot.addedSpells.clear();
+        for (auto* spell : GetCastableAddedSpells(a_player)) {
+            a_outSnapshot.addedSpells.push_back(spell->GetFormID());
+            a_player->RemoveSpell(spell);
+        }
+        SKSE::log::info("Stashed {} player castable spells.", a_outSnapshot.addedSpells.size());
+    }
+
+    void InventoryManager::RestorePlayerSpells(RE::Actor* a_player, const SpellSnapshot& a_snapshot) {
         std::int32_t restoredCount = 0;
-        for (auto formID : _playerSavedSpells) {
+        for (auto formID : a_snapshot.addedSpells) {
             if (auto* spell = RE::TESForm::LookupByID<RE::SpellItem>(formID)) {
                 if (a_player->AddSpell(spell)) {
                     restoredCount++;
@@ -72,33 +84,36 @@ namespace InTheirShoes {
             }
         }
 
-        SKSE::log::info("Restored {} player dynamic spells.", restoredCount);
-        _playerSavedSpells.clear();
-        return true;
+        auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
+        auto* equipMgr = RE::ActorEquipManager::GetSingleton();
+        if (defaultObjMgr && equipMgr) {
+            auto* leftSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip);
+            auto* rightSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kRightHandEquip);
+            if (a_snapshot.leftSpell && leftSlot) {
+                equipMgr->EquipSpell(a_player, a_snapshot.leftSpell, leftSlot);
+            }
+            if (a_snapshot.rightSpell && rightSlot) {
+                equipMgr->EquipSpell(a_player, a_snapshot.rightSpell, rightSlot);
+            }
+            if (a_snapshot.shout) {
+                equipMgr->EquipShout(a_player, a_snapshot.shout);
+            }
+        }
+        SKSE::log::info("Restored {} player spells.", restoredCount);
     }
 
-    bool InventoryManager::CopyDynamicSpells(RE::Actor* a_fromActor, RE::Actor* a_toActor) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_fromActor || !a_toActor) return false;
-
+    void InventoryManager::CopyDonorSpells(RE::Actor* a_donor, RE::Actor* a_player) {
         std::int32_t copiedCount = 0;
-
         auto grantSpell = [&](RE::SpellItem* spell) {
-            if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
-                if (a_toActor->AddSpell(spell)) {
-                    _transferredSpells.push_back(spell->GetFormID());
-                    copiedCount++;
-                }
+            if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell) && a_player->AddSpell(spell)) {
+                copiedCount++;
             }
         };
 
-        // 1. Copy dynamic spells from donor
-        for (auto* spell : a_fromActor->GetActorRuntimeData().addedSpells) {
+        for (auto* spell : a_donor->GetActorRuntimeData().addedSpells) {
             grantSpell(spell);
         }
-
-        // 2. Copy base spells and shout variation spells from donor's TESNPC actorEffects
-        if (auto* donorBase = a_fromActor->GetActorBase(); donorBase && donorBase->actorEffects) {
+        if (auto* donorBase = a_donor->GetActorBase(); donorBase && donorBase->actorEffects) {
             auto* effects = donorBase->actorEffects;
             for (std::uint32_t i = 0; i < effects->numSpells; ++i) {
                 grantSpell(effects->spells[i]);
@@ -111,37 +126,25 @@ namespace InTheirShoes {
                 }
             }
         }
-
-        SKSE::log::info("Transferred {} total castable spells from {:08X} to {:08X}.",
-            copiedCount,
-            static_cast<std::uint32_t>(a_fromActor->GetFormID()),
-            static_cast<std::uint32_t>(a_toActor->GetFormID())
-        );
-
-        return true;
+        SKSE::log::info("Copied {} castable spells from donor {:08X} to player.", copiedCount, a_donor->GetFormID());
     }
 
-    bool InventoryManager::RemoveCopiedSpells(RE::Actor* a_targetActor) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_targetActor) return false;
-
-        std::int32_t removedCount = 0;
-        for (auto formID : _transferredSpells) {
-            if (auto* spell = RE::TESForm::LookupByID<RE::SpellItem>(formID)) {
-                if (a_targetActor->RemoveSpell(spell)) {
-                    removedCount++;
-                }
+    void InventoryManager::ReturnSpellsToDonor(RE::Actor* a_player, RE::Actor* a_donor) {
+        // The player's own spells were stashed at baseline capture, so everything castable left on the
+        // player is either a donor copy or was learned while impersonating
+        auto* donorBase = a_donor ? a_donor->GetActorBase() : nullptr;
+        std::int32_t returnedCount = 0;
+        for (auto* spell : GetCastableAddedSpells(a_player)) {
+            if (a_donor && !IsBaseSpellOf(spell, donorBase) && a_donor->AddSpell(spell)) {
+                returnedCount++;
             }
+            a_player->RemoveSpell(spell);
         }
-        SKSE::log::info("Removed {} copied donor spells from {:08X}.",
-            removedCount,
-            static_cast<std::uint32_t>(a_targetActor->GetFormID())
-        );
-        _transferredSpells.clear();
-        return true;
+        SKSE::log::info("Returned {} spells to donor.", returnedCount);
     }
 
-    bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor, bool a_forceEquip) {
+    bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor, bool a_forceEquip,
+        std::unordered_set<RE::FormID>& a_donorQuestItems) {
         if (!a_fromActor || !a_toActor) {
             SKSE::log::warn("TransferAllItems called with null actor pointer.");
             return false;
@@ -219,12 +222,12 @@ namespace InTheirShoes {
             bool isQuest = entryData && entryData->IsQuestObject();
             if (isQuest) {
                 if (a_fromActor->IsPlayerRef() && !a_toActor->IsPlayerRef()) {
-                    if (_transferredDonorQuestItems.find(boundObj->GetFormID()) == _transferredDonorQuestItems.end()) {
+                    if (a_donorQuestItems.find(boundObj->GetFormID()) == a_donorQuestItems.end()) {
                         continue; // Keep player's own quest items on the player
                     }
-                    _transferredDonorQuestItems.erase(boundObj->GetFormID());
+                    a_donorQuestItems.erase(boundObj->GetFormID());
                 } else if (!a_fromActor->IsPlayerRef() && a_toActor->IsPlayerRef()) {
-                    _transferredDonorQuestItems.insert(boundObj->GetFormID());
+                    a_donorQuestItems.insert(boundObj->GetFormID());
                 }
             }
 
@@ -294,113 +297,6 @@ namespace InTheirShoes {
         );
 
         a_toActor->Update3DModel();
-        return true;
-    }
-
-    bool InventoryManager::StashPlayerToPuppet(RE::Actor* a_player, RE::Actor* a_puppet) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
-
-        if (!_hasDragonbornBaseline) {
-            auto& pRuntime = a_player->GetActorRuntimeData();
-            _savedPlayerLeftSpell = skyrim_cast<RE::SpellItem*>(pRuntime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
-            _savedPlayerRightSpell = skyrim_cast<RE::SpellItem*>(pRuntime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
-            _savedPlayerShout = skyrim_cast<RE::TESShout*>(pRuntime.selectedPower);
-
-            StashPlayerDynamicSpells(a_player);
-            _hasDragonbornBaseline = true;
-        }
-
-        if (a_puppet) {
-            TransferAllItems(a_player, a_puppet, true);
-            SKSE::log::info("Stashed player inventory onto puppet {:08X}.",
-                static_cast<std::uint32_t>(a_puppet->GetFormID()));
-        }
-        return true;
-    }
-
-    bool InventoryManager::TransferDonorToPlayer(RE::Actor* a_donor, RE::Actor* a_player) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_donor || !a_player) return false;
-
-        CopyDynamicSpells(a_donor, a_player);
-        TransferAllItems(a_donor, a_player, false);
-        return true;
-    }
-
-    bool InventoryManager::TransferPlayerToDonor(RE::Actor* a_player, RE::Actor* a_donor) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
-
-        if (a_donor) {
-            TransferAllItems(a_player, a_donor, true);
-        }
-
-        // Everything castable still on the player is either a donor copy or was learned while impersonating.
-        std::vector<RE::SpellItem*> impersonationSpells;
-        for (auto* spell : a_player->GetActorRuntimeData().addedSpells) {
-            if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
-                impersonationSpells.push_back(spell);
-            }
-        }
-        for (auto* spell : impersonationSpells) {
-            if (a_donor) {
-                a_donor->AddSpell(spell);
-            }
-            a_player->RemoveSpell(spell);
-        }
-        RemoveCopiedSpells(a_player);
-        _transferredDonorQuestItems.clear();
-        return true;
-    }
-
-    bool InventoryManager::RestorePuppetToPlayer(RE::Actor* a_puppet, RE::Actor* a_player) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player || !a_puppet) return false;
-
-        RestorePlayerDynamicSpells(a_player);
-        TransferAllItems(a_puppet, a_player, false);
-
-        auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
-        auto* equipMgr = RE::ActorEquipManager::GetSingleton();
-        if (defaultObjMgr && equipMgr) {
-            auto* leftSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip);
-            auto* rightSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kRightHandEquip);
-            if (_savedPlayerLeftSpell && leftSlot) {
-                equipMgr->EquipSpell(a_player, _savedPlayerLeftSpell, leftSlot);
-            }
-            if (_savedPlayerRightSpell && rightSlot) {
-                equipMgr->EquipSpell(a_player, _savedPlayerRightSpell, rightSlot);
-            }
-            if (_savedPlayerShout) {
-                equipMgr->EquipShout(a_player, _savedPlayerShout);
-            }
-        }
-        _savedPlayerLeftSpell = nullptr;
-        _savedPlayerRightSpell = nullptr;
-        _savedPlayerShout = nullptr;
-        _hasDragonbornBaseline = false;
-        return true;
-    }
-
-    bool InventoryManager::StoreAndTransferToPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player || !a_donor) return false;
-
-        if (a_storageFollower || !_hasDragonbornBaseline) {
-            StashPlayerToPuppet(a_player, a_storageFollower);
-        }
-        return TransferDonorToPlayer(a_donor, a_player);
-    }
-
-    bool InventoryManager::RestoreAndTransferFromPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_player) return false;
-
-        TransferPlayerToDonor(a_player, a_donor);
-        if (a_storageFollower) {
-            RestorePuppetToPlayer(a_storageFollower, a_player);
-        }
         return true;
     }
 
