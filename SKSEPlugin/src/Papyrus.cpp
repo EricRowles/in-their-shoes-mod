@@ -1,53 +1,41 @@
 #include "PCH.h"
 #include "Papyrus.h"
-#include "AliasManager.h"
 #include "FaceManager.h"
 #include "InventoryManager.h"
 #include "StatManager.h"
 #include "IdleAIManager.h"
+#include "DialogueManager.h"
 #include "ImpersonationManager.h"
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
 
 namespace InTheirShoes::Papyrus {
 
-    bool CloneAppearance(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_target) {
-        return FaceManager::GetSingleton().CloneAppearance(a_donor, a_target);
-    }
-
-    bool CopyAppearance(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_target) {
-        return FaceManager::GetSingleton().CopyAppearance(a_donor, a_target);
-    }
-
-    bool RevertAppearance(RE::StaticFunctionTag*, RE::Actor* a_target, bool a_update3D) {
-        return FaceManager::GetSingleton().RevertAppearance(a_target, a_update3D);
-    }
-
-    bool TransferInventoryToPlayer(RE::StaticFunctionTag*, RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
-        return InventoryManager::GetSingleton().StoreAndTransferToPlayer(a_player, a_donor, a_storageFollower);
-    }
-
     bool RestoreInventoryFromPlayer(RE::StaticFunctionTag*, RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
         return InventoryManager::GetSingleton().RestoreAndTransferFromPlayer(a_player, a_donor, a_storageFollower);
-    }
-
-    bool TransferStats(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_player) {
-        return StatManager::GetSingleton().TransferStatsToPlayer(a_player, a_donor);
     }
 
     bool CopyStats(RE::StaticFunctionTag*, RE::Actor* a_fromActor, RE::Actor* a_toActor) {
         return StatManager::GetSingleton().CopyStats(a_fromActor, a_toActor);
     }
 
-    bool RestoreStats(RE::StaticFunctionTag*, RE::Actor* a_player) {
-        return StatManager::GetSingleton().RestoreStatsFromPlayer(a_player);
-    }
-
     bool ApplyDonorProfile(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_player, RE::Actor* a_storageFollower) {
         if (!a_donor || !a_player) return false;
-        FaceManager::GetSingleton().CloneAppearance(a_donor, a_player);
+
+        // 1. Capture Dragonborn baseline appearance before modifying player or puppet
+        FaceManager::GetSingleton().SaveBaselineAppearance(a_player);
+
+        // 2. When entering impersonation from Dragonborn, configure puppet appearance, stats, and stashed gear
+        if (a_storageFollower) {
+            ImpersonationManager::GetSingleton().SetPuppet(a_storageFollower);
+            StatManager::GetSingleton().CopyStats(a_player, a_storageFollower);
+            InventoryManager::GetSingleton().StashPlayerToPuppet(a_player, a_storageFollower);
+        }
+
+        // 3. Apply donor appearance, stats, spells/shouts, and inventory to player
+        FaceManager::GetSingleton().CopyAppearance(a_donor, a_player);
         StatManager::GetSingleton().TransferStatsToPlayer(a_player, a_donor);
-        InventoryManager::GetSingleton().StoreAndTransferToPlayer(a_player, a_donor, a_storageFollower);
+        InventoryManager::GetSingleton().TransferDonorToPlayer(a_donor, a_player);
         return true;
     }
 
@@ -56,9 +44,12 @@ namespace InTheirShoes::Papyrus {
         if (a_donor) {
             StatManager::GetSingleton().CopyStats(a_player, a_donor);
         }
+        InventoryManager::GetSingleton().TransferPlayerToDonor(a_player, a_donor);
         FaceManager::GetSingleton().RevertAppearance(a_player);
         StatManager::GetSingleton().RestoreStatsFromPlayer(a_player);
-        InventoryManager::GetSingleton().RestoreAndTransferFromPlayer(a_player, a_donor, a_storageFollower);
+        if (a_storageFollower) {
+            InventoryManager::GetSingleton().RestorePuppetToPlayer(a_storageFollower, a_player);
+        }
         return true;
     }
 
@@ -71,59 +62,17 @@ namespace InTheirShoes::Papyrus {
     }
 
     void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
-        IdleAIManager::GetSingleton().SetIdleChatterTime(a_seconds);
-    }
-
-    void SetControllingNPC(RE::StaticFunctionTag*, bool a_controlling) {
-        IdleAIManager::GetSingleton().SetControllingNPC(a_controlling);
-    }
-
-    void UpdateIdleAI(RE::StaticFunctionTag*) {
-        IdleAIManager::GetSingleton().Update();
+        DialogueManager::GetSingleton().SetIdleChatterTime(a_seconds);
     }
 
     bool OpenSelfDialogue(RE::StaticFunctionTag*, RE::Actor* a_speaker) {
         SKSE::log::info("Papyrus::OpenSelfDialogue called with speaker {:08X}",
             a_speaker ? static_cast<std::uint32_t>(a_speaker->GetFormID()) : 0);
-        return IdleAIManager::GetSingleton().OpenSelfDialogue(a_speaker);
-    }
-
-    bool TriggerVoiceLine(RE::StaticFunctionTag*, RE::Actor* a_speaker) {
-        return IdleAIManager::GetSingleton().TriggerVoiceLine(a_speaker);
-    }
-
-    std::int32_t GetActorSex(RE::StaticFunctionTag*, RE::Actor* a_actor) {
-        if (!a_actor) return 0;
-        if (a_actor->IsPlayerRef() && FaceManager::GetSingleton().HasSavedAppearance()) {
-            return static_cast<std::int32_t>(FaceManager::GetSingleton().GetSavedAppearance().sex);
-        }
-        auto* base = a_actor->GetActorBase();
-        if (!base) return 0;
-        return static_cast<std::int32_t>(base->GetSex());
+        return DialogueManager::GetSingleton().OpenSelfDialogue(a_speaker);
     }
 
     RE::BSFixedString GetOriginalPlayerName(RE::StaticFunctionTag*) {
-        if (FaceManager::GetSingleton().HasSavedAppearance()) {
-            const auto& origFace = FaceManager::GetSingleton().GetSavedAppearance();
-            if (!origFace.fullName.empty()) {
-                return origFace.fullName;
-            }
-        }
-        const auto& impOrig = ImpersonationManager::GetSingleton().GetOrigPlayerName();
-        if (!impOrig.empty()) {
-            return RE::BSFixedString(impOrig);
-        }
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        if (player) {
-            const char* dispName = player->GetDisplayFullName();
-            if (dispName && dispName[0] != '\0') {
-                return dispName;
-            }
-            if (player->GetActorBase()) {
-                return player->GetActorBase()->fullName;
-            }
-        }
-        return ""sv;
+        return RE::BSFixedString(ImpersonationManager::GetSingleton().GetOrigPlayerName());
     }
 
     std::int32_t BeginImpersonation(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_player) {
@@ -193,7 +142,6 @@ namespace InTheirShoes::Papyrus {
         return 0;
     }
 
-
     bool Register(RE::BSScript::IVirtualMachine* a_vm) {
         if (!a_vm) {
             SKSE::log::error("Papyrus VM is null!");
@@ -202,24 +150,14 @@ namespace InTheirShoes::Papyrus {
 
         constexpr std::string_view className = "ITS_NG";
 
-        a_vm->RegisterFunction("CloneAppearance", className, CloneAppearance);
-        a_vm->RegisterFunction("CopyAppearance", className, CopyAppearance);
-        a_vm->RegisterFunction("RevertAppearance", className, RevertAppearance);
-        a_vm->RegisterFunction("TransferInventoryToPlayer", className, TransferInventoryToPlayer);
         a_vm->RegisterFunction("RestoreInventoryFromPlayer", className, RestoreInventoryFromPlayer);
-        a_vm->RegisterFunction("TransferStats", className, TransferStats);
         a_vm->RegisterFunction("CopyStats", className, CopyStats);
-        a_vm->RegisterFunction("RestoreStats", className, RestoreStats);
         a_vm->RegisterFunction("ApplyDonorProfile", className, ApplyDonorProfile);
         a_vm->RegisterFunction("RestorePlayerProfile", className, RestorePlayerProfile);
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
         a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
-        a_vm->RegisterFunction("SetControllingNPC", className, SetControllingNPC);
-        a_vm->RegisterFunction("UpdateIdleAI", className, UpdateIdleAI);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
-        a_vm->RegisterFunction("TriggerVoiceLine", className, TriggerVoiceLine);
-        a_vm->RegisterFunction("GetActorSex", className, GetActorSex);
         a_vm->RegisterFunction("BeginImpersonation", className, BeginImpersonation);
         a_vm->RegisterFunction("EndImpersonation", className, EndImpersonation);
         a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);
@@ -227,7 +165,6 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("SetPuppetActor", className, SetPuppetActor);
         a_vm->RegisterFunction("GetOriginalPlayerName", className, GetOriginalPlayerName);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
-
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;

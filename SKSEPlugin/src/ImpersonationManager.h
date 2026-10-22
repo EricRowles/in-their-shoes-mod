@@ -8,19 +8,6 @@
 
 namespace InTheirShoes {
 
-    struct ImpersonationOptions {
-        bool npcVoice{ true };
-        bool puppetFollowsPlayer{ true };
-    };
-
-    struct RetargetedPackageTarget {
-        RE::TESPackage* package{ nullptr };
-        RE::FormID packageFormID{ 0 };
-        std::uint8_t targType{ 0 };
-        RE::ObjectRefHandle origHandle;
-        RE::TESForm* origObject{ nullptr };
-    };
-
     class ImpersonationManager {
     public:
         static ImpersonationManager& GetSingleton() {
@@ -34,24 +21,14 @@ namespace InTheirShoes {
         void Tick();
 
         bool IsActive() const { return _active.load(std::memory_order_acquire); }
-        RE::Actor* GetDonor() const {
-            if (!_active.load(std::memory_order_acquire)) return nullptr;
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            auto handle = _donorHandle.get();
-            return handle ? handle.get() : nullptr;
-        }
-        RE::Actor* GetPlayer() const { return _playerActor.load(std::memory_order_acquire); }
 
-        std::string GetDonorName() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _donorName;
-        }
-        std::string GetOrigPlayerName() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _origPlayerName;
-        }
+        RE::Actor* GetDonor() const { return _donorActor.load(std::memory_order_acquire); }
+        RE::Actor* GetPuppet() const { return _puppetActor.load(std::memory_order_acquire); }
+        RE::Actor* GetPlayer() const { return RE::PlayerCharacter::GetSingleton(); }
+
+        std::string GetOrigPlayerName() const;
+        RE::BGSVoiceType* GetOrigPlayerVoiceType() const;
         RE::BGSVoiceType* GetDonorVoiceType() const { return _donorVoiceType.load(std::memory_order_acquire); }
-        RE::BGSVoiceType* GetOrigPlayerVoiceType() const { return _origPlayerVoiceType.load(std::memory_order_acquire); }
         bool IsPuppetBase(const RE::TESNPC* a_npc) const {
             if (!a_npc) return false;
             return a_npc == _puppetBase.load(std::memory_order_acquire);
@@ -61,59 +38,38 @@ namespace InTheirShoes {
             return a_form == static_cast<const RE::TESForm*>(_puppetBase.load(std::memory_order_acquire));
         }
         void SetPuppet(RE::Actor* a_puppet);
-        RE::Actor* GetPuppet() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            auto handle = _puppetHandle.get();
-            return handle ? handle.get() : nullptr;
-        }
 
-        ImpersonationOptions GetOptions() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _options;
-        }
-        bool IsConditionsEnabled() const { return _active.load(std::memory_order_acquire); }
-
-        void SetNPCVoiceEnabled(bool a_enabled) {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _options.npcVoice = a_enabled;
-            _npcVoiceEnabled.store(a_enabled, std::memory_order_release);
-        }
+        void SetNPCVoiceEnabled(bool a_enabled) { _npcVoiceEnabled.store(a_enabled, std::memory_order_release); }
         bool IsNPCVoiceEnabled() const { return _npcVoiceEnabled.load(std::memory_order_acquire); }
-
-
         void SetPuppetFollowsPlayer(bool a_follows);
-        bool DoesPuppetFollowPlayer() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _options.puppetFollowsPlayer;
-        }
-
 
         void Save(SKSE::SerializationInterface* a_serde);
-        void Load(SKSE::SerializationInterface* a_serde, std::uint32_t a_length);
-        void SaveSwappedAliases(SKSE::SerializationInterface* a_serde);
-        void LoadSwappedAliases(SKSE::SerializationInterface* a_serde, std::uint32_t a_length);
+        void Load(SKSE::SerializationInterface* a_serde);
         void OnRevert();
         void OnPostLoadGame();
 
         static RE::BGSVoiceType* GetNPCVoiceType(const RE::TESNPC* a_npc);
+        static bool IsModInternalQuest(RE::TESQuest* a_quest);
 
-        void ResetSpeechTracking();
-        bool CheckPlayerSpeakingDone();
-        void OnDialogueResponseStarted(RE::DialogueResponse* a_response);
-        bool IsPlayerSpeaking() const { return _playerSpeaking.load(std::memory_order_acquire); }
-        void SetPlayerSpeaking(bool a_speaking) { _playerSpeaking.store(a_speaking, std::memory_order_release); }
-        void CompleteSpeaking(RE::Actor* a_player);
-        bool IsInCompleteSpeaking() const { return _inCompleteSpeaking.load(std::memory_order_acquire); }
-        static void AttachSoundHandlesToHead(RE::Actor* a_actor);
-        bool HandleProxyDialogueOutput(RE::Actor* a_speaker, RE::DialogueResponse* a_response, bool a_unused);
-        void SyncDonorUpdatesToPlayer();
-        void ClearPlayerPackages();
+        void ForwardPuppetFactionsToDonor();
+
         RE::ObjectRefHandle GetStorageMarker() const {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
             return _storageMarker;
         }
-        bool PlayIdleDialogueLine(RE::DialogueResponse* a_response, RE::TESTopicInfo* a_info);
-        bool TryCreateDialogueSoundHandle(RE::Actor* a_actor, RE::DialogueResponse* a_response);
+
+        struct SwappedAlias {
+            RE::FormID questFormID{ 0 };
+            std::uint32_t aliasID{ 0 };
+        };
+
+        bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
+            std::lock_guard<std::recursive_mutex> lock(_mutex);
+            for (const auto& entry : _swappedAliases) {
+                if (entry.questFormID == a_questFormID && entry.aliasID == a_aliasID) return true;
+            }
+            return false;
+        }
 
     private:
         ImpersonationManager() = default;
@@ -122,38 +78,12 @@ namespace InTheirShoes {
         ImpersonationManager& operator=(const ImpersonationManager&) = delete;
 
         void InstallHooks();
-        static void Hook_ForceRefIntoAlias(struct _CONTEXT& a_ctx);
         static RE::BGSVoiceType* Hook_GetObjectVoiceType(const RE::TESNPC* a_this);
         inline static REL::Relocation<decltype(Hook_GetObjectVoiceType)> _origGetObjectVoiceType;
 
-        static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
-        using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
-        inline static REL::Relocation<UpdateInDialogue_t> _origCharUpdateInDialogue;
-
-        static bool Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
-        inline static REL::Relocation<UpdateInDialogue_t> _origPlayerUpdateInDialogue;
-
-        static bool Hook_Character_QSpeakingDone(const RE::Actor* a_this);
-        using QSpeakingDone_t = bool(const RE::Actor*);
-        inline static REL::Relocation<QSpeakingDone_t> _origCharQSpeakingDone;
-
-        static bool Hook_Player_QSpeakingDone(const RE::Actor* a_this);
-        inline static REL::Relocation<QSpeakingDone_t> _origPlayerQSpeakingDone;
-
-        static void Hook_Character_SetSpeakingDone(RE::Actor* a_this, bool a_set);
-        using SetSpeakingDone_t = void(RE::Actor*, bool);
-        inline static REL::Relocation<SetSpeakingDone_t> _origCharSetSpeakingDone;
-
-        static void Hook_Player_SetSpeakingDone(RE::Actor* a_this, bool a_set);
-        inline static REL::Relocation<SetSpeakingDone_t> _origPlayerSetSpeakingDone;
-
-        static bool Hook_SetDialogueWithPlayer(RE::Actor* a_this, bool a_flag, bool a_forceGreet, RE::TESTopicInfo* a_topic);
-        using SetDialogueWithPlayer_t = bool(RE::Actor*, bool, bool, RE::TESTopicInfo*);
-        inline static REL::Relocation<SetDialogueWithPlayer_t> _origSetDialogueWithPlayer;
-
-        using UpdateAnimation_t = void(RE::Actor*, float);
-        static void Hook_Player_UpdateAnimation(RE::Actor* a_this, float a_delta);
-        inline static REL::Relocation<UpdateAnimation_t> _origPlayerUpdateAnimation;
+        using Update_t = void(RE::Actor*, float);
+        static void Hook_Player_Update(RE::Actor* a_this, float a_delta);
+        inline static REL::Relocation<Update_t> _origPlayerUpdate;
 
         static RE::BGSLocation* Hook_Player_GetEditorLocation1(const RE::TESObjectREFR* a_this);
         using GetEditorLocation1_t = RE::BGSLocation*(const RE::TESObjectREFR*);
@@ -168,45 +98,31 @@ namespace InTheirShoes {
         using GetEditorLocation2_t = bool(RE::TESObjectREFR*, RE::NiPoint3&, RE::NiPoint3&, RE::TESForm*&, RE::TESObjectCELL*);
         inline static REL::Relocation<GetEditorLocation2_t> _origPlayerGetEditorLocation2;
 
-
         mutable std::recursive_mutex _mutex;
         std::atomic<bool> _active{ false };
+
         std::atomic<RE::Actor*> _donorActor{ nullptr };
-        std::atomic<RE::Actor*> _playerActor{ nullptr };
         RE::NiPointer<RE::Actor> _donorKeepAlive;
-        RE::ActorHandle _donorHandle;
-        RE::FormID _savedDonorFormID{ 0 };
         std::atomic<RE::BGSVoiceType*> _donorVoiceType{ nullptr };
-        std::atomic<RE::BGSVoiceType*> _origPlayerVoiceType{ nullptr };
+        std::atomic<RE::Actor*> _puppetActor{ nullptr };
+        RE::NiPointer<RE::Actor> _puppetKeepAlive;
         std::atomic<RE::TESNPC*> _puppetBase{ nullptr };
         std::atomic<bool> _npcVoiceEnabled{ true };
-        std::string _donorName;
-        std::string _origPlayerName;
-        RE::ActorHandle _puppetHandle;
+        std::atomic<bool> _puppetFollows{ true };
         RE::ObjectRefHandle _storageMarker;
 
-        std::atomic<bool> _playerSpeaking{ false };
-        std::atomic<bool> _inCompleteSpeaking{ false };
-        std::atomic<bool> _speechHadSound{ false };
-        std::chrono::steady_clock::time_point _speechStartTime{ std::chrono::steady_clock::now() };
-        std::chrono::steady_clock::time_point _speechAudioEndTime{ std::chrono::steady_clock::time_point{} };
-        float _speechMinDuration{ 2.0f };
-        std::uint32_t _dialogueSoundID{ static_cast<std::uint32_t>(-1) };
-
-        struct SwappedAlias {
-            RE::FormID questFormID{ 0 };
-            std::uint32_t aliasID{ 0 };
-            RE::FormID donorFormID{ 0 };
-        };
         std::vector<SwappedAlias> _swappedAliases;
+
+        void AttachDonor(RE::Actor* a_donor);
+        void DetachDonor();
+        void AttachPuppet(RE::Actor* a_puppet);
+        void ConfigurePuppet(RE::Actor* a_puppet);
+        void ApplyPuppetFollowState(RE::Actor* a_puppet);
+        bool _puppetConfigured{ false };
         void SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
         void RestoreSwappedAliases(RE::Actor* a_donor);
 
-        ImpersonationOptions _options;
-        std::vector<RetargetedPackageTarget> _retargetedPackages;
         bool _hooksInstalled{ false };
     };
-
-
 
 }

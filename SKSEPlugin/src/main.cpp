@@ -3,6 +3,7 @@
 #include "Papyrus.h"
 #include "Serialization.h"
 #include "IdleAIManager.h"
+#include "DialogueManager.h"
 #include "ImpersonationManager.h"
 
 SKSEPluginInfo(
@@ -40,6 +41,7 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
     if (a_msg->type == SKSE::MessagingInterface::kInputLoaded) {
         InTheirShoes::IdleAIManager::GetSingleton().Initialize();
     } else if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
+        InTheirShoes::DialogueManager::GetSingleton().Initialize();
         InTheirShoes::ImpersonationManager::GetSingleton().Initialize();
     } else if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame) {
         InTheirShoes::ImpersonationManager::GetSingleton().OnPostLoadGame();
@@ -47,6 +49,8 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
 }
 
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse) {
+    // Plugin load runs on the game's main thread; this is the only place g_mainThreadId is set
+    InTheirShoes::g_mainThreadId.store(REX::W32::GetCurrentThreadId(), std::memory_order_relaxed);
     InitializeLogging();
 
     auto* plugin = SKSE::PluginDeclaration::GetSingleton();

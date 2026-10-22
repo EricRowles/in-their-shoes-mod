@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <mutex>
+#include <string>
+#include <unordered_set>
 #include <vector>
 #include "RE/N/NiColor.h"
 
@@ -46,16 +48,19 @@ namespace InTheirShoes {
             return instance;
         }
 
-        // Clones full visual appearance and AI profile from donor to target actor
+        // Captures the Dragonborn's baseline appearance if not already saved
+        bool SaveBaselineAppearance(RE::Actor* a_player);
+
+        // Clones full visual appearance from donor to target actor (saving target's original appearance if not yet saved)
         bool CloneAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
-        // Copies visual appearance and AI profile from donor to target actor without modifying saved history
+        // Copies visual appearance from donor to target actor without modifying saved history
         bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
         // Restores saved original appearance onto target actor
         bool RevertAppearance(RE::Actor* a_target, bool a_update3D = true);
 
-        // Restores active donor appearance onto target actor (using saved donor snapshot if available, or donor actor fallback)
+        // Restores active donor appearance onto target actor directly from the donor actor
         bool RestoreDonorAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
         // Restores saved original Dragonborn appearance onto puppet actor
@@ -78,35 +83,22 @@ namespace InTheirShoes {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
             _savedOriginalAppearance = a_snapshot;
             _hasSavedAppearance = true;
+            RefreshOriginalVoice();
         }
         void ClearSavedAppearance() {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
             _savedOriginalAppearance = FaceSnapshot{};
             _hasSavedAppearance = false;
+            RefreshOriginalVoice();
         }
 
-        bool HasDonorAppearance() const {
+        // The Dragonborn's real name (empty if no appearance has been saved)
+        std::string GetSavedAppearanceName() const {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _hasDonorAppearance;
+            return _hasSavedAppearance ? std::string(_savedOriginalAppearance.fullName.c_str()) : std::string();
         }
-        FaceSnapshot GetDonorAppearance() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _donorAppearance;
-        }
-        void SetDonorAppearance(const FaceSnapshot& a_snapshot) {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _donorAppearance = a_snapshot;
-            _hasDonorAppearance = true;
-        }
-        void ClearDonorAppearance() {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _donorAppearance = FaceSnapshot{};
-            _hasDonorAppearance = false;
-        }
-
-        bool NeedsPuppetPost3DUpdate() const { return _puppetNeedsPost3DUpdate.load(std::memory_order_relaxed); }
-        void SetPuppetNeedsPost3DUpdate(bool a_needs) { _puppetNeedsPost3DUpdate.store(a_needs, std::memory_order_relaxed); }
-        void ApplyPuppetPost3DLighting(RE::Actor* a_puppet);
+        // The Dragonborn's real voice type; lock-free because condition hooks read it constantly
+        RE::BGSVoiceType* GetOriginalVoiceType() const { return _origVoiceType.load(std::memory_order_acquire); }
 
     private:
         FaceManager() = default;
@@ -114,12 +106,16 @@ namespace InTheirShoes {
         FaceManager(const FaceManager&) = delete;
         FaceManager& operator=(const FaceManager&) = delete;
 
+        // Caller must hold _mutex
+        void RefreshOriginalVoice() {
+            _origVoiceType.store(_hasSavedAppearance ? _savedOriginalAppearance.voiceType : nullptr, std::memory_order_release);
+        }
+
         mutable std::recursive_mutex _mutex;
+        std::atomic<RE::BGSVoiceType*> _origVoiceType{ nullptr };
         FaceSnapshot _savedOriginalAppearance;
         bool _hasSavedAppearance{ false };
-        FaceSnapshot _donorAppearance;
-        bool _hasDonorAppearance{ false };
-        std::atomic<bool> _puppetNeedsPost3DUpdate{ false };
+        std::unordered_set<void*> _allocatedHeadPartBuffers;
     };
 
 }

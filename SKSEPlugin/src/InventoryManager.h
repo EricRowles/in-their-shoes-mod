@@ -13,6 +13,13 @@ namespace InTheirShoes {
             return instance;
         }
 
+        // Explicit lifecycle steps
+        bool StashPlayerToPuppet(RE::Actor* a_player, RE::Actor* a_puppet);
+        bool TransferDonorToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
+        bool TransferPlayerToDonor(RE::Actor* a_player, RE::Actor* a_donor);
+        bool RestorePuppetToPlayer(RE::Actor* a_puppet, RE::Actor* a_player);
+
+        // Composite wrappers
         bool StoreAndTransferToPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower = nullptr);
         bool RestoreAndTransferFromPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower = nullptr);
 
@@ -31,6 +38,16 @@ namespace InTheirShoes {
             _savedPlayerLeftSpell = nullptr;
             _savedPlayerRightSpell = nullptr;
             _savedPlayerShout = nullptr;
+            _hasDragonbornBaseline = false;
+        }
+
+        bool HasDragonbornBaseline() const {
+            std::lock_guard<std::recursive_mutex> lock(_mutex);
+            return _hasDragonbornBaseline;
+        }
+        void SetHasDragonbornBaseline(bool a_has) {
+            std::lock_guard<std::recursive_mutex> lock(_mutex);
+            _hasDragonbornBaseline = a_has;
         }
 
         std::vector<RE::FormID> GetTransferredSpellIDs() const {
@@ -100,6 +117,7 @@ namespace InTheirShoes {
         RE::SpellItem* _savedPlayerLeftSpell{ nullptr };
         RE::SpellItem* _savedPlayerRightSpell{ nullptr };
         RE::TESShout* _savedPlayerShout{ nullptr };
+        bool _hasDragonbornBaseline{ false };
     };
 
 }

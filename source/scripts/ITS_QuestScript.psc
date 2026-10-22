@@ -44,19 +44,9 @@ function ITS_Maintenance()
 	EndIf
 
 	; Synchronize SKSE Native settings from MCM properties on game load
-	ITS_NG.SetIdleAIEnabled(ITS_MCM.IdleAIEnabled)
-	ITS_NG.SetIdleAITimeout(ITS_MCM.IdleAITimeout)
-	float chatterDelay = ITS_MCM.IdleChatterTime
-	if chatterDelay < 10.0
-		chatterDelay = 60.0
-		ITS_MCM.IdleChatterTime = 60.0
-	endif
-	ITS_NG.SetIdleChatterTime(chatterDelay)
-	ITS_NG.SetNPCVoiceEnabled(ITS_MCM.NPCVoiceEnabled)
-	ITS_NG.SetPuppetFollowsPlayer(ITS_MCM.PuppetFollowsPlayer)
+	ITS_MCM.PushConfig()
 
 	If OriginalDonorRef
-		ITS_NG.SetControllingNPC(True)
 		PlayerPuppetRef = Alias_PlayerPuppet.GetActorReference()
 		If PlayerPuppetRef
 			ITS_NG.SetPuppetActor(PlayerPuppetRef)
@@ -93,18 +83,12 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 		return
 	endif
 
-	; Capture original player name before any appearance or trait cloning occurs
-	String origPlayerName = ITS_NG.GetOriginalPlayerName()
-	If origPlayerName == ""
-		origPlayerName = PlayerRef.GetActorBase().GetName()
-	EndIf
-
 	a_player.StopCombat()
 	a_donor.StopCombat()
 	
 	Game.FadeOutGame(true, true, 0.0, 0.3)
 	
-	; Dynamically select puppet actor
+	; Ensure puppet alias is filled and vanilla activation is blocked
 	Actor currentPuppet = Alias_PlayerPuppet.GetActorReference()
 	If !currentPuppet
 		currentPuppet = ITS_TempPlayer
@@ -112,13 +96,9 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 		currentPuppet = Alias_PlayerPuppet.GetActorReference()
 	EndIf
 	PlayerPuppetRef = currentPuppet
-
-	; Configure the puppet's sex, name, and appearance BEFORE moving into the player's loaded cell
-	PlayerPuppetRef.SetDisplayName(origPlayerName, True)
 	PlayerPuppetRef.BlockActivation(True)
-	ITS_NG.SetPuppetActor(PlayerPuppetRef)
 
-	; Transfer traits from PC back to orignpc before getting new traits if we were already controlling an NPC
+	; Handle donor-to-donor switch vs initial Dragonborn-to-donor impersonation
 	OriginalDonorRef = Alias_OriginalDonor.GetActorReference()
 	If OriginalDonorRef
 		ITS_NG.EndImpersonation()
@@ -128,16 +108,11 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 		ITS_NG.RestoreInventoryFromPlayer(PlayerRef, OriginalDonorRef, None)
 		ITS_NG.CopyStats(PlayerRef, OriginalDonorRef)
 		OriginalDonorRef.EvaluatePackage()
-	Else
-		PlayerPuppetRef.moveto(a_donor)
-		Utility.Wait(0.1) ; Allow 3D node attachment in loaded cell
-	EndIf
-	
-	; Make the player look and have stats like the donor NPC
-	If OriginalDonorRef
 		ITS_NG.ApplyDonorProfile(a_donor, PlayerRef, None)
 	Else
-		ITS_NG.CopyStats(PlayerRef, PlayerPuppetRef)	
+		; Move puppet into the loaded cell before morphing so its 3D is attached
+		PlayerPuppetRef.moveto(a_donor)
+		Utility.Wait(0.1)
 		ITS_NG.ApplyDonorProfile(a_donor, PlayerRef, PlayerPuppetRef)
 	EndIf
 	
@@ -148,7 +123,6 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 		PlayerRef.addspell(ITS_RevertSpell, False)
 	EndIf 
 	
-	ITS_NG.SetControllingNPC(True)
 	ITS_NG.BeginImpersonation(a_donor, PlayerRef)
 
 	Game.FadeOutGame(false, true, 0.0, 0.4)
@@ -164,18 +138,15 @@ function ITS_Revert(actor a_player)
 
 		Game.FadeOutGame(true, true, 0.0, 0.3)
 
-		ITS_NG.SetControllingNPC(False)
-		ITS_NG.EndImpersonation()		
+		ITS_NG.EndImpersonation()
 		
 		ITS_TempMarker.MoveTo(a_player)
 		a_player.moveto(PlayerPuppetRef)
 		
 		a_player.StopCombat()
 
-		if OriginalDonorRef
-			OriginalDonorRef.moveto(ITS_TempMarker)
-			OriginalDonorRef.StopCombat()
-		EndIf
+		OriginalDonorRef.moveto(ITS_TempMarker)
+		OriginalDonorRef.StopCombat()
 		a_player.RemoveSpell(ITS_RevertSpell)
 		
 		ITS_NG.RestorePlayerProfile(PlayerRef, OriginalDonorRef, PlayerPuppetRef)
@@ -192,4 +163,3 @@ function ITS_Revert(actor a_player)
 		Debug.Notification("Returned to Body")
 	EndIf
 EndFunction
-

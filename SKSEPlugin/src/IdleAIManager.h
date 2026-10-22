@@ -3,21 +3,26 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
-#include "RE/B/BSTSmartPointer.h"
-#include "RE/D/DialogueItem.h"
-#include "RE/T/TESAIForm.h"
+#include <vector>
+#include <cstdint>
 
 namespace RE {
-    class TESObjectCELL;
-    class TESCombatStyle;
-    class TESClass;
+    class Actor;
+    class TESPackage;
+    class TESQuest;
 }
 
 namespace InTheirShoes {
 
-    class IdleAIManager : 
-        public RE::BSTEventSink<RE::InputEvent*>,
-        public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+    struct RetargetedPackageTarget {
+        RE::TESPackage* package{ nullptr };
+        RE::FormID packageFormID{ 0 };
+        std::uint8_t targType{ 0 };
+        RE::ObjectRefHandle origHandle;
+        RE::TESForm* origObject{ nullptr };
+    };
+
+    class IdleAIManager : public RE::BSTEventSink<RE::InputEvent*> {
     public:
         static IdleAIManager& GetSingleton() {
             static IdleAIManager instance;
@@ -30,71 +35,30 @@ namespace InTheirShoes {
         // BSTEventSink<RE::InputEvent*>
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
 
-        // BSTEventSink<RE::MenuOpenCloseEvent>
-        RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>* a_eventSource) override;
-
         void OnUserInput();
         void CheckIdleAI();
         void StartIdleAI();
         void StopIdleAI();
 
-        void SetControllingNPC(bool a_controlling);
-        bool IsControllingNPC() const { return _isControllingNPC.load(std::memory_order_acquire); }
+        void OnImpersonationChanged(bool a_active);
 
         void SetIdleAIEnabled(bool a_enabled) { _enabled.store(a_enabled, std::memory_order_release); }
         bool IsIdleAIEnabled() const { return _enabled.load(std::memory_order_acquire); }
 
-        void SetCombatAIEnabled(bool /*a_enabled*/) {}
-        bool IsCombatAIEnabled() const { return false; }
-
         void SetIdleTimeout(float a_seconds) { _idleTimeoutSeconds.store(a_seconds, std::memory_order_release); }
         float GetIdleTimeout() const { return _idleTimeoutSeconds.load(std::memory_order_acquire); }
 
-        void SetIdleChatterTime(float a_seconds) {
-            if (a_seconds < 10.0f) {
-                a_seconds = 60.0f;
-            }
-            _idleChatterTimeSeconds.store(a_seconds, std::memory_order_release);
-        }
-        float GetIdleChatterTime() const { return _idleChatterTimeSeconds.load(std::memory_order_acquire); }
-
-        void OnIdleChatterLineCompleted() {
-            _lastIdleChatterTime = std::chrono::steady_clock::now();
-        }
-
-        void SetActiveDonorActor(RE::Actor* a_donor);
-        RE::Actor* GetActiveDonorActor() const {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            return _activeDonorActor.get().get();
-        }
-
-        bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr);
-        bool OpenSelfDialogueDirect(RE::Actor* a_speaker);
-        bool TriggerVoiceLine(RE::Actor* a_speaker = nullptr);
-
-        bool CheckAndTriggerIdleDialogue();
-        void ClearCurrentDialogueItem() {
-            std::lock_guard<std::recursive_mutex> lock(_mutex);
-            _currentIdleDialogueItem.reset();
-        }
-
         bool IsAIActive() const { return _aiActive.load(std::memory_order_acquire); }
-        bool IsInSelfDialogue() const;
-        void SetInSelfDialogue(bool a_inSelf) { _inSelfDialogue.store(a_inSelf, std::memory_order_release); }
 
-        void InstallHooks();
-        void InstallAimControllerSafetyPatch();
+        // Package management
+        void SyncDonorUpdatesToPlayer();
+        void ClearPlayerPackages();
+        std::vector<RE::TESPackage*> GetAliasPackages(RE::Actor* a_actor) const;
 
         void Clear() {
             std::lock_guard<std::recursive_mutex> lock(_mutex);
             StopIdleAI();
-            _isControllingNPC.store(false, std::memory_order_release);
-            _inSelfDialogue.store(false, std::memory_order_release);
-            _activeDonorActor.reset();
-            _lastCell = nullptr;
-            _currentIdleDialogueItem.reset();
-            _lastIdleEvalTime = {};
-            _lastIdleChatterTime = std::chrono::steady_clock::now();
+            ClearPlayerPackages();
         }
 
     private:
@@ -105,22 +69,14 @@ namespace InTheirShoes {
 
         mutable std::recursive_mutex _mutex;
         bool _initialized{ false };
-        bool _hooksInstalled{ false };
         std::atomic<bool> _enabled{ false };
-        std::atomic<bool> _isControllingNPC{ false };
         std::atomic<bool> _aiActive{ false };
-        std::atomic<bool> _inSelfDialogue{ false };
         std::atomic<float> _idleTimeoutSeconds{ 10.0f };
-        std::atomic<float> _idleChatterTimeSeconds{ 60.0f };
-        RE::ActorHandle _activeDonorActor;
         std::chrono::steady_clock::time_point _lastPackageSyncTime{ std::chrono::steady_clock::now() };
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };
-        std::chrono::steady_clock::time_point _lastIdleChatterTime{ std::chrono::steady_clock::now() };
-        std::chrono::steady_clock::time_point _lastIdleEvalTime{};
-        RE::TESObjectCELL* _lastCell{ nullptr };
-        RE::BSTSmartPointer<RE::DialogueItem> _currentIdleDialogueItem;
         bool _savedUserRunning{ true };
+
+        std::vector<RetargetedPackageTarget> _retargetedPackages;
     };
 
 }
-

@@ -1,21 +1,103 @@
 #include "PCH.h"
 #include "FaceManager.h"
-#include "IdleAIManager.h"
 #include "ImpersonationManager.h"
 #include "RE/B/BSFaceGenNiNode.h"
-#include "RE/N/NiCloningProcess.h"
 #include "RE/B/BSVisit.h"
 #include "RE/B/BSGeometry.h"
 #include "RE/B/BSLightingShaderProperty.h"
 #include "RE/B/BSLightingShaderMaterialBase.h"
 #include "RE/B/BSLightingShaderMaterialHairTint.h"
 #include "RE/B/BSLightingShaderMaterialFacegenTint.h"
-#include "RE/C/CombatController.h"
 #include "RE/E/ExtraScale.h"
 #include "RE/E/ExtraTextDisplayData.h"
-#include "RE/E/ExtraCombatStyle.h"
 
 namespace InTheirShoes {
+
+    static bool ResolveSkinTintFromRace(
+        RE::TESRace* a_race,
+        RE::SEX a_sex,
+        const std::vector<RE::TESNPC::Layer>& a_layers,
+        RE::Color& a_outColor,
+        RE::NiColor& a_outNiColor)
+    {
+        auto sexIdx = (a_sex == RE::SEX::kFemale) ? 1 : 0;
+        if (!a_race || !a_race->faceRelatedData[sexIdx] || !a_race->faceRelatedData[sexIdx]->tintMasks) {
+            return false;
+        }
+        const auto* tintMasks = a_race->faceRelatedData[sexIdx]->tintMasks;
+        for (const auto* asset : *tintMasks) {
+            if (asset && asset->texture.skinTone == RE::TESRace::FaceRelatedData::TintAsset::TintLayer::SkinTone::kSkinTone) {
+                auto skinIndex = asset->texture.index;
+                for (const auto& layer : a_layers) {
+                    if (layer.tintIndex == skinIndex) {
+                        a_outColor.red = layer.tintColor.red;
+                        a_outColor.green = layer.tintColor.green;
+                        a_outColor.blue = layer.tintColor.blue;
+                        a_outNiColor.red = static_cast<float>(layer.tintColor.red) / 255.0f;
+                        a_outNiColor.green = static_cast<float>(layer.tintColor.green) / 255.0f;
+                        a_outNiColor.blue = static_cast<float>(layer.tintColor.blue) / 255.0f;
+                        return true;
+                    }
+                }
+                break;
+            }
+        }
+        return false;
+    }
+
+    static void Apply3DShaderTints(
+        RE::Actor* a_actor,
+        bool a_hasHairTint,
+        const RE::NiColor& a_hairTint,
+        bool a_hasSkinTint,
+        const RE::NiColor& a_skinTint)
+    {
+        if (!a_actor) return;
+
+        if (a_hasHairTint) {
+            if (auto* targetHair = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
+                RE::BSVisit::TraverseScenegraphGeometries(targetHair, [&](RE::BSGeometry* geom) {
+                    if (geom) {
+                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
+                            if (auto* hairMat = skyrim_cast<RE::BSLightingShaderMaterialHairTint*>(shaderProp->material)) {
+                                hairMat->tintColor = a_hairTint;
+                            }
+                        }
+                    }
+                    return RE::BSVisit::BSVisitControl::kContinue;
+                });
+            }
+        }
+
+        if (a_hasSkinTint) {
+            auto* targetFace = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kFace);
+            if (targetFace) {
+                RE::BSVisit::TraverseScenegraphGeometries(targetFace, [&](RE::BSGeometry* geom) {
+                    if (geom) {
+                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
+                            if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
+                                faceMat->tintColor = a_skinTint;
+                            }
+                        }
+                    }
+                    return RE::BSVisit::BSVisitControl::kContinue;
+                });
+            }
+
+            if (auto* root3D = a_actor->Get3D()) {
+                RE::BSVisit::TraverseScenegraphGeometries(root3D, [&](RE::BSGeometry* geom) {
+                    if (geom && geom != targetFace) {
+                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
+                            if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
+                                faceMat->tintColor = a_skinTint;
+                            }
+                        }
+                    }
+                    return RE::BSVisit::BSVisitControl::kContinue;
+                });
+            }
+        }
+    }
 
     bool FaceManager::CaptureSnapshot(RE::Actor* a_actor, FaceSnapshot& a_outSnapshot) {
         if (!a_actor) return false;
@@ -25,6 +107,9 @@ namespace InTheirShoes {
 
         auto* npc = skyrim_cast<RE::TESNPC*>(base);
         if (!npc) return false;
+
+        a_outSnapshot.hasSkinTintColor = false;
+        a_outSnapshot.hasHairTintColor = false;
 
         a_outSnapshot.race = npc->GetRace();
         if (npc->GetFormID() == 0x07) {
@@ -47,38 +132,29 @@ namespace InTheirShoes {
         a_outSnapshot.sex = npc->GetSex();
         a_outSnapshot.bodyTintColor = npc->bodyTintColor;
 
-        // Resolve skin tone from race tint assets if bodyTintColor is uninitialized (common on vanilla NPCs)
-        if (a_outSnapshot.bodyTintColor.red == 0 && a_outSnapshot.bodyTintColor.green == 0 && a_outSnapshot.bodyTintColor.blue == 0) {
-            auto sexIdx = (a_outSnapshot.sex == RE::SEX::kFemale) ? 1 : 0;
-            auto* race = a_actor->GetRace();
-            if (race && race->faceRelatedData[sexIdx] && race->faceRelatedData[sexIdx]->tintMasks) {
-                const auto* tintMasks = race->faceRelatedData[sexIdx]->tintMasks;
-                for (const auto* asset : *tintMasks) {
-                    if (asset && asset->texture.skinTone == RE::TESRace::FaceRelatedData::TintAsset::TintLayer::SkinTone::kSkinTone) {
-                        auto skinIndex = asset->texture.index;
-                        if (npc->tintLayers) {
-                            for (const auto* layer : *npc->tintLayers) {
-                                if (layer && layer->tintIndex == skinIndex) {
-                                    a_outSnapshot.bodyTintColor.red = layer->tintColor.red;
-                                    a_outSnapshot.bodyTintColor.green = layer->tintColor.green;
-                                    a_outSnapshot.bodyTintColor.blue = layer->tintColor.blue;
-                                    a_outSnapshot.skinTintColor.red = static_cast<float>(layer->tintColor.red) / 255.0f;
-                                    a_outSnapshot.skinTintColor.green = static_cast<float>(layer->tintColor.green) / 255.0f;
-                                    a_outSnapshot.skinTintColor.blue = static_cast<float>(layer->tintColor.blue) / 255.0f;
-                                    a_outSnapshot.hasSkinTintColor = true;
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
+        // Tint layers
+        a_outSnapshot.tintLayers.clear();
+        if (npc->tintLayers) {
+            for (auto* layer : *npc->tintLayers) {
+                if (layer) {
+                    a_outSnapshot.tintLayers.push_back(*layer);
                 }
             }
         }
 
-        // Voice Type resolution
-        a_outSnapshot.voiceType = ImpersonationManager::GetNPCVoiceType(npc);
+        // Resolve skin tone from race tint assets if bodyTintColor is uninitialized (common on vanilla NPCs)
+        if (a_outSnapshot.bodyTintColor.red == 0 &&
+            a_outSnapshot.bodyTintColor.green == 0 &&
+            a_outSnapshot.bodyTintColor.blue == 0) {
+            a_outSnapshot.hasSkinTintColor = ResolveSkinTintFromRace(
+                a_actor->GetRace(),
+                a_outSnapshot.sex,
+                a_outSnapshot.tintLayers,
+                a_outSnapshot.bodyTintColor,
+                a_outSnapshot.skinTintColor);
+        }
 
+        a_outSnapshot.voiceType = ImpersonationManager::GetNPCVoiceType(npc);
 
         if (npc->headRelatedData) {
             a_outSnapshot.hairColor = npc->headRelatedData->hairColor;
@@ -89,9 +165,7 @@ namespace InTheirShoes {
         }
 
         // Capture 3D rendered hair tint directly from 3D geometry
-        a_outSnapshot.hasHairTintColor = false;
-        auto* hairObj = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair);
-        if (hairObj) {
+        if (auto* hairObj = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
             RE::BSVisit::TraverseScenegraphGeometries(hairObj, [&](RE::BSGeometry* geom) {
                 if (geom) {
                     if (auto* shaderProp = geom->lightingShaderProp_cast()) {
@@ -106,10 +180,8 @@ namespace InTheirShoes {
             });
         }
 
-        // Capture 3D rendered skin tint directly from face 3D geometry
-        a_outSnapshot.hasSkinTintColor = false;
-        auto* faceObj = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kFace);
-        if (faceObj) {
+        // Capture 3D rendered skin tint directly from face 3D geometry (overrides race-derived tint)
+        if (auto* faceObj = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kFace)) {
             RE::BSVisit::TraverseScenegraphGeometries(faceObj, [&](RE::BSGeometry* geom) {
                 if (geom) {
                     if (auto* shaderProp = geom->lightingShaderProp_cast()) {
@@ -156,20 +228,11 @@ namespace InTheirShoes {
             }
         }
 
-        // Tint layers
-        a_outSnapshot.tintLayers.clear();
-        if (npc->tintLayers) {
-            for (auto* layer : *npc->tintLayers) {
-                if (layer) {
-                    a_outSnapshot.tintLayers.push_back(*layer);
-                }
-            }
-        }
-
         return true;
     }
 
     bool FaceManager::ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (!a_targetActor) return false;
 
         auto* base = a_targetActor->GetActorBase();
@@ -185,7 +248,7 @@ namespace InTheirShoes {
         }
 
         auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
-        bool isPuppet = (puppet && a_targetActor == puppet);
+        bool isPuppet = (puppet && a_targetActor == puppet) || ImpersonationManager::GetSingleton().IsPuppetBase(base);
         if (!isPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != 0x07) {
             targetNPC->faceNPC = a_snapshot.faceNPC;
         } else {
@@ -210,7 +273,7 @@ namespace InTheirShoes {
             targetNPC->actorData.actorBaseFlags.reset(RE::ACTOR_BASE_DATA::Flag::kFemale);
         }
 
-        if (isPuppet || (base && ImpersonationManager::GetSingleton().IsPuppetBase(base))) {
+        if (isPuppet) {
             targetNPC->voiceType = nullptr;
         } else {
             targetNPC->voiceType = a_snapshot.voiceType;
@@ -225,17 +288,8 @@ namespace InTheirShoes {
         targetNPC->bodyTintColor = a_snapshot.bodyTintColor;
 
         // 4. Hair & Face details
-        if (!targetNPC->headRelatedData) {
-            targetNPC->headRelatedData = RE::calloc<RE::TESNPC::HeadRelatedData>(1);
-            if (targetNPC->headRelatedData) {
-                targetNPC->headRelatedData->hairColor = nullptr;
-                targetNPC->headRelatedData->faceDetails = nullptr;
-            }
-        }
-        if (targetNPC->headRelatedData) {
-            targetNPC->headRelatedData->hairColor = a_snapshot.hairColor;
-            targetNPC->headRelatedData->faceDetails = a_snapshot.faceDetails;
-        }
+        targetNPC->SetHairColor(a_snapshot.hairColor);
+        targetNPC->SetFaceTexture(a_snapshot.faceDetails);
 
         // 5. Face morphs & parts
         if (!targetNPC->faceData) {
@@ -253,9 +307,11 @@ namespace InTheirShoes {
             }
         }
 
-        // 6. Complete Headparts Replacement (free previous buffer first to avoid leaking on FormHeap)
+        // 6. Headparts Replacement: only free buffers that were dynamically allocated by us
         if (targetNPC->headParts) {
-            RE::free(targetNPC->headParts);
+            if (_allocatedHeadPartBuffers.erase(targetNPC->headParts) > 0) {
+                RE::free(targetNPC->headParts);
+            }
             targetNPC->headParts = nullptr;
             targetNPC->numHeadParts = 0;
         }
@@ -267,6 +323,7 @@ namespace InTheirShoes {
                     for (std::int8_t i = 0; i < count; ++i) {
                         newParts[i] = a_snapshot.headParts[i];
                     }
+                    _allocatedHeadPartBuffers.insert(newParts);
                     targetNPC->headParts = newParts;
                     targetNPC->numHeadParts = count;
                 }
@@ -307,7 +364,7 @@ namespace InTheirShoes {
         }
 
         // Resolve skin tint color for body tint
-        RE::NiColor skinTint;
+        RE::NiColor skinTint{};
         bool hasSkinTint = false;
         if (a_snapshot.hasSkinTintColor) {
             skinTint = a_snapshot.skinTintColor;
@@ -318,26 +375,13 @@ namespace InTheirShoes {
             skinTint.blue = static_cast<float>(a_snapshot.bodyTintColor.blue) / 255.0f;
             hasSkinTint = true;
         } else {
-            // Find skin tone layer specifically from race data
-            auto sexIdx = (a_snapshot.sex == RE::SEX::kFemale) ? 1 : 0;
-            if (a_snapshot.race && a_snapshot.race->faceRelatedData[sexIdx] && a_snapshot.race->faceRelatedData[sexIdx]->tintMasks) {
-                const auto* tintMasks = a_snapshot.race->faceRelatedData[sexIdx]->tintMasks;
-                for (const auto* asset : *tintMasks) {
-                    if (asset && asset->texture.skinTone == RE::TESRace::FaceRelatedData::TintAsset::TintLayer::SkinTone::kSkinTone) {
-                        auto skinIndex = asset->texture.index;
-                        for (const auto& layer : a_snapshot.tintLayers) {
-                            if (layer.tintIndex == skinIndex) {
-                                skinTint.red = static_cast<float>(layer.tintColor.red) / 255.0f;
-                                skinTint.green = static_cast<float>(layer.tintColor.green) / 255.0f;
-                                skinTint.blue = static_cast<float>(layer.tintColor.blue) / 255.0f;
-                                hasSkinTint = true;
-                                break;
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
+            RE::Color resolvedBodyColor{};
+            hasSkinTint = ResolveSkinTintFromRace(
+                a_snapshot.race,
+                a_snapshot.sex,
+                a_snapshot.tintLayers,
+                resolvedBodyColor,
+                skinTint);
         }
 
         if (hasSkinTint) {
@@ -347,7 +391,6 @@ namespace InTheirShoes {
         }
 
         if (a_update3D) {
-            // 8. Synchronous 3D mesh and skin update
             a_targetActor->UpdateHairColor();
             a_targetActor->UpdateSkinColor();
             a_targetActor->DoReset3D(true);
@@ -355,65 +398,15 @@ namespace InTheirShoes {
             a_targetActor->UpdateHairColor();
             a_targetActor->UpdateSkinColor();
 
-            // Apply hair tint directly to hair geometry
-            if (a_snapshot.hasHairTintColor) {
-                auto* targetHair = a_targetActor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair);
-                if (targetHair) {
-                    RE::BSVisit::TraverseScenegraphGeometries(targetHair, [&](RE::BSGeometry* geom) {
-                        if (geom) {
-                            if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                                if (auto* hairMat = skyrim_cast<RE::BSLightingShaderMaterialHairTint*>(shaderProp->material)) {
-                                    hairMat->tintColor = a_snapshot.hairTintColor;
-                                }
-                            }
-                        }
-                        return RE::BSVisit::BSVisitControl::kContinue;
-                    });
-                }
-            }
-
-            // Apply skin tint and soft matte lighting to face headpart FacegenTint material
-            auto* targetFace = a_targetActor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kFace);
-            if (targetFace) {
-                RE::BSVisit::TraverseScenegraphGeometries(targetFace, [&](RE::BSGeometry* geom) {
-                    if (geom) {
-                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                            if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
-                                if (hasSkinTint) {
-                                    faceMat->tintColor = skinTint;
-                                }
-                                faceMat->specularColorScale = 0.20f;
-                                faceMat->specularPower = 10.0f;
-                                faceMat->subSurfaceLightRolloff = 0.6f;
-                            }
-                        }
-                    }
-                    return RE::BSVisit::BSVisitControl::kContinue;
-                });
-            }
-
-            // Also traverse actor 3D to ensure body parts (torso, hands, feet) receive skin tint
-            if (hasSkinTint) {
-                if (auto* root3D = a_targetActor->Get3D()) {
-                    RE::BSVisit::TraverseScenegraphGeometries(root3D, [&](RE::BSGeometry* geom) {
-                        if (geom && geom != targetFace) {
-                            if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                                if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
-                                    faceMat->tintColor = skinTint;
-                                }
-                            }
-                        }
-                        return RE::BSVisit::BSVisitControl::kContinue;
-                    });
-                }
-            }
-
-            if (isPuppet) {
-                _puppetNeedsPost3DUpdate.store(true, std::memory_order_relaxed);
-            }
+            Apply3DShaderTints(
+                a_targetActor,
+                a_snapshot.hasHairTintColor,
+                a_snapshot.hairTintColor,
+                hasSkinTint,
+                skinTint);
         }
 
-        SKSE::log::info("Applied appearance and AI snapshot (Race: {:08X}, Sex: {}, Voice: {:08X}, Tints: {}, Parts: {}) to actor {:08X}",
+        SKSE::log::info("Applied appearance snapshot (Race: {:08X}, Sex: {}, Voice: {:08X}, Tints: {}, Parts: {}) to actor {:08X}",
             a_snapshot.race ? static_cast<std::uint32_t>(a_snapshot.race->GetFormID()) : 0,
             a_snapshot.sex == RE::SEX::kFemale ? "Female" : "Male",
             targetNPC->voiceType ? static_cast<std::uint32_t>(targetNPC->voiceType->GetFormID()) : 0,
@@ -423,6 +416,22 @@ namespace InTheirShoes {
         );
 
         return true;
+    }
+
+    bool FaceManager::SaveBaselineAppearance(RE::Actor* a_player) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (!a_player) return false;
+        if (_hasSavedAppearance) return true;
+
+        if (CaptureSnapshot(a_player, _savedOriginalAppearance)) {
+            _savedOriginalAppearance.faceNPC = nullptr;
+            _hasSavedAppearance = true;
+            RefreshOriginalVoice();
+            SKSE::log::info("Saved original baseline appearance of player {:08X}.",
+                static_cast<std::uint32_t>(a_player->GetFormID()));
+            return true;
+        }
+        return false;
     }
 
     bool FaceManager::CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
@@ -444,40 +453,17 @@ namespace InTheirShoes {
 
     bool FaceManager::CloneAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
-        IdleAIManager::GetSingleton().SetActiveDonorActor(a_donor);
         if (!a_donor || !a_target) {
             SKSE::log::warn("CloneAppearance called with null actor pointers.");
             return false;
         }
 
-        if (!_hasSavedAppearance) {
-            if (CaptureSnapshot(a_target, _savedOriginalAppearance)) {
-                _savedOriginalAppearance.faceNPC = nullptr; // Ensure player original never self-references
-                _hasSavedAppearance = true;
-                SKSE::log::info("Saved original appearance of target actor {:08X} before cloning.",
-                    static_cast<std::uint32_t>(a_target->GetFormID()));
-            }
-        }
-
-        if (CaptureSnapshot(a_donor, _donorAppearance)) {
-            _hasDonorAppearance = true;
-            bool result = ApplySnapshot(a_target, _donorAppearance);
-            if (auto* targetNPC = skyrim_cast<RE::TESNPC*>(a_target->GetActorBase())) {
-                _donorAppearance.bodyTintColor = targetNPC->bodyTintColor;
-                _donorAppearance.skinTintColor.red = static_cast<float>(targetNPC->bodyTintColor.red) / 255.0f;
-                _donorAppearance.skinTintColor.green = static_cast<float>(targetNPC->bodyTintColor.green) / 255.0f;
-                _donorAppearance.skinTintColor.blue = static_cast<float>(targetNPC->bodyTintColor.blue) / 255.0f;
-                _donorAppearance.hasSkinTintColor = true;
-            }
-            return result;
-        }
-
+        SaveBaselineAppearance(a_target);
         return CopyAppearance(a_donor, a_target);
     }
 
     bool FaceManager::RevertAppearance(RE::Actor* a_target, bool a_update3D) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
-        IdleAIManager::GetSingleton().SetActiveDonorActor(nullptr);
         if (!a_target) return false;
 
         if (!_hasSavedAppearance) {
@@ -488,7 +474,7 @@ namespace InTheirShoes {
         bool result = ApplySnapshot(a_target, _savedOriginalAppearance, a_update3D);
         if (result) {
             _hasSavedAppearance = false;
-            _hasDonorAppearance = false;
+            RefreshOriginalVoice();
             SKSE::log::info("Successfully reverted appearance of actor {:08X} to original (update3D={}).",
                 static_cast<std::uint32_t>(a_target->GetFormID()),
                 a_update3D);
@@ -498,42 +484,17 @@ namespace InTheirShoes {
 
     bool FaceManager::RestoreDonorAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_target) return false;
+        if (!a_donor || !a_target) return false;
 
-        if (_hasDonorAppearance) {
-            SKSE::log::info("Restoring donor appearance from saved donor snapshot onto actor {:08X}",
-                static_cast<std::uint32_t>(a_target->GetFormID()));
-            return ApplySnapshot(a_target, _donorAppearance);
-        }
-
-        if (a_donor) {
-            SKSE::log::info("Restoring donor appearance from donor actor {:08X} onto actor {:08X}",
-                static_cast<std::uint32_t>(a_donor->GetFormID()),
-                static_cast<std::uint32_t>(a_target->GetFormID()));
-            if (CaptureSnapshot(a_donor, _donorAppearance)) {
-                _hasDonorAppearance = true;
-                return ApplySnapshot(a_target, _donorAppearance);
-            }
-            return CopyAppearance(a_donor, a_target);
-        }
-
-        return false;
+        SKSE::log::info("Restoring donor appearance from donor actor {:08X} onto actor {:08X}",
+            static_cast<std::uint32_t>(a_donor->GetFormID()),
+            static_cast<std::uint32_t>(a_target->GetFormID()));
+        return CopyAppearance(a_donor, a_target);
     }
 
     bool FaceManager::RestoreOriginalPuppetAppearance(RE::Actor* a_puppet) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (!a_puppet) return false;
-
-        if (auto* base = skyrim_cast<RE::TESNPC*>(a_puppet->GetActorBase())) {
-            base->faceNPC = nullptr;
-            if (_hasSavedAppearance) {
-                if (_savedOriginalAppearance.sex == RE::SEX::kFemale) {
-                    base->actorData.actorBaseFlags.set(RE::ACTOR_BASE_DATA::Flag::kFemale);
-                } else {
-                    base->actorData.actorBaseFlags.reset(RE::ACTOR_BASE_DATA::Flag::kFemale);
-                }
-            }
-        }
 
         if (!_hasSavedAppearance) {
             SKSE::log::warn("RestoreOriginalPuppetAppearance called, but no original appearance was saved.");
@@ -543,51 +504,6 @@ namespace InTheirShoes {
         SKSE::log::info("Restoring original Dragonborn appearance onto puppet actor {:08X}",
             static_cast<std::uint32_t>(a_puppet->GetFormID()));
         return ApplySnapshot(a_puppet, _savedOriginalAppearance);
-    }
-
-    void FaceManager::ApplyPuppetPost3DLighting(RE::Actor* a_puppet) {
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        if (!a_puppet) return;
-
-        auto* puppet3D = a_puppet->Get3D();
-        if (!puppet3D) return;
-
-        RE::NiColor skinTint;
-        bool hasSkinTint = false;
-        if (_savedOriginalAppearance.hasSkinTintColor) {
-            skinTint = _savedOriginalAppearance.skinTintColor;
-            hasSkinTint = true;
-        } else if (_savedOriginalAppearance.bodyTintColor.red != 0 || _savedOriginalAppearance.bodyTintColor.green != 0 || _savedOriginalAppearance.bodyTintColor.blue != 0) {
-            skinTint.red = static_cast<float>(_savedOriginalAppearance.bodyTintColor.red) / 255.0f;
-            skinTint.green = static_cast<float>(_savedOriginalAppearance.bodyTintColor.green) / 255.0f;
-            skinTint.blue = static_cast<float>(_savedOriginalAppearance.bodyTintColor.blue) / 255.0f;
-            hasSkinTint = true;
-        }
-
-        RE::BSVisit::TraverseScenegraphGeometries(puppet3D, [&](RE::BSGeometry* geom) {
-            if (geom) {
-                if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                    if (_savedOriginalAppearance.hasHairTintColor) {
-                        if (auto* hairMat = skyrim_cast<RE::BSLightingShaderMaterialHairTint*>(shaderProp->material)) {
-                            hairMat->tintColor = _savedOriginalAppearance.hairTintColor;
-                        }
-                    }
-                    if (hasSkinTint) {
-                        if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
-                            faceMat->tintColor = skinTint;
-                            faceMat->specularColorScale = 0.20f;
-                            faceMat->specularPower = 10.0f;
-                            faceMat->subSurfaceLightRolloff = 0.6f;
-                        }
-                    }
-                }
-            }
-            return RE::BSVisit::BSVisitControl::kContinue;
-        });
-
-        _puppetNeedsPost3DUpdate.store(false, std::memory_order_relaxed);
-        SKSE::log::info("Applied post-3D skin, hair, and soft matte face lighting to puppet {:08X}",
-            static_cast<std::uint32_t>(a_puppet->GetFormID()));
     }
 
 }

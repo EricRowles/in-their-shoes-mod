@@ -25,10 +25,9 @@ int function GetVersion()
 	return 1
 endFunction
 
-event OnVersionUpdate(int a_version)
-	ModName = "In Their Shoes"
-	Pages = None
-
+; Pushes every MCM setting to the native plugin. The settings are not saved natively, so this runs
+; on first init, on version update and on every game load (via ITS_QuestScript.ITS_Maintenance).
+function PushConfig()
 	if IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	endif
@@ -38,21 +37,18 @@ event OnVersionUpdate(int a_version)
 	ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
 	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+endFunction
+
+event OnVersionUpdate(int a_version)
+	ModName = "In Their Shoes"
+	Pages = None
+	PushConfig()
 endEvent
 
 event OnConfigInit()
 	ModName = "In Their Shoes"
 	Pages = None
-
-	if IdleChatterTime < 10.0
-		IdleChatterTime = 60.0
-	endif
-
-	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
-	ITS_NG.SetIdleAITimeout(IdleAITimeout)
-	ITS_NG.SetIdleChatterTime(IdleChatterTime)
-	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
-	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+	PushConfig()
 endEvent
 
 function RefreshConfig()

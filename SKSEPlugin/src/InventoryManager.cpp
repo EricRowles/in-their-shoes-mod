@@ -1,7 +1,6 @@
 #include "PCH.h"
 #include "InventoryManager.h"
 #include <algorithm>
-#include <cctype>
 #include <unordered_set>
 
 namespace InTheirShoes {
@@ -35,20 +34,6 @@ namespace InTheirShoes {
                 spellType == RE::MagicSystem::SpellType::kVoicePower);
     }
 
-    static bool SafeIsQuestObject(const RE::InventoryEntryData* a_entryData) {
-        if (!a_entryData) return false;
-        __try {
-            return a_entryData->IsQuestObject();
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            return false;
-        }
-    }
-
-    static bool IsQuestItem(RE::TESBoundObject* a_boundObj, const RE::InventoryEntryData* a_entryData) {
-        if (!a_boundObj) return false;
-        return SafeIsQuestObject(a_entryData);
-    }
-
     bool InventoryManager::StashPlayerDynamicSpells(RE::Actor* a_player) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (!a_player) return false;
@@ -58,12 +43,8 @@ namespace InTheirShoes {
 
         auto& runtime = a_player->GetActorRuntimeData();
         for (auto* spell : runtime.addedSpells) {
-            if (!spell) continue;
+            if (!spell || IsModSystemSpell(spell)) continue;
 
-            // Skip mod system spells so player doesn't lose revert/control spells
-            if (IsModSystemSpell(spell)) continue;
-
-            // Save castable spells
             if (IsCastableSpell(spell)) {
                 _playerSavedSpells.push_back(spell->GetFormID());
                 toRemove.push_back(spell);
@@ -84,8 +65,7 @@ namespace InTheirShoes {
 
         std::int32_t restoredCount = 0;
         for (auto formID : _playerSavedSpells) {
-            auto* spell = RE::TESForm::LookupByID<RE::SpellItem>(formID);
-            if (spell) {
+            if (auto* spell = RE::TESForm::LookupByID<RE::SpellItem>(formID)) {
                 if (a_player->AddSpell(spell)) {
                     restoredCount++;
                 }
@@ -103,27 +83,30 @@ namespace InTheirShoes {
 
         std::int32_t copiedCount = 0;
 
-        // 1. Copy dynamic spells from donor
-        auto& fromRuntime = a_fromActor->GetActorRuntimeData();
-        for (auto* spell : fromRuntime.addedSpells) {
+        auto grantSpell = [&](RE::SpellItem* spell) {
             if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
                 if (a_toActor->AddSpell(spell)) {
                     _transferredSpells.push_back(spell->GetFormID());
                     copiedCount++;
                 }
             }
+        };
+
+        // 1. Copy dynamic spells from donor
+        for (auto* spell : a_fromActor->GetActorRuntimeData().addedSpells) {
+            grantSpell(spell);
         }
 
-        // 2. Copy base spells from donor's TESNPC actorEffects
-        auto* donorBase = a_fromActor->GetActorBase();
-        if (donorBase && donorBase->actorEffects) {
+        // 2. Copy base spells and shout variation spells from donor's TESNPC actorEffects
+        if (auto* donorBase = a_fromActor->GetActorBase(); donorBase && donorBase->actorEffects) {
             auto* effects = donorBase->actorEffects;
             for (std::uint32_t i = 0; i < effects->numSpells; ++i) {
-                auto* spell = effects->spells[i];
-                if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
-                    if (a_toActor->AddSpell(spell)) {
-                        _transferredSpells.push_back(spell->GetFormID());
-                        copiedCount++;
+                grantSpell(effects->spells[i]);
+            }
+            for (std::uint32_t i = 0; i < effects->numShouts; ++i) {
+                if (auto* shout = effects->shouts[i]) {
+                    for (const auto& var : shout->variations) {
+                        grantSpell(var.spell);
                     }
                 }
             }
@@ -144,8 +127,7 @@ namespace InTheirShoes {
 
         std::int32_t removedCount = 0;
         for (auto formID : _transferredSpells) {
-            auto* spell = RE::TESForm::LookupByID<RE::SpellItem>(formID);
-            if (spell) {
+            if (auto* spell = RE::TESForm::LookupByID<RE::SpellItem>(formID)) {
                 if (a_targetActor->RemoveSpell(spell)) {
                     removedCount++;
                 }
@@ -165,40 +147,33 @@ namespace InTheirShoes {
             return false;
         }
 
-        RE::SpellItem* leftSpell = nullptr;
-        RE::SpellItem* rightSpell = nullptr;
-        RE::TESShout* shout = nullptr;
-
-        // 1. Clear the target's non-quest inventory in two passes:
-        // Pass 1: Identify non-quest items to remove BEFORE any RemoveItem calls mutate inventory extra lists
         struct ItemRecord {
             RE::TESBoundObject* object{ nullptr };
             std::int32_t count{ 0 };
         };
-        std::vector<ItemRecord> itemsToRemove;
 
-        auto toInv = a_toActor->GetInventory();
-        for (const auto& [boundObj, entryPair] : toInv) {
+        // 1. Clear the target's non-quest inventory in two passes (collect first, then remove)
+        std::vector<ItemRecord> itemsToRemove;
+        for (const auto& [boundObj, entryPair] : a_toActor->GetInventory()) {
             std::int32_t count = entryPair.first;
             const auto& entryData = entryPair.second;
 
             if (!boundObj || count <= 0) continue;
-            if (IsQuestItem(boundObj, entryData.get())) continue;
+            if (entryData && entryData->IsQuestObject()) continue;
             itemsToRemove.push_back({ boundObj, count });
         }
 
-        // Pass 2: Remove items without touching stale or invalidated InventoryEntryData pointers
         for (const auto& entry : itemsToRemove) {
             a_toActor->RemoveItem(entry.object, entry.count, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
         }
 
-        // 2. Get equipped spells
+        // 2. Get equipped spells & shout from source actor
         auto& fromRuntime = a_fromActor->GetActorRuntimeData();
-        leftSpell = skyrim_cast<RE::SpellItem*>(fromRuntime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
-        rightSpell = skyrim_cast<RE::SpellItem*>(fromRuntime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
-        shout = skyrim_cast<RE::TESShout*>(fromRuntime.selectedPower);
+        auto* leftSpell = skyrim_cast<RE::SpellItem*>(fromRuntime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
+        auto* rightSpell = skyrim_cast<RE::SpellItem*>(fromRuntime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
+        auto* shout = skyrim_cast<RE::TESShout*>(fromRuntime.selectedPower);
 
-        // 3. Identify worn items and their equipped slots (left hand vs main) before transfer
+        // 3. Identify worn items and their equipped slots before transfer
         auto fromInv = a_fromActor->GetInventory();
         auto* equipMgr = RE::ActorEquipManager::GetSingleton();
         auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
@@ -213,48 +188,42 @@ namespace InTheirShoes {
 
         for (const auto& [boundObj, entryPair] : fromInv) {
             const auto& entryData = entryPair.second;
-            if (!boundObj || !entryData) continue;
-            if (entryData->IsWorn()) {
-                wornObjects.insert(boundObj);
-                bool foundLeft = false;
-                bool foundRight = false;
-                if (entryData->extraLists) {
-                    for (auto* xList : *entryData->extraLists) {
-                        if (!xList) continue;
-                        if (xList->HasType(RE::ExtraDataType::kWornLeft)) {
-                            wornRecords.push_back({ boundObj, true });
-                            foundLeft = true;
-                        } else if (xList->HasType(RE::ExtraDataType::kWorn)) {
-                            wornRecords.push_back({ boundObj, false });
-                            foundRight = true;
-                        }
+            if (!boundObj || !entryData || !entryData->IsWorn()) continue;
+
+            wornObjects.insert(boundObj);
+            bool foundHand = false;
+            if (entryData->extraLists) {
+                for (auto* xList : *entryData->extraLists) {
+                    if (!xList) continue;
+                    if (xList->HasType(RE::ExtraDataType::kWornLeft)) {
+                        wornRecords.push_back({ boundObj, true });
+                        foundHand = true;
+                    } else if (xList->HasType(RE::ExtraDataType::kWorn)) {
+                        wornRecords.push_back({ boundObj, false });
+                        foundHand = true;
                     }
                 }
-                if (!foundLeft && !foundRight) {
-                    wornRecords.push_back({ boundObj, false });
-                }
+            }
+            if (!foundHand) {
+                wornRecords.push_back({ boundObj, false });
             }
         }
 
-        // 4. Transfer items in two passes:
-        // Pass 1: Identify items to transfer and update quest tracking BEFORE any RemoveItem calls
+        // 4. Transfer items in two passes (collect and update quest tracking first, then transfer)
         std::vector<ItemRecord> itemsToTransfer;
         for (const auto& [boundObj, entryPair] : fromInv) {
             std::int32_t count = entryPair.first;
             const auto& entryData = entryPair.second;
             if (!boundObj || count <= 0) continue;
 
-            bool isQuest = IsQuestItem(boundObj, entryData.get());
+            bool isQuest = entryData && entryData->IsQuestObject();
             if (isQuest) {
                 if (a_fromActor->IsPlayerRef() && !a_toActor->IsPlayerRef()) {
-                    // Player to follower or donor:
-                    // Only transfer quest item if it was a donor quest item previously transferred
                     if (_transferredDonorQuestItems.find(boundObj->GetFormID()) == _transferredDonorQuestItems.end()) {
-                        continue; // Keep player's own quest object on player
+                        continue; // Keep player's own quest items on the player
                     }
                     _transferredDonorQuestItems.erase(boundObj->GetFormID());
                 } else if (!a_fromActor->IsPlayerRef() && a_toActor->IsPlayerRef()) {
-                    // Donor to player:
                     _transferredDonorQuestItems.insert(boundObj->GetFormID());
                 }
             }
@@ -262,14 +231,13 @@ namespace InTheirShoes {
             itemsToTransfer.push_back({ boundObj, count });
         }
 
-        // Pass 2: Transfer items without touching stale or invalidated InventoryEntryData pointers
         std::int32_t itemsTransferred = 0;
         for (const auto& entry : itemsToTransfer) {
             a_fromActor->RemoveItem(entry.object, entry.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
             itemsTransferred++;
         }
 
-        // 5. Re-equip worn items on target actor with proper ExtraData and slot assignment
+        // 5. Re-equip worn items on target actor
         auto toInvAfter = a_toActor->GetInventory();
         for (const auto& wornRec : wornRecords) {
             auto it = toInvAfter.find(wornRec.object);
@@ -293,12 +261,9 @@ namespace InTheirShoes {
             }
         }
 
-        // 6. If target is an NPC (such as puppet), Skyrim's native AddObjectToContainer
-        // automatically equips armor pieces found in inventory even if they were NOT worn on the source actor.
-        // Unequip any items that were not in the source actor's worn list.
+        // 6. Unequip any items auto-equipped by AddObjectToContainer on NPCs that were not worn by source
         if (!a_toActor->IsPlayerRef()) {
-            auto toInvFinal = a_toActor->GetInventory();
-            for (const auto& [boundObj, entryPair] : toInvFinal) {
+            for (const auto& [boundObj, entryPair] : a_toActor->GetInventory()) {
                 const auto& entryData = entryPair.second;
                 if (boundObj && entryData && entryData->IsWorn()) {
                     if (wornObjects.find(boundObj) == wornObjects.end()) {
@@ -332,59 +297,72 @@ namespace InTheirShoes {
         return true;
     }
 
-    bool InventoryManager::StoreAndTransferToPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
-        if (!a_player || !a_donor) return false;
-
+    bool InventoryManager::StashPlayerToPuppet(RE::Actor* a_player, RE::Actor* a_puppet) {
         std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (!a_player) return false;
 
-        // Save player's equipped spells and shout before morphing
-        auto& pRuntime = a_player->GetActorRuntimeData();
-        _savedPlayerLeftSpell = skyrim_cast<RE::SpellItem*>(pRuntime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
-        _savedPlayerRightSpell = skyrim_cast<RE::SpellItem*>(pRuntime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
-        _savedPlayerShout = skyrim_cast<RE::TESShout*>(pRuntime.selectedPower);
+        if (!_hasDragonbornBaseline) {
+            auto& pRuntime = a_player->GetActorRuntimeData();
+            _savedPlayerLeftSpell = skyrim_cast<RE::SpellItem*>(pRuntime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
+            _savedPlayerRightSpell = skyrim_cast<RE::SpellItem*>(pRuntime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
+            _savedPlayerShout = skyrim_cast<RE::TESShout*>(pRuntime.selectedPower);
 
-        if (a_storageFollower) {
-            TransferAllItems(a_player, a_storageFollower, true);
-            SKSE::log::info("Stored player gear in DragonbornFollower ({:08X}).",
-                static_cast<std::uint32_t>(a_storageFollower->GetFormID()));
+            StashPlayerDynamicSpells(a_player);
+            _hasDragonbornBaseline = true;
         }
 
-        // 1. Stash and strip player's dynamic castable spells
-        StashPlayerDynamicSpells(a_player);
-
-        // 2. Transfer donor's dynamic and base castable spells to player
-        CopyDynamicSpells(a_donor, a_player);
-
-        // 3. Transfer donor's items to player
-        TransferAllItems(a_donor, a_player, false);
-
+        if (a_puppet) {
+            TransferAllItems(a_player, a_puppet, true);
+            SKSE::log::info("Stashed player inventory onto puppet {:08X}.",
+                static_cast<std::uint32_t>(a_puppet->GetFormID()));
+        }
         return true;
     }
 
-    bool InventoryManager::RestoreAndTransferFromPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
+    bool InventoryManager::TransferDonorToPlayer(RE::Actor* a_donor, RE::Actor* a_player) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (!a_donor || !a_player) return false;
+
+        CopyDynamicSpells(a_donor, a_player);
+        TransferAllItems(a_donor, a_player, false);
+        return true;
+    }
+
+    bool InventoryManager::TransferPlayerToDonor(RE::Actor* a_player, RE::Actor* a_donor) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
         if (!a_player) return false;
 
-        std::lock_guard<std::recursive_mutex> lock(_mutex);
-        auto* equipMgr = RE::ActorEquipManager::GetSingleton();
-
-        // 1. Return items from player to donor (if donor is valid)
         if (a_donor) {
             TransferAllItems(a_player, a_donor, true);
         }
 
-        // 2. Remove copied donor spells from player
-        RemoveCopiedSpells(a_player);
-
-        // 3. Restore player's original dynamic spells
-        RestorePlayerDynamicSpells(a_player);
-
-        // 4. Return player's original items from follower to player
-        if (a_storageFollower) {
-            TransferAllItems(a_storageFollower, a_player, false);
+        // Everything castable still on the player is either a donor copy or was learned while impersonating.
+        std::vector<RE::SpellItem*> impersonationSpells;
+        for (auto* spell : a_player->GetActorRuntimeData().addedSpells) {
+            if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
+                impersonationSpells.push_back(spell);
+            }
         }
+        for (auto* spell : impersonationSpells) {
+            if (a_donor) {
+                a_donor->AddSpell(spell);
+            }
+            a_player->RemoveSpell(spell);
+        }
+        RemoveCopiedSpells(a_player);
+        _transferredDonorQuestItems.clear();
+        return true;
+    }
 
-        // 5. Restore player's original equipped spells and shout
+    bool InventoryManager::RestorePuppetToPlayer(RE::Actor* a_puppet, RE::Actor* a_player) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (!a_player || !a_puppet) return false;
+
+        RestorePlayerDynamicSpells(a_player);
+        TransferAllItems(a_puppet, a_player, false);
+
         auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
+        auto* equipMgr = RE::ActorEquipManager::GetSingleton();
         if (defaultObjMgr && equipMgr) {
             auto* leftSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip);
             auto* rightSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kRightHandEquip);
@@ -401,8 +379,28 @@ namespace InTheirShoes {
         _savedPlayerLeftSpell = nullptr;
         _savedPlayerRightSpell = nullptr;
         _savedPlayerShout = nullptr;
-        _transferredDonorQuestItems.clear();
+        _hasDragonbornBaseline = false;
+        return true;
+    }
 
+    bool InventoryManager::StoreAndTransferToPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (!a_player || !a_donor) return false;
+
+        if (a_storageFollower || !_hasDragonbornBaseline) {
+            StashPlayerToPuppet(a_player, a_storageFollower);
+        }
+        return TransferDonorToPlayer(a_donor, a_player);
+    }
+
+    bool InventoryManager::RestoreAndTransferFromPlayer(RE::Actor* a_player, RE::Actor* a_donor, RE::Actor* a_storageFollower) {
+        std::lock_guard<std::recursive_mutex> lock(_mutex);
+        if (!a_player) return false;
+
+        TransferPlayerToDonor(a_player, a_donor);
+        if (a_storageFollower) {
+            RestorePuppetToPlayer(a_storageFollower, a_player);
+        }
         return true;
     }
 

@@ -1,10 +1,10 @@
 #include "PCH.h"
 #include "Serialization.h"
-#include "AliasManager.h"
 #include "FaceManager.h"
 #include "InventoryManager.h"
 #include "StatManager.h"
 #include "IdleAIManager.h"
+#include "DialogueManager.h"
 #include "ImpersonationManager.h"
 
 namespace InTheirShoes::Serialization {
@@ -81,7 +81,7 @@ namespace InTheirShoes::Serialization {
             a_serde->WriteRecordData(nameStr.data(), nameLen);
         }
 
-        // Face details texture set (v4+)
+        // Face details texture set
         RE::FormID faceDetailsID = a_face.faceDetails ? a_face.faceDetails->GetFormID() : 0;
         a_serde->WriteRecordData(&faceDetailsID, sizeof(faceDetailsID));
     }
@@ -89,14 +89,9 @@ namespace InTheirShoes::Serialization {
     void SaveCallback(SKSE::SerializationInterface* a_serde) {
         if (!a_serde) return;
 
-        // 1. Save Face Snapshot (Original appearance to revert to)
+        // 1. Save Original Dragonborn Face Snapshot
         if (FaceManager::GetSingleton().HasSavedAppearance()) {
             WriteFaceSnapshotRecord(a_serde, kFaceDataRecord, FaceManager::GetSingleton().GetSavedAppearance());
-        }
-
-        // 1b. Save Active Donor Face Snapshot
-        if (FaceManager::GetSingleton().HasDonorAppearance()) {
-            WriteFaceSnapshotRecord(a_serde, kDonorFaceDataRecord, FaceManager::GetSingleton().GetDonorAppearance());
         }
 
         // 2. Save Dynamic Spells, Quest Items & Equipped Spells
@@ -122,14 +117,12 @@ namespace InTheirShoes::Serialization {
                     a_serde->WriteRecordData(&id, sizeof(id));
                 }
 
-                // Donor quest items (v4+)
                 std::uint32_t questCount = static_cast<std::uint32_t>(donorQuestItems.size());
                 a_serde->WriteRecordData(&questCount, sizeof(questCount));
                 for (auto id : donorQuestItems) {
                     a_serde->WriteRecordData(&id, sizeof(id));
                 }
 
-                // Equipped spells & shout (v4+)
                 RE::FormID leftSpellID = savedLeftSpell ? savedLeftSpell->GetFormID() : 0;
                 RE::FormID rightSpellID = savedRightSpell ? savedRightSpell->GetFormID() : 0;
                 RE::FormID shoutID = savedShout ? savedShout->GetFormID() : 0;
@@ -139,7 +132,7 @@ namespace InTheirShoes::Serialization {
             }
         }
 
-        // 5. Save Stats
+        // 3. Save Stats
         if (StatManager::GetSingleton().HasSavedStats()) {
             const auto& stats = StatManager::GetSingleton().GetSavedPlayerStats();
             if (a_serde->OpenRecord(kStatDataRecord, kSerializationVersion)) {
@@ -152,23 +145,8 @@ namespace InTheirShoes::Serialization {
             }
         }
 
-        // 6. Save Idle AI & Active Donor Actor
-        if (a_serde->OpenRecord(kIdleAIDataRecord, kSerializationVersion)) {
-            bool enabled = IdleAIManager::GetSingleton().IsIdleAIEnabled();
-            float timeout = IdleAIManager::GetSingleton().GetIdleTimeout();
-            RE::FormID donorID = IdleAIManager::GetSingleton().GetActiveDonorActor() ?
-                IdleAIManager::GetSingleton().GetActiveDonorActor()->GetFormID() : 0;
-
-            a_serde->WriteRecordData(&enabled, sizeof(enabled));
-            a_serde->WriteRecordData(&timeout, sizeof(timeout));
-            a_serde->WriteRecordData(&donorID, sizeof(donorID));
-        }
-
-        // 7. Save Impersonation State
+        // 4. Save the impersonation session (active flag, donor, puppet, swapped quest aliases)
         ImpersonationManager::GetSingleton().Save(a_serde);
-
-        // 8. Save Swapped Quest Aliases
-        ImpersonationManager::GetSingleton().SaveSwappedAliases(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
@@ -252,7 +230,6 @@ namespace InTheirShoes::Serialization {
             }
         }
 
-        // Face details texture set
         RE::FormID faceDetailsID = 0;
         if (a_serde->ReadRecordData(&faceDetailsID, sizeof(faceDetailsID))) {
             if (faceDetailsID != 0 && a_serde->ResolveFormID(faceDetailsID, faceDetailsID)) {
@@ -273,8 +250,8 @@ namespace InTheirShoes::Serialization {
         std::uint32_t length;
 
         while (a_serde->GetNextRecordInfo(type, version, length)) {
-            if (version > kSerializationVersion) {
-                SKSE::log::warn("Skipping record {:08X} with newer unknown version {}", type, version);
+            if (version != kSerializationVersion) {
+                SKSE::log::warn("Skipping record {:08X} with mismatched version {}", type, version);
                 continue;
             }
 
@@ -284,15 +261,6 @@ namespace InTheirShoes::Serialization {
                     if (ReadFaceSnapshotRecord(a_serde, face)) {
                         FaceManager::GetSingleton().SetSavedAppearance(face);
                         SKSE::log::info("Loaded saved player face appearance from co-save.");
-                    }
-                    break;
-                }
-
-                case kDonorFaceDataRecord: {
-                    FaceSnapshot donorFace{};
-                    if (ReadFaceSnapshotRecord(a_serde, donorFace)) {
-                        FaceManager::GetSingleton().SetDonorAppearance(donorFace);
-                        SKSE::log::info("Loaded saved donor face appearance from co-save.");
                     }
                     break;
                 }
@@ -350,6 +318,10 @@ namespace InTheirShoes::Serialization {
                         InventoryManager::GetSingleton().SetSavedPlayerEquippedSpells(leftSpell, rightSpell, shout);
                     }
 
+                    if (savedCount > 0 || leftSpell || rightSpell || shout) {
+                        InventoryManager::GetSingleton().SetHasDragonbornBaseline(true);
+                    }
+
                     SKSE::log::info("Loaded {} transferred spells, {} saved player spells, and {} donor quest items from co-save.",
                         transCount, savedCount, questCount);
                     break;
@@ -371,34 +343,9 @@ namespace InTheirShoes::Serialization {
                     break;
                 }
 
-                case kIdleAIDataRecord: {
-                    bool enabled = false;
-                    float timeout = 10.0f;
-                    RE::FormID donorID = 0;
-
-                    a_serde->ReadRecordData(&enabled, sizeof(enabled));
-                    a_serde->ReadRecordData(&timeout, sizeof(timeout));
-                    a_serde->ReadRecordData(&donorID, sizeof(donorID));
-                    if (donorID != 0 && a_serde->ResolveFormID(donorID, donorID)) {
-                        auto* donor = RE::TESForm::LookupByID<RE::Actor>(donorID);
-                        IdleAIManager::GetSingleton().SetActiveDonorActor(donor);
-                    }
-
-                    IdleAIManager::GetSingleton().SetIdleAIEnabled(enabled);
-                    IdleAIManager::GetSingleton().SetIdleTimeout(timeout);
-                    SKSE::log::info("Loaded Idle AI state from co-save.");
-                    break;
-                }
-
                 case kImpersonationDataRecord: {
-                    ImpersonationManager::GetSingleton().Load(a_serde, length);
+                    ImpersonationManager::GetSingleton().Load(a_serde);
                     SKSE::log::info("Loaded Impersonation state from co-save.");
-                    break;
-                }
-
-                case kAliasDataRecord: {
-                    ImpersonationManager::GetSingleton().LoadSwappedAliases(a_serde, length);
-                    SKSE::log::info("Loaded swapped quest aliases from co-save.");
                     break;
                 }
 
@@ -417,12 +364,11 @@ namespace InTheirShoes::Serialization {
                 SKSE::log::info("Reverted player appearance to original before save load.");
             }
         }
-        AliasManager::GetSingleton().Clear();
         FaceManager::GetSingleton().ClearSavedAppearance();
-        FaceManager::GetSingleton().ClearDonorAppearance();
         InventoryManager::GetSingleton().Clear();
         StatManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
+        DialogueManager::GetSingleton().Clear();
         ImpersonationManager::GetSingleton().OnRevert();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }

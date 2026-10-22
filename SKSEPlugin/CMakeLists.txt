@@ -18,8 +18,6 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../extern/CommonLibSSE-NG" "${CMAK
 add_library(${PROJECT_NAME} SHARED
     src/PCH.h
     src/main.cpp
-    src/AliasManager.h
-    src/AliasManager.cpp
     src/FaceManager.h
     src/FaceManager.cpp
     src/InventoryManager.h
@@ -28,6 +26,8 @@ add_library(${PROJECT_NAME} SHARED
     src/StatManager.cpp
     src/IdleAIManager.h
     src/IdleAIManager.cpp
+    src/DialogueManager.h
+    src/DialogueManager.cpp
     src/Papyrus.h
     src/Papyrus.cpp
     src/Serialization.h
