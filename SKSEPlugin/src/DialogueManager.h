@@ -9,12 +9,10 @@ namespace InTheirShoes {
 
     // Routes dialogue so the impersonating player speaks the donor's lines.
     //
-    // Two speech paths:
-    //  - Puppet lines (self-dialogue): the puppet stays the engine's speaker and plays the line natively,
-    //    so timing, menu advancing and speaking-done are all native. Its audio follows the player's head
-    //    and the player runs the same line muted for lip sync.
-    //  - Player lines (scenes on swapped aliases, donor lines, idle chatter): the player plays the line
-    //    and we report speaking-done from the player's voice sound.
+    // Every line is voiced once, by the player. When the engine's speaker is a stand-in for the donor
+    // (the puppet in self-dialogue, or the hidden donor itself), that speaker runs the line silenced and
+    // is held "speaking" until the player's line ends, so the engine waits for the player.
+    // The player's own lines (scenes on swapped aliases) and idle chatter are voiced the same way.
     //
     // Hooks run on the main thread, except IsInSelfDialogue(), which condition hooks may call from AI threads.
     class DialogueManager : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
@@ -49,19 +47,20 @@ namespace InTheirShoes {
         bool OpenSelfDialogueDirect(RE::Actor* a_speaker);
         void EndSelfDialogue();
 
-        // Puppet path
-        bool SpeakThroughPuppet(RE::Actor* a_puppet, RE::DialogueResponse* a_response, bool a_unused);
-        void TickPuppetLine();
-        void FinishPuppetLine();
-
-        // Player path
-        bool SpeakAsPlayer(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
+        // Player voice
+        void SpeakAsPlayer(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
+        void StartPlayerVoiceLate();
         void TickPlayerLine();
         void FinishPlayerLine();
+
+        // Stand-in speakers (the puppet in self-dialogue, the hidden donor)
+        void HoldStandIn(RE::Actor* a_standIn);
+        void ReleaseStandIn();
 
         // Idle chatter
         void RebuildIdleTopicCache();
         void UpdateIdleChatter();
+        RE::BSTSmartPointer<RE::DialogueItem> PickIdleLine(RE::Actor* a_player, RE::Actor* a_donor);
 
         static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
         using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
@@ -88,16 +87,24 @@ namespace InTheirShoes {
         bool _initialized{ false };
         std::atomic<bool> _inSelfDialogue{ false };
 
-        // Puppet line being mirrored onto the player
-        bool _puppetLineActive{ false };
-        std::chrono::steady_clock::time_point _puppetLineStart{};
-
-        // Line the player is voicing
+        // Line the player is voicing, and the stand-in whose line it is (if any)
         bool _playerLineActive{ false };
+        RE::ActorHandle _standIn;
+        RE::DialogueResponse* _standInResponse{ nullptr };  // the engine's response the stand-in runs
+        // The player's copy of the stand-in's line (the stand-in's own response is silenced)
+        RE::DialogueResponse _standInLine;
         bool _playerLineIsIdleChatter{ false };
         bool _playerLineHadSound{ false };
+        bool _playerLineWaitsForMenu{ false };
+        // Set while the line's voice hasn't started yet (see StartPlayerVoiceLate)
+        RE::DialogueResponse* _playerLineResponse{ nullptr };
+        // Owns the response of a line we built ourselves (idle chatter)
+        RE::BSTSmartPointer<RE::DialogueItem> _playerLineItem;
         float _playerLineUnvoicedDuration{ 0.0f };
+        float _playerLineSoundSeconds{ 0.0f };
         std::chrono::steady_clock::time_point _playerLineStart{};
+        std::chrono::steady_clock::time_point _playerLineSoundStart{};
+        std::chrono::steady_clock::time_point _lastVoiceRetry{};
 
         // Idle chatter
         struct IdleTopic {
@@ -107,6 +114,8 @@ namespace InTheirShoes {
         bool _idleTopicsCached{ false };
         std::vector<IdleTopic> _idleTopics;
         float _idleChatterTimeSeconds{ 60.0f };
+        const char* _idleChatterBlockedBy{ nullptr };
+        bool _idleChatterFoundNothing{ false };
         std::chrono::steady_clock::time_point _lastIdleChatterTime{ std::chrono::steady_clock::now() };
         std::chrono::steady_clock::time_point _lastIdleEvalTime{};
     };

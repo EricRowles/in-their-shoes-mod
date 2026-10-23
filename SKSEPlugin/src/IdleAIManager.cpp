@@ -5,17 +5,30 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "RE/P/PlayerControls.h"
 #include "RE/T/TESPackage.h"
 #include "RE/T/TESQuest.h"
 #include "RE/E/ExtraAliasInstanceArray.h"
 #include "RE/B/BGSRefAlias.h"
+#include "RE/F/FunctionArguments.h"
 
 namespace InTheirShoes {
 
     // DefaultSandboxCurrentLocation1024, the fallback when nothing else applies
     constexpr RE::FormID kDefaultSandboxPackage = 0x000BFB6B;
+    // Game.SetPlayerAIDriven runs through the script VM, so the package is evaluated a moment later
+    constexpr float kEvaluateAfterEngageSeconds = 0.25f;
+
+    // Uses the game's own Game.SetPlayerAIDriven rather than calling PlayerCharacter::SetAIDriven by
+    // address, whose Address Library ID for this runtime is unverified
+    static void SetPlayerAIDriven(bool a_enable) {
+        auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+        if (!vm) return;
+        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+        vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
+    }
 
     static bool PackageTargetsPlayer(const RE::TESPackage* a_pkg, RE::Actor* a_player) {
         if (!a_pkg || !a_pkg->packTarg) return false;
@@ -52,12 +65,37 @@ namespace InTheirShoes {
 
         if (!_aiActive || !ImpersonationManager::GetSingleton().IsActive()) return;
 
+        if (!_evaluatedAfterEngage && SecondsSinceEngage() >= kEvaluateAfterEngageSeconds) {
+            _evaluatedAfterEngage = true;
+            player->EvaluatePackage(true, true);
+        }
+
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration<float>(now - _lastPackageSyncTime).count() >= 1.5f) {
             _lastPackageSyncTime = now;
             SyncDonorPackagesToPlayer();
         }
+        LogRunningPackage();
         CheckForceGreetReachedPuppet();
+    }
+
+    float IdleAIManager::SecondsSinceEngage() const {
+        return std::chrono::duration<float>(std::chrono::steady_clock::now() - _aiStartTime).count();
+    }
+
+    void IdleAIManager::LogRunningPackage() {
+        // Report the first package seen after engaging (or that there is none), then every change
+        if (SecondsSinceEngage() < 1.0f) return;
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* pkg = player ? player->GetCurrentPackage() : nullptr;
+        if (_runningPackageLogged && pkg == _loggedPackage) return;
+        _runningPackageLogged = true;
+        _loggedPackage = pkg;
+        if (pkg) {
+            SKSE::log::info("Player is running package {:08X}", pkg->GetFormID());
+        } else {
+            SKSE::log::info("Player has no current package");
+        }
     }
 
     void IdleAIManager::CheckForceGreetReachedPuppet() {
@@ -123,7 +161,19 @@ namespace InTheirShoes {
         }
 
         auto* player = RE::PlayerCharacter::GetSingleton();
-        if (!player || player->IsInCombat() || IsBlockingMenuOpen()) {
+        const char* blockedBy = nullptr;
+        if (!player || player->IsInCombat()) {
+            blockedBy = "combat";
+        } else if (IsBlockingMenuOpen()) {
+            blockedBy = "menu";
+        }
+        if (blockedBy != _blockedBy) {
+            if (blockedBy) {
+                SKSE::log::info("Idle AI waiting: {}", blockedBy);
+            }
+            _blockedBy = blockedBy;
+        }
+        if (blockedBy) {
             _lastInputTime = std::chrono::steady_clock::now();
             if (_aiActive) {
                 StopIdleAI();
@@ -149,40 +199,34 @@ namespace InTheirShoes {
 
         _aiActive = true;
         _forceGreetTriggered = false;
-        _lastPackageSyncTime = std::chrono::steady_clock::now();
+        _runningPackageLogged = false;
+        _evaluatedAfterEngage = false;
+        _aiStartTime = std::chrono::steady_clock::now();
+        _lastPackageSyncTime = _aiStartTime;
 
         SyncDonorPackagesToPlayer();
-
         player->AllowBleedoutDialogue(true);
-        player->SetAIDriven(true);
-        player->EvaluatePackage(true, true);
-
-        if (auto* currentPkg = player->GetCurrentPackage()) {
-            SKSE::log::info("Player idle timeout reached - engaged autonomous AI package: {:08X} ({})",
-                currentPkg->GetFormID(), currentPkg->GetFormEditorID() ? currentPkg->GetFormEditorID() : "No EDID");
-        } else {
-            SKSE::log::info("Player idle timeout reached - engaged autonomous AI (package evaluates next AI tick).");
-        }
+        SetPlayerAIDriven(true);
+        SKSE::log::info("Player idle timeout reached - engaging autonomous AI.");
     }
 
     void IdleAIManager::StopIdleAI() {
-        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-            player->SetAIDriven(false);
-            ClearPlayerPackages();
-            player->EvaluatePackage(false, false);
-            if (_aiActive) {
-                SKSE::log::info("Player input detected - disengaged autonomous AI.");
-            }
-        }
-        if (_aiActive) {
-            if (auto* pc = RE::PlayerControls::GetSingleton()) {
-                pc->data.autoMove = false;
-                pc->data.moveInputVec = { 0.0f, 0.0f };
-                pc->data.running = _savedUserRunning;
-            }
-        }
+        if (!_aiActive) return;
         _aiActive = false;
+
+        SetPlayerAIDriven(false);
+        ClearPlayerPackages();
+        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+            player->EvaluatePackage(false, false);
+        }
+        if (auto* pc = RE::PlayerControls::GetSingleton()) {
+            pc->data.autoMove = false;
+            pc->data.moveInputVec = { 0.0f, 0.0f };
+            pc->data.running = _savedUserRunning;
+        }
+        _loggedPackage = nullptr;
         _lastInputTime = std::chrono::steady_clock::now();
+        SKSE::log::info("Disengaged autonomous AI.");
     }
 
     void IdleAIManager::OnImpersonationChanged(bool a_active) {
@@ -196,9 +240,10 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::RetargetAliasPackagesToPuppet() {
-        // Packages on the donor's swapped aliases now apply to the player natively. Any that target the
-        // player (force-greets, "approach the Dragonborn") would make the player target itself, so point
+        // Packages on the donor's swapped aliases apply to the player now. Any that target the player
+        // (force-greets, "approach the Dragonborn") would make the player target itself, so point
         // them at the puppet. These forms belong to the alias's quest; base packages are never touched.
+        // Only packTarg is handled: templated packages keep their target in data inputs (open issue).
         auto& impMgr = ImpersonationManager::GetSingleton();
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = impMgr.GetPuppet();
@@ -241,12 +286,12 @@ namespace InTheirShoes {
 
         RetargetAliasPackagesToPuppet();
 
-        // The donor's own (base record) packages go on the player's base record. Alias packages are
-        // not copied: the swapped aliases already apply them to the player.
+        // The donor's own (base record) packages go on the player's base record. The swapped aliases
+        // apply their packages to the player directly.
         std::vector<RE::TESPackage*> donorPkgs;
         for (auto* pkg : donorBase->aiPackages.packages) {
-            if (!pkg || PackageTargetsPlayer(pkg, player)) continue;
-            if (std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
+            if (pkg && !PackageTargetsPlayer(pkg, player) &&
+                std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
                 donorPkgs.push_back(pkg);
             }
         }
@@ -269,7 +314,11 @@ namespace InTheirShoes {
                 playerBase->aiPackages.packages.push_front(*it);
             }
             player->EvaluatePackage(false, false);
-            SKSE::log::info("Synchronized {} donor AI packages to player.", donorPkgs.size());
+            std::string ids;
+            for (auto* pkg : donorPkgs) {
+                ids += fmt::format(" {:08X}", pkg->GetFormID());
+            }
+            SKSE::log::info("Synchronized {} donor AI packages to player:{}", donorPkgs.size(), ids);
         }
     }
 

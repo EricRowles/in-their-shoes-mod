@@ -55,12 +55,19 @@ namespace InTheirShoes {
         void SyncDonorPackagesToPlayer();
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
+        void LogRunningPackage();
+        float SecondsSinceEngage() const;
 
         bool _initialized{ false };
         bool _enabled{ false };
         bool _aiActive{ false };
         bool _forceGreetTriggered{ false };
         float _idleTimeoutSeconds{ 10.0f };
+        const char* _blockedBy{ nullptr };
+        RE::TESPackage* _loggedPackage{ nullptr };
+        bool _runningPackageLogged{ false };
+        bool _evaluatedAfterEngage{ false };
+        std::chrono::steady_clock::time_point _aiStartTime{};
         std::chrono::steady_clock::time_point _lastPackageSyncTime{ std::chrono::steady_clock::now() };
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };
         bool _savedUserRunning{ true };

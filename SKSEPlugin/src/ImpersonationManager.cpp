@@ -609,10 +609,6 @@ namespace InTheirShoes {
         DialogueManager::GetSingleton().InvalidateIdleQuestCache();
 
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
-        if (auto* pc = RE::PlayerCharacter::GetSingleton()) {
-            pc->SetAIDriven(false);
-            pc->EvaluatePackage(false, false);
-        }
 
         _active.store(false, std::memory_order_release);
         DetachDonor();
@@ -631,6 +627,9 @@ namespace InTheirShoes {
     void ImpersonationManager::ConfigurePuppet(RE::Actor* a_puppet) {
         if (_baseline) {
             FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
+            // The puppet has usually just been moved in, and its 3D may still be loading from the old
+            // base data; a 3D reset before it attaches is lost. Reapply once the 3D is in place.
+            _puppetRefreshPending = true;
         }
         ApplyPuppetFollowState(a_puppet);
         a_puppet->AllowPCDialogue(true);
@@ -664,9 +663,26 @@ namespace InTheirShoes {
         SKSE::log::info("Updated puppet follows player: {}", a_follows);
     }
 
+    void ImpersonationManager::RefreshPuppetAppearanceWhenLoaded() {
+        auto* puppet = GetPuppet();
+        if (!puppet || !_baseline) {
+            _puppetRefreshPending = false;
+            return;
+        }
+        if (!puppet->Is3DLoaded()) return;
+
+        _puppetRefreshPending = false;
+        FaceManager::GetSingleton().ApplySnapshot(puppet, _baseline->face, true, true);
+        SKSE::log::info("Reapplied Dragonborn appearance to puppet {:08X} after its 3D loaded.", puppet->GetFormID());
+    }
+
     void ImpersonationManager::Tick() {
         IdleAIManager::GetSingleton().Update();
         DialogueManager::GetSingleton().Update();
+
+        if (_puppetRefreshPending) {
+            RefreshPuppetAppearanceWhenLoaded();
+        }
 
         if (!IsActive() || _leashQueued) return;
 
@@ -723,6 +739,39 @@ namespace InTheirShoes {
             _swappedAliases.push_back({ quest->GetFormID(), aid });
             SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player in quest {:08X} alias ID {}",
                 a_donor->GetFormID(), quest->GetFormID(), aid);
+        }
+    }
+
+    void ImpersonationManager::AdoptPuppetAliases() {
+        auto* puppet = GetPuppet();
+        auto* player = GetPlayer();
+        if (!IsActive() || !puppet || !player) return;
+
+        auto* aliasArray = puppet->extraList.GetByType<RE::ExtraAliasInstanceArray>();
+        if (!aliasArray) return;
+
+        std::vector<std::pair<RE::TESQuest*, std::uint32_t>> toAdopt;
+        {
+            RE::BSReadLockGuard locker(aliasArray->lock);
+            for (auto* inst : aliasArray->aliases) {
+                if (!inst || !inst->quest || !inst->alias) continue;
+                if (!inst->quest->IsRunning() || IsModInternalQuest(inst->quest)) continue;
+                if (inst->alias->QType() != "Ref"sv) continue;
+                if (static_cast<const RE::BGSRefAlias*>(inst->alias)->GetReference() == puppet) {
+                    toAdopt.emplace_back(inst->quest, inst->alias->aliasID);
+                }
+            }
+        }
+
+        for (const auto& [quest, aid] : toAdopt) {
+            quest->ForceRefIntoAlias(aid, player);
+            if (!IsSwappedAlias(quest->GetFormID(), aid)) {
+                _swappedAliases.push_back({ quest->GetFormID(), aid });
+            }
+            SKSE::log::info("AdoptPuppetAliases: Moved puppet's alias ID {} in quest {:08X} to the player", aid, quest->GetFormID());
+        }
+        if (!toAdopt.empty()) {
+            puppet->EvaluatePackage(false, false);
         }
     }
 
@@ -855,6 +904,7 @@ namespace InTheirShoes {
         _baseline.reset();
         _origVoiceType.store(nullptr, std::memory_order_release);
         _leashQueued = false;
+        _puppetRefreshPending = false;
     }
 
     void ImpersonationManager::OnPostLoadGame() {

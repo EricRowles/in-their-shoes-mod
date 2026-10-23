@@ -53,6 +53,11 @@ namespace InTheirShoes {
 
         void ForwardPuppetFactionsToDonor();
 
+        // Moves any outside quest alias the puppet was forced into (e.g. by a recruitment fragment that
+        // calls ForceRefTo(speaker) during self-dialogue) to the player, tracked as a swapped alias so
+        // the donor gets it on revert
+        void AdoptPuppetAliases();
+
         bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
             for (const auto& entry : _swappedAliases) {
                 if (entry.questFormID == a_questFormID && entry.aliasID == a_aliasID) return true;
@@ -114,6 +119,7 @@ namespace InTheirShoes {
         void ConfigurePuppet(RE::Actor* a_puppet);
         void ReleasePuppet();
         void ApplyPuppetFollowState(RE::Actor* a_puppet);
+        void RefreshPuppetAppearanceWhenLoaded();
 
         void SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
         void RestoreSwappedAliases(RE::Actor* a_donor);
@@ -131,6 +137,7 @@ namespace InTheirShoes {
         RE::NiPointer<RE::Actor> _puppetKeepAlive;
         bool _puppetFollows{ true };
         bool _leashQueued{ false };
+        bool _puppetRefreshPending{ false };
         bool _hooksInstalled{ false };
         RE::ObjectRefHandle _storageMarker;
         std::optional<Baseline> _baseline;
