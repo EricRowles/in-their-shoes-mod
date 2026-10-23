@@ -260,7 +260,9 @@ namespace InTheirShoes {
                 }
                 const RE::BGSEquipSlot* slot = wornRec.isLeft ? leftSlot : nullptr;
                 std::uint32_t equipCount = wornRec.object->Is(RE::FormType::Ammo) ? static_cast<std::uint32_t>(it->second.first) : 1;
-                equipMgr->EquipObject(a_toActor, wornRec.object, xList, equipCount, slot, false, a_forceEquip, false, true);
+                // Non-playable items (such as equipped NPC skins) require forceEquip on the player
+                bool forceEquip = a_forceEquip || !wornRec.object->GetPlayable();
+                equipMgr->EquipObject(a_toActor, wornRec.object, xList, equipCount, slot, false, forceEquip, false, true);
             }
         }
 

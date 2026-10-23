@@ -89,9 +89,11 @@ namespace InTheirShoes::Serialization {
             a_serde->WriteRecordData(nameStr.data(), nameLen);
         }
 
-        // Face details texture set
+        // Face details texture set & base skins
         RE::FormID faceDetailsID = a_face.faceDetails ? a_face.faceDetails->GetFormID() : 0;
         a_serde->WriteRecordData(&faceDetailsID, sizeof(faceDetailsID));
+        WriteFormID(a_serde, a_face.skin);
+        WriteFormID(a_serde, a_face.farSkin);
     }
 
     static void WriteBaseline(SKSE::SerializationInterface* a_serde, const Baseline& a_baseline) {
@@ -216,6 +218,8 @@ namespace InTheirShoes::Serialization {
                 a_outFace.faceDetails = RE::TESForm::LookupByID<RE::BGSTextureSet>(faceDetailsID);
             }
         }
+        a_outFace.skin = ReadForm<RE::TESObjectARMO>(a_serde);
+        a_outFace.farSkin = ReadForm<RE::TESObjectARMO>(a_serde);
 
         return true;
     }

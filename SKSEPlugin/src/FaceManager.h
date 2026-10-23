@@ -10,6 +10,8 @@ namespace InTheirShoes {
     struct FaceSnapshot {
         RE::TESRace* race{ nullptr };
         RE::TESNPC* faceNPC{ nullptr };
+        RE::TESObjectARMO* skin{ nullptr };
+        RE::TESObjectARMO* farSkin{ nullptr };
         RE::BGSVoiceType* voiceType{ nullptr };
         RE::BGSColorForm* hairColor{ nullptr };
         RE::BGSTextureSet* faceDetails{ nullptr };

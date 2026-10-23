@@ -112,6 +112,8 @@ namespace InTheirShoes {
         a_outSnapshot.hasHairTintColor = false;
 
         a_outSnapshot.race = npc->GetRace();
+        a_outSnapshot.skin = npc->skin;
+        a_outSnapshot.farSkin = npc->farSkin;
         if (npc->GetFormID() == 0x07) {
             a_outSnapshot.faceNPC = nullptr;
         } else {
@@ -240,11 +242,14 @@ namespace InTheirShoes {
         auto* targetNPC = skyrim_cast<RE::TESNPC*>(base);
         if (!targetNPC) return false;
 
-        // 1. Race & Face NPC
+        // 1. Race, Skin & Face NPC
         if (a_snapshot.race) {
             targetNPC->race = a_snapshot.race;
             targetNPC->originalRace = a_snapshot.race;
+            a_targetActor->GetActorRuntimeData().race = a_snapshot.race;
         }
+        targetNPC->skin = a_snapshot.skin;
+        targetNPC->farSkin = a_snapshot.farSkin;
 
         if (!a_asPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != 0x07) {
             targetNPC->faceNPC = a_snapshot.faceNPC;
