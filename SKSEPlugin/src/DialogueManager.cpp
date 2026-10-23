@@ -18,6 +18,7 @@
 #include "RE/A/AIProcess.h"
 #include "RE/H/HighProcessData.h"
 #include "RE/B/BSFaceGenAnimationData.h"
+#include "RE/U/UserEvents.h"
 
 namespace InTheirShoes {
 
@@ -32,7 +33,7 @@ namespace InTheirShoes {
     // asking it for this long before falling back to playing the file ourselves, without lip sync.
     constexpr float kEngineVoiceRetrySeconds = 0.5f;
     // A self-dialogue line that starts before the Dialogue Menu is open (the greeting) waits this long
-    // for it: opening the menu resets the player's face, which loses the line's lip sync
+    // for it: the engine won't voice the player's line until the menu is up
     constexpr float kMenuWaitSeconds = 1.0f;
     constexpr float kVoiceRetryIntervalSeconds = 0.1f;
     // A voiced line is done this long after its sound's duration has played
@@ -210,6 +211,11 @@ namespace InTheirShoes {
         } else {
             SKSE::log::warn("DialogueManager failed to get UI singleton.");
         }
+        if (auto* input = RE::BSInputDeviceManager::GetSingleton()) {
+            input->AddEventSink<RE::InputEvent*>(this);
+        } else {
+            SKSE::log::warn("DialogueManager failed to get BSInputDeviceManager singleton.");
+        }
         InstallHooks();
         _initialized = true;
     }
@@ -254,6 +260,38 @@ namespace InTheirShoes {
         RE::BSTEventSource<RE::MenuOpenCloseEvent>* /*a_eventSource*/) {
         if (a_event && !a_event->opening && a_event->menuName == RE::DialogueMenu::MENU_NAME && IsInSelfDialogue()) {
             EndSelfDialogue();
+        }
+        return RE::BSEventNotifyControl::kContinue;
+    }
+
+    // A click (or accept/activate) during a self-dialogue line skips it, as it would an NPC's line; that
+    // includes clicking another topic. The engine's own skip handling never reaches the player's line.
+    RE::BSEventNotifyControl DialogueManager::ProcessEvent(
+        RE::InputEvent* const* a_event,
+        RE::BSTEventSource<RE::InputEvent*>* /*a_eventSource*/) {
+        if (!a_event || !_playerLineActive || !_standIn || !IsInSelfDialogue() ||
+            SecondsSince(_playerLineStart) < kLineStartGraceSeconds) {
+            return RE::BSEventNotifyControl::kContinue;
+        }
+        auto* ui = RE::UI::GetSingleton();
+        if (!ui || !ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
+            return RE::BSEventNotifyControl::kContinue;
+        }
+
+        const auto* userEvents = RE::UserEvents::GetSingleton();
+        for (auto* event = *a_event; event; event = event->next) {
+            if (event->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) continue;
+            const auto* button = static_cast<const RE::ButtonEvent*>(event);
+            if (!button->IsDown()) continue;
+
+            const auto& userEvent = button->QUserEvent();
+            bool isLeftMouse = button->GetDevice() == RE::INPUT_DEVICE::kMouse && button->GetIDCode() == 0;
+            if (isLeftMouse || (userEvents && (userEvent == userEvents->click || userEvent == userEvents->accept ||
+                                                  userEvent == userEvents->activate))) {
+                SKSE::log::info("Player line skipped");
+                FinishPlayerLine();
+                break;
+            }
         }
         return RE::BSEventNotifyControl::kContinue;
     }
@@ -521,7 +559,6 @@ namespace InTheirShoes {
             // a silenced greeting ending
             topicMgr->isGreetingPlayer = false;
             SKSE::log::info("Greeting finished; showing topics");
-            return;
         }
 
         auto* dialogue = topicMgr->lastSelectedDialogue;
@@ -567,15 +604,7 @@ namespace InTheirShoes {
             // the hidden donor) still runs the engine's response object, silenced: the engine tracks which
             // response the speaker is on by that object, and only moves to the next one if it matches.
             // The response belongs to this one playing of the topic, so silencing it is safe.
-            if (a_this == impMgr.GetPuppet()) {
-                // Let the line be skipped (the silenced line never enables it), and clear any click that
-                // chose this topic, so only a click during the line counts as a skip
-                if (auto* topicMgr = RE::MenuTopicManager::GetSingleton()) {
-                    topicMgr->canSkip = true;
-                    topicMgr->advanceRequested = false;
-                    topicMgr->lineSkipped = false;
-                }
-            } else {
+            if (a_this != impMgr.GetPuppet()) {
                 // The donor is out of sight, so its subtitle is shown for the player
                 QueueSubtitle(RE::PlayerCharacter::GetSingleton(), a_response);
             }
@@ -601,18 +630,8 @@ namespace InTheirShoes {
         if (!IsDonorStandIn(a_this)) {
             return _origCharQSpeakingDone(a_this);
         }
-
-        // The stand-in is done when the player has finished voicing its line, or when the line is skipped
-        auto& self = DialogueManager::GetSingleton();
-        if (self._playerLineActive) {
-            auto* topicMgr = RE::MenuTopicManager::GetSingleton();
-            if (topicMgr && (topicMgr->advanceRequested || topicMgr->lineSkipped) &&
-                SecondsSince(self._playerLineStart) >= kLineStartGraceSeconds) {
-                SKSE::log::info("Player line skipped");
-                self.FinishPlayerLine();
-            }
-        }
-        return !self._playerLineActive;
+        // The stand-in is done when the player has finished voicing its line
+        return !DialogueManager::GetSingleton()._playerLineActive;
     }
 
     bool DialogueManager::Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {

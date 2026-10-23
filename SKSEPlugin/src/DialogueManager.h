@@ -15,7 +15,9 @@ namespace InTheirShoes {
     // The player's own lines (scenes on swapped aliases) and idle chatter are voiced the same way.
     //
     // Hooks run on the main thread, except IsInSelfDialogue(), which condition hooks may call from AI threads.
-    class DialogueManager : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+    class DialogueManager :
+        public RE::BSTEventSink<RE::MenuOpenCloseEvent>,
+        public RE::BSTEventSink<RE::InputEvent*> {
     public:
         static DialogueManager& GetSingleton() {
             static DialogueManager instance;
@@ -28,6 +30,9 @@ namespace InTheirShoes {
 
         // BSTEventSink<RE::MenuOpenCloseEvent>
         RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>* a_eventSource) override;
+
+        // BSTEventSink<RE::InputEvent*>: skipping self-dialogue lines
+        RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
 
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker);
