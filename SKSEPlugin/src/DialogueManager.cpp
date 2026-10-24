@@ -373,6 +373,17 @@ namespace InTheirShoes {
             FinishPlayerLine();
         }
 
+        // The player's dialogue update ends the conversation while the player's high-process dialogue
+        // timer (CommonLib's awarePlayerTimer, +0x340) is negative. Starting a line sets it to 30s only
+        // when it is above 1s, and otherwise adds 30s. The timer keeps counting down while the player
+        // isn't in dialogue, so after a while the first line left it negative and the conversation
+        // closed at once.
+        if (auto* process = player->GetActorRuntimeData().currentProcess; process && process->high &&
+            process->high->awarePlayerTimer < 0.0f) {
+            SKSE::log::info("Reset the player's dialogue timer from {:.1f}", process->high->awarePlayerTimer);
+            process->high->awarePlayerTimer = 0.0f;
+        }
+
         // BGSProcedureForceGreet sets MenuTopicManager::forceGoodbye (+0xB2) while approaching its target.
         // If forceGoodbye is still true when StartConversation runs, MenuTopicManager immediately sets
         // shutMenu (+0xB3 = true), which causes Character::UpdateInDialogue to close the conversation on
