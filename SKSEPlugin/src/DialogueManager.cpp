@@ -245,6 +245,13 @@ namespace InTheirShoes {
         if (_playerLineActive) {
             TickPlayerLine();
         }
+        if (IsInSelfDialogue()) {
+            // Topic fragments (run by the VM, a frame or more after their line) change the speaker, the
+            // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen.
+            auto& impMgr = ImpersonationManager::GetSingleton();
+            impMgr.ForwardPuppetFactionsToDonor();
+            impMgr.AdoptPuppetAliases();
+        }
         UpdateIdleChatter();
     }
 
@@ -451,7 +458,8 @@ namespace InTheirShoes {
         }
         ClearPuppetAsSpeaker();
         // What topic fragments did to the speaker (the puppet) belongs to the donor: factions go to the
-        // donor, and quest aliases (e.g. a follower alias) go to the player standing in for the donor
+        // donor, and quest aliases (e.g. a follower alias) go to the player standing in for the donor.
+        // Update() forwards them every frame during self-dialogue; this catches the last frame's.
         auto& impMgr = ImpersonationManager::GetSingleton();
         impMgr.ForwardPuppetFactionsToDonor();
         impMgr.AdoptPuppetAliases();
