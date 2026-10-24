@@ -3,15 +3,25 @@
 #include <chrono>
 #include <vector>
 #include <cstdint>
+#include "RE/I/IProcedureTreeItem.h"
 
 namespace InTheirShoes {
 
-    // A swapped-alias package whose target was redirected from the player to the puppet
+    // A package target redirected from the player to the puppet while autonomous AI is active
     struct RetargetedPackageTarget {
-        RE::TESPackage* package{ nullptr };
-        std::uint8_t targType{ 0 };
+        RE::PackageTarget* target{ nullptr };
+        std::int8_t origType{ 0 };
         RE::ObjectRefHandle origHandle;
         RE::TESForm* origObject{ nullptr };
+    };
+
+    // A package location redirected from the player to the puppet while autonomous AI is active
+    struct RetargetedPackageLocation {
+        RE::PackageLocation* location{ nullptr };
+        std::uint8_t origType{ 0 };
+        RE::ObjectRefHandle origHandle;
+        RE::TESForm* origObject{ nullptr };
+        std::uint32_t origRad{ 0 };
     };
 
     // Drives the player with the donor's AI packages after a period without input.
@@ -50,18 +60,29 @@ namespace InTheirShoes {
         IdleAIManager(const IdleAIManager&) = delete;
         IdleAIManager& operator=(const IdleAIManager&) = delete;
 
+        void InstallHooks();
         void OnUserInput();
         void CheckIdleAI();
         void SyncDonorPackagesToPlayer();
+        bool RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet);
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
         void LogRunningPackage();
         float SecondsSinceEngage() const;
 
+        static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
+        using ForceGreet_InitExecState_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
+        inline static REL::Relocation<ForceGreet_InitExecState_t> _origForceGreetInitExecState;
+
+        static std::uint64_t Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
+        using ForceGreet_Execute_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
+        inline static REL::Relocation<ForceGreet_Execute_t> _origForceGreetExecute;
+
         bool _initialized{ false };
         bool _enabled{ false };
         bool _aiActive{ false };
         bool _forceGreetTriggered{ false };
+        bool _forceGreetProcedureActive{ false };
         float _idleTimeoutSeconds{ 10.0f };
         const char* _blockedBy{ nullptr };
         RE::TESPackage* _loggedPackage{ nullptr };
@@ -72,7 +93,8 @@ namespace InTheirShoes {
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };
         bool _savedUserRunning{ true };
 
-        std::vector<RetargetedPackageTarget> _retargetedPackages;
+        std::vector<RetargetedPackageTarget> _retargetedTargets;
+        std::vector<RetargetedPackageLocation> _retargetedLocations;
     };
 
 }

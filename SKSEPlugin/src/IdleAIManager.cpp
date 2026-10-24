@@ -8,7 +8,12 @@
 #include <string>
 
 #include "RE/P/PlayerControls.h"
+#include "RE/P/PackageLocation.h"
 #include "RE/T/TESPackage.h"
+#include "RE/T/TESCustomPackageData.h"
+#include "RE/I/IPackageData.h"
+#include "RE/B/BGSProcedureTreeBranch.h"
+#include "RE/B/BGSProcedureTreeProcedure.h"
 #include "RE/T/TESQuest.h"
 #include "RE/E/ExtraAliasInstanceArray.h"
 #include "RE/B/BGSRefAlias.h"
@@ -21,25 +26,158 @@ namespace InTheirShoes {
     // Game.SetPlayerAIDriven runs through the script VM, so the package is evaluated a moment later
     constexpr float kEvaluateAfterEngageSeconds = 0.25f;
 
-    // Uses the game's own Game.SetPlayerAIDriven rather than calling PlayerCharacter::SetAIDriven by
-    // address, whose Address Library ID for this runtime is unverified
+    // Updates aiControlledPackage synchronously so immediate EvaluatePackage calls see the new state,
+    // and dispatches Game.SetPlayerAIDriven through the VM to switch the movement controller cleanly.
     static void SetPlayerAIDriven(bool a_enable) {
+        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+            player->GetPlayerRuntimeData().playerFlags.aiControlledPackage = a_enable;
+        }
         auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
         if (!vm) return;
         RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
         vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
     }
 
-    static bool PackageTargetsPlayer(const RE::TESPackage* a_pkg, RE::Actor* a_player) {
-        if (!a_pkg || !a_pkg->packTarg) return false;
-        auto type = static_cast<std::uint8_t>(a_pkg->packTarg->targType);
-        if (type == 0) {
-            return a_pkg->packTarg->target.handle == a_player->GetHandle();
+    template <typename Fn>
+    static void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
+        if (!a_pkg) return;
+        if (a_pkg->packTarg) {
+            a_fn(a_pkg->packTarg);
         }
-        if (type == 1) {
-            return a_pkg->packTarg->target.object == a_player || a_pkg->packTarg->target.object == a_player->GetBaseObject();
+        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
+        if (!customData || !customData->data.data) return;
+
+        for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
+            auto* item = customData->data.data[i];
+            if (!item) continue;
+            const auto& typeName = item->GetTypeName();
+            if (!typeName.empty() &&
+                (_stricmp(typeName.c_str(), "SingleRef") == 0 || _stricmp(typeName.c_str(), "TargetSelector") == 0)) {
+                auto* targ = *reinterpret_cast<RE::PackageTarget* const*>(reinterpret_cast<std::uintptr_t>(item) + 0x10);
+                if (targ) {
+                    a_fn(targ);
+                }
+            }
+        }
+    }
+
+    template <typename Fn>
+    static void ForEachPackageLocation(const RE::TESPackage* a_pkg, Fn&& a_fn) {
+        if (!a_pkg) return;
+        if (a_pkg->packLoc) {
+            a_fn(a_pkg->packLoc);
+        }
+        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
+        if (!customData || !customData->data.data) return;
+
+        for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
+            auto* item = customData->data.data[i];
+            if (!item) continue;
+            const auto& typeName = item->GetTypeName();
+            if (!typeName.empty() && _stricmp(typeName.c_str(), "Location") == 0) {
+                auto* loc = *reinterpret_cast<RE::PackageLocation* const*>(reinterpret_cast<std::uintptr_t>(item) + 0x10);
+                if (loc) {
+                    a_fn(loc);
+                }
+            }
+        }
+    }
+
+    static bool TargetReferencesActor(const RE::PackageTarget* a_targ, RE::Actor* a_actor) {
+        if (!a_targ || !a_actor) return false;
+        if (a_targ->targType == 0) {
+            return a_targ->target.handle == a_actor->GetHandle();
+        }
+        if (a_targ->targType == 1) {
+            return a_targ->target.object == a_actor || a_targ->target.object == a_actor->GetBaseObject();
         }
         return false;
+    }
+
+    static bool LocationReferencesActor(const RE::PackageLocation* a_loc, RE::Actor* a_actor) {
+        if (!a_loc || !a_actor) return false;
+        auto type = a_loc->locType.get();
+        if (type == RE::PackageLocation::Type::kNearReference) {
+            return a_loc->data.refHandle == a_actor->GetHandle();
+        }
+        if (type == RE::PackageLocation::Type::kObjectID) {
+            return a_loc->data.object == a_actor || a_loc->data.object == a_actor->GetBaseObject();
+        }
+        return false;
+    }
+
+    static bool PackageTargetsActor(const RE::TESPackage* a_pkg, RE::Actor* a_actor) {
+        bool found = false;
+        ForEachPackageTarget(a_pkg, [&](RE::PackageTarget* a_targ) {
+            if (TargetReferencesActor(a_targ, a_actor)) {
+                found = true;
+            }
+        });
+        if (found) return true;
+        ForEachPackageLocation(a_pkg, [&](RE::PackageLocation* a_loc) {
+            if (LocationReferencesActor(a_loc, a_actor)) {
+                found = true;
+            }
+        });
+        return found;
+    }
+
+    static bool HasProcedureTreeForceGreet(const RE::IProcedureTreeItem* a_item) {
+        if (!a_item) return false;
+        static const std::uintptr_t kBranchVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeBranch[0]).address();
+        static const std::uintptr_t kProcItemVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeProcedure[0]).address();
+        static const std::uintptr_t kForceGreetVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureForceGreet[0]).address();
+
+        const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(a_item);
+        if (vtbl == kProcItemVtbl) {
+            const auto* procItem = static_cast<const RE::BGSProcedureTreeProcedure*>(a_item);
+            if (procItem->procedure && *reinterpret_cast<const std::uintptr_t*>(procItem->procedure) == kForceGreetVtbl) {
+                return true;
+            }
+        } else if (vtbl == kBranchVtbl) {
+            const auto* branch = static_cast<const RE::BGSProcedureTreeBranch*>(a_item);
+            for (const auto* child : branch->conditions) {
+                if (HasProcedureTreeForceGreet(child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool HasForceGreetProcedure(const RE::TESPackage* a_pkg) {
+        if (!a_pkg) return false;
+        if (a_pkg->procedureType == RE::PACKAGE_PROCEDURE_TYPE::kGreet) {
+            return true;
+        }
+        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
+        if (!customData) return false;
+        if (HasProcedureTreeForceGreet(customData->procedureTree)) {
+            return true;
+        }
+        return customData->templateParent && HasForceGreetProcedure(customData->templateParent);
+    }
+
+    static RE::TESTopic* GetForceGreetTopic(const RE::TESPackage* a_pkg) {
+        if (!a_pkg) return nullptr;
+        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
+        if (!customData) return nullptr;
+
+        if (customData->data.data) {
+            for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
+                auto* item = customData->data.data[i];
+                if (!item) continue;
+                const auto& typeName = item->GetTypeName();
+                if (!typeName.empty() && _stricmp(typeName.c_str(), "Topic") == 0) {
+                    const auto* topicData = reinterpret_cast<const RE::PackageEventAction::TopicData*>(
+                        reinterpret_cast<std::uintptr_t>(item) + 0x10);
+                    if (topicData->type == RE::PackageEventAction::TopicData::Type::kTopicRef && topicData->topic) {
+                        return topicData->topic;
+                    }
+                }
+            }
+        }
+        return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
     }
 
     void IdleAIManager::Initialize() {
@@ -50,7 +188,53 @@ namespace InTheirShoes {
         } else {
             SKSE::log::warn("IdleAIManager failed to get BSInputDeviceManager singleton.");
         }
+        InstallHooks();
         _initialized = true;
+    }
+
+    void IdleAIManager::InstallHooks() {
+        REL::Relocation<std::uintptr_t> forceGreetVtbl{ RE::VTABLE_BGSProcedureForceGreet[0] };
+        _origForceGreetInitExecState = forceGreetVtbl.write_vfunc(0x09, &Hook_ForceGreet_InitExecState);
+        _origForceGreetExecute = forceGreetVtbl.write_vfunc(0x0C, &Hook_ForceGreet_Execute);
+        SKSE::log::info("Hooked BGSProcedureForceGreet (0x09, 0x0C) vfuncs");
+    }
+
+    std::uint64_t IdleAIManager::Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+        auto ret = _origForceGreetInitExecState(a_this, a_execState);
+        auto& impMgr = ImpersonationManager::GetSingleton();
+        if (impMgr.IsActive() && a_execState && a_execState->context &&
+            a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState) {
+            if (auto* puppet = impMgr.GetPuppet()) {
+                // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20)
+                // to the player's handle, which makes the player spin in a circle targeting itself.
+                *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + 0x20) = puppet->GetHandle();
+                IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
+            }
+        }
+        return ret;
+    }
+
+    std::uint64_t IdleAIManager::Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+        auto& impMgr = ImpersonationManager::GetSingleton();
+        bool isPlayerForceGreet = impMgr.IsActive() && a_execState && a_execState->context &&
+                                  a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
+        if (isPlayerForceGreet) {
+            if (auto* puppet = impMgr.GetPuppet()) {
+                *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + 0x20) = puppet->GetHandle();
+                IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
+            }
+        }
+        auto ret = _origForceGreetExecute(a_this, a_execState);
+        if (isPlayerForceGreet) {
+            // BGSProcedureForceGreet::Execute sets MenuTopicManager::forceGoodbye (+0xB2 = true) every
+            // frame while pathing toward its target, and only clears it if the engine's internal NPC->player
+            // ForceGreet start completes. Leaving forceGoodbye set causes MenuTopicManager::StartConversation
+            // to set shutMenu = true and immediately close self-dialogue on the next frame.
+            if (auto* topicMgr = RE::MenuTopicManager::GetSingleton()) {
+                topicMgr->forceGoodbye = false;
+            }
+        }
+        return ret;
     }
 
     void IdleAIManager::Update() {
@@ -91,6 +275,8 @@ namespace InTheirShoes {
         if (_runningPackageLogged && pkg == _loggedPackage) return;
         _runningPackageLogged = true;
         _loggedPackage = pkg;
+        _forceGreetTriggered = false;
+        _forceGreetProcedureActive = false;
         if (pkg) {
             SKSE::log::info("Player is running package {:08X}", pkg->GetFormID());
         } else {
@@ -99,24 +285,33 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::CheckForceGreetReachedPuppet() {
-        // A donor package that would approach the Dragonborn has been retargeted to the puppet.
-        // When the player arrives, open self-dialogue once for this approach.
+        // A donor package that would approach or ForceGreet the Dragonborn has been retargeted to the puppet.
+        // When the player arrives within greeting distance, open self-dialogue once for this approach.
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
         auto* curPkg = player ? player->GetCurrentPackage() : nullptr;
-        bool targetsPuppet = puppet && curPkg && curPkg->packTarg &&
-                             (curPkg->packTarg->target.handle == puppet->GetHandle() || curPkg->packTarg->target.object == puppet);
+        if (!puppet || !curPkg) {
+            _forceGreetTriggered = false;
+            _forceGreetProcedureActive = false;
+            return;
+        }
+
+        bool isForceGreetPkg = _forceGreetProcedureActive || HasForceGreetProcedure(curPkg);
+        bool targetsPuppet = isForceGreetPkg || PackageTargetsActor(curPkg, puppet);
         if (!targetsPuppet) {
             _forceGreetTriggered = false;
             return;
         }
         if (_forceGreetTriggered) return;
 
+        float greetDist = isForceGreetPkg ? 300.0f : 250.0f;
         float dist = player->GetDistance(puppet, false, false);
-        if (dist <= 250.0f) {
-            SKSE::log::info("Player package reached puppet target (dist: {:.1f}) - opening self-dialogue.", dist);
+        if (dist <= greetDist) {
+            auto* topic = GetForceGreetTopic(curPkg);
+            SKSE::log::info("Player package {:08X} reached puppet target (dist: {:.1f}, topic: {:08X}) - opening self-dialogue.",
+                curPkg->GetFormID(), dist, topic ? topic->GetFormID() : 0);
             _forceGreetTriggered = true;
-            DialogueManager::GetSingleton().OpenSelfDialogue(puppet);
+            DialogueManager::GetSingleton().OpenSelfDialogue(puppet, topic);
         }
     }
 
@@ -199,6 +394,7 @@ namespace InTheirShoes {
 
         _aiActive = true;
         _forceGreetTriggered = false;
+        _forceGreetProcedureActive = false;
         _runningPackageLogged = false;
         _evaluatedAfterEngage = false;
         _aiStartTime = std::chrono::steady_clock::now();
@@ -213,6 +409,7 @@ namespace InTheirShoes {
     void IdleAIManager::StopIdleAI() {
         if (!_aiActive) return;
         _aiActive = false;
+        _forceGreetProcedureActive = false;
 
         SetPlayerAIDriven(false);
         ClearPlayerPackages();
@@ -239,15 +436,63 @@ namespace InTheirShoes {
         SKSE::log::info("IdleAIManager: impersonation active = {}", a_active);
     }
 
+    bool IdleAIManager::RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet) {
+        if (!a_pkg || !a_player || !a_puppet) return false;
+        bool retargeted = false;
+
+        ForEachPackageTarget(a_pkg, [&](RE::PackageTarget* a_targ) {
+            if (!TargetReferencesActor(a_targ, a_player)) return;
+            auto it = std::find_if(_retargetedTargets.begin(), _retargetedTargets.end(),
+                [a_targ](const RetargetedPackageTarget& a_rec) { return a_rec.target == a_targ; });
+            if (it == _retargetedTargets.end()) {
+                RetargetedPackageTarget rec;
+                rec.target = a_targ;
+                rec.origType = a_targ->targType;
+                rec.origHandle = a_targ->target.handle;
+                rec.origObject = a_targ->target.object;
+                _retargetedTargets.push_back(rec);
+            }
+            a_targ->targType = 0;
+            a_targ->target.handle = a_puppet->GetHandle();
+            retargeted = true;
+        });
+
+        ForEachPackageLocation(a_pkg, [&](RE::PackageLocation* a_loc) {
+            if (!LocationReferencesActor(a_loc, a_player)) return;
+            auto it = std::find_if(_retargetedLocations.begin(), _retargetedLocations.end(),
+                [a_loc](const RetargetedPackageLocation& a_rec) { return a_rec.location == a_loc; });
+            if (it == _retargetedLocations.end()) {
+                RetargetedPackageLocation rec;
+                rec.location = a_loc;
+                rec.origType = static_cast<std::uint8_t>(a_loc->locType.underlying());
+                rec.origHandle = a_loc->data.refHandle;
+                rec.origObject = a_loc->data.object;
+                rec.origRad = a_loc->rad;
+                _retargetedLocations.push_back(rec);
+            }
+            a_loc->locType = RE::PackageLocation::Type::kNearReference;
+            a_loc->data.refHandle = a_puppet->GetHandle();
+            // ForceGreet packages often have a preliminary Travel branch whose Trigger Location radius is
+            // 500+ units around the player, while the ForceGreet branch only activates within 300 units.
+            // Clamp the radius so the Travel branch brings the impersonator within greeting distance.
+            a_loc->rad = std::min<std::uint32_t>(a_loc->rad, 150u);
+            retargeted = true;
+        });
+
+        if (retargeted) {
+            SKSE::log::info("Retargeted package {:08X} from player to puppet {:08X}", a_pkg->GetFormID(), a_puppet->GetFormID());
+        }
+        return retargeted;
+    }
+
     void IdleAIManager::RetargetAliasPackagesToPuppet() {
-        // Packages on the donor's swapped aliases apply to the player now. Any that target the player
-        // (force-greets, "approach the Dragonborn") would make the player target itself, so point
-        // them at the puppet. These forms belong to the alias's quest; base packages are never touched.
-        // Only packTarg is handled: templated packages keep their target in data inputs (open issue).
+        // Packages on the donor's swapped aliases apply to the player now. Any that target or locate
+        // relative to the player (force-greets, "approach the Dragonborn") would make the player target
+        // itself, so point their targets and locations at the puppet.
         auto& impMgr = ImpersonationManager::GetSingleton();
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = impMgr.GetPuppet();
-        auto* aliasArray = player->extraList.GetByType<RE::ExtraAliasInstanceArray>();
+        auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
         if (!puppet || !aliasArray) return;
 
         RE::BSReadLockGuard locker(aliasArray->lock);
@@ -256,20 +501,8 @@ namespace InTheirShoes {
             if (!impMgr.IsSwappedAlias(inst->quest->GetFormID(), inst->alias->aliasID)) continue;
 
             for (auto* pkg : *inst->instancedPackages) {
-                if (!pkg || pkg->GetFormType() != RE::FormType::Package || !PackageTargetsPlayer(pkg, player)) continue;
-
-                RetargetedPackageTarget rec;
-                rec.package = pkg;
-                rec.targType = static_cast<std::uint8_t>(pkg->packTarg->targType);
-                if (rec.targType == 0) {
-                    rec.origHandle = pkg->packTarg->target.handle;
-                    pkg->packTarg->target.handle = puppet->GetHandle();
-                } else {
-                    rec.origObject = pkg->packTarg->target.object;
-                    pkg->packTarg->target.object = puppet;
-                }
-                _retargetedPackages.push_back(rec);
-                SKSE::log::info("Retargeted alias package {:08X} from player to puppet {:08X}", pkg->GetFormID(), puppet->GetFormID());
+                if (!pkg || pkg->GetFormType() != RE::FormType::Package) continue;
+                RetargetPackageToPuppet(pkg, player, puppet);
             }
         }
     }
@@ -278,6 +511,7 @@ namespace InTheirShoes {
         auto& impMgr = ImpersonationManager::GetSingleton();
         auto* donor = impMgr.GetDonor();
         auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* puppet = impMgr.GetPuppet();
         if (!impMgr.IsActive() || !donor || !player || !_aiActive) return;
 
         auto* donorBase = donor->GetActorBase();
@@ -287,11 +521,18 @@ namespace InTheirShoes {
         RetargetAliasPackagesToPuppet();
 
         // The donor's own (base record) packages go on the player's base record. The swapped aliases
-        // apply their packages to the player directly.
+        // apply their packages to the player directly. ForceGreet packages on the donor's base record
+        // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
+        // (such as follower Follow packages) are skipped.
         std::vector<RE::TESPackage*> donorPkgs;
         for (auto* pkg : donorBase->aiPackages.packages) {
-            if (pkg && !PackageTargetsPlayer(pkg, player) &&
-                std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
+            if (!pkg) continue;
+            if (HasForceGreetProcedure(pkg) && puppet) {
+                RetargetPackageToPuppet(pkg, player, puppet);
+            } else if (PackageTargetsActor(pkg, player)) {
+                continue;
+            }
+            if (std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
                 donorPkgs.push_back(pkg);
             }
         }
@@ -323,19 +564,33 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::ClearPlayerPackages() {
-        for (const auto& entry : _retargetedPackages) {
-            auto* pkg = entry.package;
-            if (!pkg || !pkg->packTarg) continue;
-            if (entry.targType == 0) {
-                pkg->packTarg->target.handle = entry.origHandle;
+        for (const auto& entry : _retargetedTargets) {
+            auto* targ = entry.target;
+            if (!targ) continue;
+            targ->targType = entry.origType;
+            if (entry.origType == 0) {
+                targ->target.handle = entry.origHandle;
             } else {
-                pkg->packTarg->target.object = entry.origObject;
+                targ->target.object = entry.origObject;
             }
         }
-        if (!_retargetedPackages.empty()) {
-            SKSE::log::info("ClearPlayerPackages: Restored {} retargeted package targets", _retargetedPackages.size());
+        for (const auto& entry : _retargetedLocations) {
+            auto* loc = entry.location;
+            if (!loc) continue;
+            loc->locType = static_cast<RE::PackageLocation::Type>(entry.origType);
+            if (loc->locType == RE::PackageLocation::Type::kNearReference) {
+                loc->data.refHandle = entry.origHandle;
+            } else {
+                loc->data.object = entry.origObject;
+            }
+            loc->rad = entry.origRad;
         }
-        _retargetedPackages.clear();
+        if (!_retargetedTargets.empty() || !_retargetedLocations.empty()) {
+            SKSE::log::info("ClearPlayerPackages: Restored {} retargeted targets and {} retargeted locations",
+                _retargetedTargets.size(), _retargetedLocations.size());
+        }
+        _retargetedTargets.clear();
+        _retargetedLocations.clear();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return;

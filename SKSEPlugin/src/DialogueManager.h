@@ -35,7 +35,7 @@ namespace InTheirShoes {
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
 
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
-        bool OpenSelfDialogue(RE::Actor* a_speaker);
+        bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
         bool IsInSelfDialogue() const { return _inSelfDialogue.load(std::memory_order_acquire); }
 
         // Idle chatter
@@ -49,7 +49,7 @@ namespace InTheirShoes {
         DialogueManager& operator=(const DialogueManager&) = delete;
 
         void InstallHooks();
-        bool OpenSelfDialogueDirect(RE::Actor* a_speaker);
+        bool OpenSelfDialogueDirect(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic = nullptr);
         void EndSelfDialogue();
 
         // Player voice
@@ -91,6 +91,8 @@ namespace InTheirShoes {
 
         bool _initialized{ false };
         std::atomic<bool> _inSelfDialogue{ false };
+        std::atomic<bool> _pendingSelfDialogue{ false };
+        std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
 
         // Line the player is voicing, and the stand-in whose line it is (if any)
         bool _playerLineActive{ false };

@@ -235,6 +235,12 @@ namespace InTheirShoes {
     }
 
     void DialogueManager::Update() {
+        if (_pendingSelfDialogue.exchange(false, std::memory_order_acq_rel)) {
+            auto* topic = _pendingSelfDialogueTopic.exchange(nullptr, std::memory_order_acq_rel);
+            if (auto* puppet = ImpersonationManager::GetSingleton().GetPuppet()) {
+                OpenSelfDialogueDirect(puppet, topic);
+            }
+        }
         if (_playerLineActive) {
             TickPlayerLine();
         }
@@ -243,6 +249,8 @@ namespace InTheirShoes {
 
     void DialogueManager::Clear() {
         _inSelfDialogue.store(false, std::memory_order_release);
+        _pendingSelfDialogue.store(false, std::memory_order_release);
+        _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
         _playerLineActive = false;
         _playerLineIsIdleChatter = false;
         _idleTopicsCached = false;
@@ -296,7 +304,10 @@ namespace InTheirShoes {
         return RE::BSEventNotifyControl::kContinue;
     }
 
-    bool DialogueManager::OpenSelfDialogue(RE::Actor* a_speaker) {
+    static bool EvaluateInQuest(const RE::TESCondition& a_conditions, RE::TESQuest* a_quest,
+        RE::TESObjectREFR* a_subject, RE::TESObjectREFR* a_target);
+
+    bool DialogueManager::OpenSelfDialogue(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic) {
         auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
         if (!a_speaker) {
             a_speaker = puppet;
@@ -306,15 +317,14 @@ namespace InTheirShoes {
             return false;
         }
 
-        SKSE::GetTaskInterface()->AddTask([speakerHandle = a_speaker->GetHandle()]() {
-            if (auto speaker = speakerHandle.get()) {
-                DialogueManager::GetSingleton().OpenSelfDialogueDirect(speaker.get());
-            }
-        });
+        // Queue for DialogueManager::Update() on the main thread rather than SKSE's task interface,
+        // which dispatches on worker threads concurrently with the main loop.
+        _pendingSelfDialogueTopic.store(a_forceGreetTopic, std::memory_order_release);
+        _pendingSelfDialogue.store(true, std::memory_order_release);
         return true;
     }
 
-    bool DialogueManager::OpenSelfDialogueDirect(RE::Actor* a_speaker) {
+    bool DialogueManager::OpenSelfDialogueDirect(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* ui = RE::UI::GetSingleton();
         if (!player || (ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME) || ui->IsModalMenuOpen()))) {
@@ -329,10 +339,40 @@ namespace InTheirShoes {
             FinishPlayerLine();
         }
 
+        // BGSProcedureForceGreet sets MenuTopicManager::forceGoodbye (+0xB2) while approaching its target.
+        // If forceGoodbye is still true when StartConversation runs, MenuTopicManager immediately sets
+        // shutMenu (+0xB3 = true), which causes Character::UpdateInDialogue to close the conversation on
+        // the very next frame.
+        if (auto* topicMgr = RE::MenuTopicManager::GetSingleton()) {
+            topicMgr->forceGoodbye = false;
+            topicMgr->shutMenu = false;
+            topicMgr->closeInProgress = false;
+        }
+
         a_speaker->AllowPCDialogue(true);
         a_speaker->AllowBleedoutDialogue(true);
 
-        if (a_speaker->SetDialogueWithPlayer(true, false, nullptr) || a_speaker->SetDialogueWithPlayer(true, true, nullptr)) {
+        RE::TESTopicInfo* forceGreetInfo = nullptr;
+        if (a_forceGreetTopic && a_forceGreetTopic->numTopicInfos > 0 && a_forceGreetTopic->topicInfos) {
+            // Evaluate conditions with self-dialogue active so the puppet tests as the donor
+            // and the player tests as the Dragonborn
+            _inSelfDialogue.store(true, std::memory_order_release);
+            for (std::uint32_t i = 0; i < a_forceGreetTopic->numTopicInfos; ++i) {
+                auto* info = a_forceGreetTopic->topicInfos[i];
+                if (!info) continue;
+                if (info->saidOnce && info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kSayOnce)) continue;
+                if (EvaluateInQuest(info->objConditions, a_forceGreetTopic->ownerQuest, a_speaker, player)) {
+                    forceGreetInfo = info;
+                    SKSE::log::info("OpenSelfDialogueDirect: resolved ForceGreet topic {:08X} -> info {:08X}",
+                        a_forceGreetTopic->GetFormID(), info->GetFormID());
+                    break;
+                }
+            }
+        }
+
+        if ((forceGreetInfo && a_speaker->SetDialogueWithPlayer(true, true, forceGreetInfo)) ||
+            a_speaker->SetDialogueWithPlayer(true, false, nullptr) ||
+            a_speaker->SetDialogueWithPlayer(true, true, nullptr)) {
             SKSE::log::info("Opened self-dialogue with puppet {:08X}", a_speaker->GetFormID());
             return true;
         }
