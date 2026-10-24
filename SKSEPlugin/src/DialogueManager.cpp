@@ -19,6 +19,7 @@
 #include "RE/H/HighProcessData.h"
 #include "RE/B/BSFaceGenAnimationData.h"
 #include "RE/U/UserEvents.h"
+#include "RE/C/ControlMap.h"
 
 namespace InTheirShoes {
 
@@ -272,8 +273,47 @@ namespace InTheirShoes {
         return RE::BSEventNotifyControl::kContinue;
     }
 
-    // A click (or accept/activate) during a self-dialogue line skips it, as it would an NPC's line; that
-    // includes clicking another topic. The engine's own skip handling never reaches the player's line.
+    // Calls a_visit(eventID) for every user event the key is bound to, in any input context
+    template <class Visit>
+    static void ForEachBinding(RE::INPUT_DEVICE a_device, std::uint32_t a_key, Visit a_visit) {
+        const auto* controlMap = RE::ControlMap::GetSingleton();
+        if (!controlMap || a_device >= RE::INPUT_DEVICE::kTotal) return;
+        for (const auto* context : controlMap->controlMap) {
+            if (!context) continue;
+            for (const auto& mapping : context->deviceMappings[a_device]) {
+                if (mapping.inputKey == a_key) {
+                    a_visit(mapping.eventID);
+                }
+            }
+        }
+    }
+
+    // Whether a press is one the Dialogue Menu uses to skip a line: a left click, or a key bound to
+    // Click/Accept/Activate. While the menu is open, keyboard presses carry no user event name, and
+    // control map mods bind Accept in different input contexts, so every context's bindings are checked.
+    static bool IsSkipPress(const RE::ButtonEvent* a_button) {
+        auto device = a_button->GetDevice();
+        auto key = a_button->GetIDCode();
+        if (device == RE::INPUT_DEVICE::kMouse && key == 0) {
+            return true;
+        }
+
+        const auto* userEvents = RE::UserEvents::GetSingleton();
+        if (!userEvents) return false;
+        auto isSkipEvent = [&](const RE::BSFixedString& a_event) {
+            return a_event == userEvents->click || a_event == userEvents->accept || a_event == userEvents->activate;
+        };
+        if (isSkipEvent(a_button->QUserEvent())) {
+            return true;
+        }
+
+        bool bound = false;
+        ForEachBinding(device, key, [&](const RE::BSFixedString& a_event) { bound = bound || isSkipEvent(a_event); });
+        return bound;
+    }
+
+    // A skip press during a self-dialogue line skips it, as it would an NPC's line; that includes
+    // clicking another topic. The engine's own skip handling never reaches the player's line.
     RE::BSEventNotifyControl DialogueManager::ProcessEvent(
         RE::InputEvent* const* a_event,
         RE::BSTEventSource<RE::InputEvent*>* /*a_eventSource*/) {
@@ -286,16 +326,10 @@ namespace InTheirShoes {
             return RE::BSEventNotifyControl::kContinue;
         }
 
-        const auto* userEvents = RE::UserEvents::GetSingleton();
         for (auto* event = *a_event; event; event = event->next) {
             if (event->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) continue;
             const auto* button = static_cast<const RE::ButtonEvent*>(event);
-            if (!button->IsDown()) continue;
-
-            const auto& userEvent = button->QUserEvent();
-            bool isLeftMouse = button->GetDevice() == RE::INPUT_DEVICE::kMouse && button->GetIDCode() == 0;
-            if (isLeftMouse || (userEvents && (userEvent == userEvents->click || userEvent == userEvents->accept ||
-                                                  userEvent == userEvents->activate))) {
+            if (button->IsDown() && IsSkipPress(button)) {
                 SKSE::log::info("Player line skipped");
                 FinishPlayerLine();
                 break;
