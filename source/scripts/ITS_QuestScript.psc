@@ -71,6 +71,8 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 			Debug.Notification("Cannot impersonate: target is mounted.")
 		elseif validation == 7
 			Debug.Notification("Cannot impersonate: target is a ghost.")
+		elseif validation == 8
+			Debug.Notification("Cannot impersonate while transformed.")
 		else
 			Debug.Notification("Cannot impersonate this target.")
 		endif
@@ -115,6 +117,10 @@ EndFunction
 function ITS_Revert(actor a_player)
 	OriginalDonorRef = Alias_OriginalDonor.GetActorReference()
 	if OriginalDonorRef
+		if ITS_NG.IsPlayerTransformed()
+			Debug.Notification("Cannot return to your body while transformed.")
+			return
+		endif
 		PlayerPuppetRef = Alias_PlayerPuppet.GetActorReference()
 
 		Game.FadeOutGame(true, true, 0.0, 0.3)

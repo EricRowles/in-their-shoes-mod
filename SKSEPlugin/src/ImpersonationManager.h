@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -38,6 +39,9 @@ namespace InTheirShoes {
         // Ends impersonation: the donor gets the player's current items/spells/stats, and the
         // player gets their baseline back. The caller moves the actors afterwards.
         bool Revert();
+        // Whether the player is in Werewolf or Vampire Lord form (or changing into or out of it).
+        // Impersonate and Revert refuse while it is true.
+        static bool IsPlayerTransformed();
 
         bool IsActive() const { return _active.load(std::memory_order_acquire); }
         RE::Actor* GetDonor() const { return _donorActor.load(std::memory_order_acquire); }
@@ -57,6 +61,12 @@ namespace InTheirShoes {
         // calls ForceRefTo(speaker) during self-dialogue) to the player, tracked as a swapped alias so
         // the donor gets it on revert
         void AdoptPuppetAliases();
+
+        // Actors that have been impersonated never get their outfit added again by the engine: the outfit's
+        // items left with the player, and re-adding the outfit duplicated what they were given back
+        bool IsOutfitDisabled(const RE::Actor* a_actor) const;
+        void SaveOutfitDisabled(SKSE::SerializationInterface* a_serde) const;
+        void LoadOutfitDisabled(SKSE::SerializationInterface* a_serde);
 
         bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
             for (const auto& entry : _swappedAliases) {
@@ -88,6 +98,10 @@ namespace InTheirShoes {
         };
 
         void InstallHooks();
+        void InstallOutfitHook();
+        static void Hook_AddWornOutfit(RE::Actor* a_this, RE::BGSOutfit* a_outfit, bool a_forceUpdate);
+        inline static REL::Relocation<decltype(Hook_AddWornOutfit)> _origAddWornOutfit;
+
         static RE::BGSVoiceType* Hook_GetObjectVoiceType(const RE::TESNPC* a_this);
         inline static REL::Relocation<decltype(Hook_GetObjectVoiceType)> _origGetObjectVoiceType;
 
@@ -143,6 +157,10 @@ namespace InTheirShoes {
         std::optional<Baseline> _baseline;
         std::vector<SwappedAlias> _swappedAliases;
         std::unordered_set<RE::FormID> _donorQuestItems;
+
+        // Read by the outfit hook, which may run on loading threads
+        mutable std::mutex _outfitDisabledLock;
+        std::unordered_set<RE::FormID> _outfitDisabled;
     };
 
 }

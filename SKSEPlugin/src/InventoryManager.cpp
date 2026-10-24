@@ -143,6 +143,15 @@ namespace InTheirShoes {
         SKSE::log::info("Returned {} spells to donor.", returnedCount);
     }
 
+    // Skins (non-playable body armor) stay with their actor. The player gets the donor's skin through the
+    // appearance copy, and an actor's skin items are managed for it: the engine gives an actor its skin again
+    // on load, and mods swap skin items in and out (e.g. Lyra's damage stages). Handing them over made copies
+    // that piled up on the donor.
+    static bool IsSkinItem(const RE::TESBoundObject* a_object) {
+        const auto* armor = a_object ? a_object->As<RE::TESObjectARMO>() : nullptr;
+        return armor && !armor->GetPlayable() && armor->HasPartOf(RE::BGSBipedObjectForm::BipedObjectSlot::kBody);
+    }
+
     bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor, bool a_forceEquip,
         std::unordered_set<RE::FormID>& a_donorQuestItems) {
         if (!a_fromActor || !a_toActor) {
@@ -163,6 +172,7 @@ namespace InTheirShoes {
 
             if (!boundObj || count <= 0) continue;
             if (entryData && entryData->IsQuestObject()) continue;
+            if (IsSkinItem(boundObj)) continue;
             itemsToRemove.push_back({ boundObj, count });
         }
 
@@ -214,10 +224,15 @@ namespace InTheirShoes {
 
         // 4. Transfer items in two passes (collect and update quest tracking first, then transfer)
         std::vector<ItemRecord> itemsToTransfer;
+        std::int32_t skinsKept = 0;
         for (const auto& [boundObj, entryPair] : fromInv) {
             std::int32_t count = entryPair.first;
             const auto& entryData = entryPair.second;
             if (!boundObj || count <= 0) continue;
+            if (IsSkinItem(boundObj)) {
+                skinsKept++;
+                continue;
+            }
 
             bool isQuest = entryData && entryData->IsQuestObject();
             if (isQuest) {
@@ -260,7 +275,7 @@ namespace InTheirShoes {
                 }
                 const RE::BGSEquipSlot* slot = wornRec.isLeft ? leftSlot : nullptr;
                 std::uint32_t equipCount = wornRec.object->Is(RE::FormType::Ammo) ? static_cast<std::uint32_t>(it->second.first) : 1;
-                // Non-playable items (such as equipped NPC skins) require forceEquip on the player
+                // Non-playable items require forceEquip on the player
                 bool forceEquip = a_forceEquip || !wornRec.object->GetPlayable();
                 equipMgr->EquipObject(a_toActor, wornRec.object, xList, equipCount, slot, false, forceEquip, false, true);
             }
@@ -270,7 +285,9 @@ namespace InTheirShoes {
         if (!a_toActor->IsPlayerRef()) {
             for (const auto& [boundObj, entryPair] : a_toActor->GetInventory()) {
                 const auto& entryData = entryPair.second;
-                if (boundObj && entryData && entryData->IsWorn()) {
+                // The target's skin stays worn: unequipping it left the donor without one, and the engine
+                // added its skin and outfit items again
+                if (boundObj && entryData && entryData->IsWorn() && !IsSkinItem(boundObj)) {
                     if (wornObjects.find(boundObj) == wornObjects.end()) {
                         equipMgr->UnequipObject(a_toActor, boundObj, nullptr, 1, nullptr, false, true, false, true);
                     }
@@ -292,10 +309,11 @@ namespace InTheirShoes {
             }
         }
 
-        SKSE::log::info("Transferred {} item stacks from {:08X} to {:08X}.",
+        SKSE::log::info("Transferred {} item stacks from {:08X} to {:08X} ({} skin stacks kept).",
             itemsTransferred,
             static_cast<std::uint32_t>(a_fromActor->GetFormID()),
-            static_cast<std::uint32_t>(a_toActor->GetFormID())
+            static_cast<std::uint32_t>(a_toActor->GetFormID()),
+            skinsKept
         );
 
         a_toActor->Update3DModel();

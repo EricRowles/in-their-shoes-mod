@@ -30,5 +30,10 @@ Function SetNPCVoiceEnabled(Bool a_enabled) Global Native
 Function SetPuppetFollowsPlayer(Bool a_follows) Global Native
 
 ; Validates whether a_target can be impersonated by the player.
-; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost.
+; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost,
+; 8 = Player is transformed (see IsPlayerTransformed).
 Int Function ValidateImpersonateTarget(Actor a_target) Global Native
+
+; Whether the player is in Werewolf or Vampire Lord form, or changing into or out of it.
+; Impersonate and Revert refuse while it is true.
+Bool Function IsPlayerTransformed() Global Native

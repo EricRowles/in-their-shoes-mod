@@ -13,6 +13,7 @@
 #include <RE/B/BGSRefAlias.h>
 #include <RE/E/ExtraAliasInstanceArray.h>
 #include <RE/T/TESQuest.h>
+#include <RE/T/TESDataHandler.h>
 
 namespace InTheirShoes {
 
@@ -449,7 +450,74 @@ namespace InTheirShoes {
 
         SKSE::log::info("Successfully installed {} script condition hooks via CommonLibSSE-NG.", hookedCount);
 
+        InstallOutfitHook();
+
         _hooksInstalled = true;
+    }
+
+    void ImpersonationManager::InstallOutfitHook() {
+        // Actor::AddWornOutfit isn't virtual. Its callers (inventory init when an actor loads, and Papyrus
+        // SetOutfit) are found by scanning the code for direct calls to it, so no per-version offsets are needed.
+        const auto target = REL::Relocation<std::uintptr_t>{ RELOCATION_ID(19266, 19692) }.address();
+        const auto text = REL::Module::get().segment(REL::Segment::textx);
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(text.address());
+
+        std::vector<std::uintptr_t> sites;
+        for (std::size_t i = 0; i + 5 <= text.size(); ++i) {
+            if (bytes[i] != 0xE8) continue;
+            std::int32_t rel = 0;
+            std::memcpy(&rel, bytes + i + 1, sizeof(rel));
+            if (text.address() + i + 5 + rel == target) {
+                sites.push_back(text.address() + i);
+            }
+        }
+
+        auto& trampoline = SKSE::GetTrampoline();
+        for (auto site : sites) {
+            _origAddWornOutfit = trampoline.write_call<5>(site, &Hook_AddWornOutfit);
+        }
+        if (sites.empty()) {
+            SKSE::log::warn("Found no calls to Actor::AddWornOutfit; donors' outfits will not be disabled");
+        } else {
+            SKSE::log::info("Hooked {} call sites of Actor::AddWornOutfit", sites.size());
+        }
+    }
+
+    void ImpersonationManager::Hook_AddWornOutfit(RE::Actor* a_this, RE::BGSOutfit* a_outfit, bool a_forceUpdate) {
+        if (a_this && GetSingleton().IsOutfitDisabled(a_this)) {
+            return;
+        }
+        _origAddWornOutfit(a_this, a_outfit, a_forceUpdate);
+    }
+
+    bool ImpersonationManager::IsOutfitDisabled(const RE::Actor* a_actor) const {
+        std::scoped_lock lock(_outfitDisabledLock);
+        return _outfitDisabled.contains(a_actor->GetFormID());
+    }
+
+    void ImpersonationManager::SaveOutfitDisabled(SKSE::SerializationInterface* a_serde) const {
+        std::scoped_lock lock(_outfitDisabledLock);
+        if (_outfitDisabled.empty()) return;
+        if (!a_serde->OpenRecord(Serialization::kOutfitDisabledRecord, Serialization::kSerializationVersion)) return;
+        const auto count = static_cast<std::uint32_t>(_outfitDisabled.size());
+        a_serde->WriteRecordData(&count, sizeof(count));
+        for (auto id : _outfitDisabled) {
+            a_serde->WriteRecordData(&id, sizeof(id));
+        }
+    }
+
+    void ImpersonationManager::LoadOutfitDisabled(SKSE::SerializationInterface* a_serde) {
+        std::scoped_lock lock(_outfitDisabledLock);
+        std::uint32_t count = 0;
+        if (!a_serde->ReadRecordData(&count, sizeof(count))) return;
+        for (std::uint32_t i = 0; i < count; ++i) {
+            RE::FormID id = 0;
+            if (!a_serde->ReadRecordData(&id, sizeof(id))) break;
+            if (a_serde->ResolveFormID(id, id)) {
+                _outfitDisabled.insert(id);
+            }
+        }
+        SKSE::log::info("Loaded {} actors with their outfit disabled.", _outfitDisabled.size());
     }
 
     void ImpersonationManager::Initialize() {
@@ -499,10 +567,27 @@ namespace InTheirShoes {
         SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
     }
 
+    bool ImpersonationManager::IsPlayerTransformed() {
+        // The Werewolf and Vampire Lord quests run for the whole transformation, including the moments
+        // around the race swap, and restore the race they saved when it began. (Confirmed for Vampire Lord: the
+        // quest runs from the start of the transformation until ~2s after changing back.)
+        constexpr RE::FormID kPlayerWerewolfQuest = 0x0002BA16;       // Skyrim.esm
+        constexpr RE::FormID kDLC1PlayerVampireQuest = 0x000071D0;    // Dawnguard.esm
+        auto* dataHandler = RE::TESDataHandler::GetSingleton();
+        auto* werewolfQuest = RE::TESForm::LookupByID<RE::TESQuest>(kPlayerWerewolfQuest);
+        auto* vampireLordQuest = dataHandler ? dataHandler->LookupForm<RE::TESQuest>(kDLC1PlayerVampireQuest, "Dawnguard.esm"sv) : nullptr;
+        return IsQuestRunning(werewolfQuest) || IsQuestRunning(vampireLordQuest);
+    }
+
     bool ImpersonationManager::Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !a_donor || !a_puppet || a_donor == player || a_donor == a_puppet) {
             SKSE::log::warn("Impersonate called with invalid actors.");
+            return false;
+        }
+        // The baseline (or the session being handed back) would capture the beast race
+        if (IsPlayerTransformed()) {
+            SKSE::log::warn("Impersonate refused: the player is transformed.");
             return false;
         }
 
@@ -546,6 +631,11 @@ namespace InTheirShoes {
     bool ImpersonationManager::Revert() {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !IsActive()) return false;
+        // Restoring the baseline race mid-transformation would be undone (to the donor's race) when it ends
+        if (IsPlayerTransformed()) {
+            SKSE::log::warn("Revert refused: the player is transformed.");
+            return false;
+        }
 
         auto* donor = GetDonor();
         auto* puppet = GetPuppet();
@@ -587,6 +677,11 @@ namespace InTheirShoes {
         _active.store(true, std::memory_order_release);
 
         SKSE::log::info("Beginning impersonation: Donor {:08X} ({})", a_donor->GetFormID(), a_donor->GetName());
+
+        {
+            std::scoped_lock lock(_outfitDisabledLock);
+            _outfitDisabled.insert(a_donor->GetFormID());
+        }
 
         IdleAIManager::GetSingleton().ClearPlayerPackages();
         SwapDonorAliasesToPlayer(a_donor, player);
@@ -724,7 +819,7 @@ namespace InTheirShoes {
             RE::BSReadLockGuard locker(aliasArray->lock);
             for (auto* inst : aliasArray->aliases) {
                 if (!inst || !inst->quest || !inst->alias) continue;
-                if (!inst->quest->IsRunning() || IsModInternalQuest(inst->quest)) continue;
+                if (!IsQuestRunning(inst->quest) || IsModInternalQuest(inst->quest)) continue;
                 if (inst->alias->QType() != "Ref"sv) continue;
 
                 auto* refAlias = static_cast<const RE::BGSRefAlias*>(inst->alias);
@@ -755,7 +850,7 @@ namespace InTheirShoes {
             RE::BSReadLockGuard locker(aliasArray->lock);
             for (auto* inst : aliasArray->aliases) {
                 if (!inst || !inst->quest || !inst->alias) continue;
-                if (!inst->quest->IsRunning() || IsModInternalQuest(inst->quest)) continue;
+                if (!IsQuestRunning(inst->quest) || IsModInternalQuest(inst->quest)) continue;
                 if (inst->alias->QType() != "Ref"sv) continue;
                 if (static_cast<const RE::BGSRefAlias*>(inst->alias)->GetReference() == puppet) {
                     toAdopt.emplace_back(inst->quest, inst->alias->aliasID);
@@ -779,7 +874,7 @@ namespace InTheirShoes {
         auto* player = GetPlayer();
         for (const auto& entry : _swappedAliases) {
             auto* quest = RE::TESForm::LookupByID<RE::TESQuest>(entry.questFormID);
-            if (!quest || !quest->IsRunning() || !a_donor) {
+            if (!IsQuestRunning(quest) || !a_donor) {
                 SKSE::log::info("RestoreSwappedAliases: Skipping quest {:08X} alias ID {} (quest stopped or no donor)",
                     entry.questFormID, entry.aliasID);
                 continue;
@@ -882,6 +977,11 @@ namespace InTheirShoes {
         }
 
         AttachDonor(donor);
+        {
+            // Saves from before outfits were disabled have no OUTF record
+            std::scoped_lock lock(_outfitDisabledLock);
+            _outfitDisabled.insert(donor->GetFormID());
+        }
         _swappedAliases = std::move(aliases);
         _active.store(true, std::memory_order_release);
         SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", donorID, _swappedAliases.size());
@@ -901,6 +1001,10 @@ namespace InTheirShoes {
         AttachPuppet(nullptr);
         _swappedAliases.clear();
         _donorQuestItems.clear();
+        {
+            std::scoped_lock lock(_outfitDisabledLock);
+            _outfitDisabled.clear();
+        }
         _baseline.reset();
         _origVoiceType.store(nullptr, std::memory_order_release);
         _leashQueued = false;

@@ -831,7 +831,7 @@ namespace InTheirShoes {
         std::vector<Candidate> candidates;
 
         for (const auto& [quest, topic] : _idleTopics) {
-            if (!quest->IsRunning()) continue;
+            if (!IsQuestRunning(quest)) continue;
             if (!EvaluateInQuest(quest->objConditions, quest, a_player, targetRef)) continue;
 
             for (std::uint32_t i = 0; i < topic->numTopicInfos; ++i) {

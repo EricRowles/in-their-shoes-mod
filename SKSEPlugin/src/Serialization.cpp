@@ -129,6 +129,7 @@ namespace InTheirShoes::Serialization {
             WriteBaseline(a_serde, *baseline);
         }
         mgr.SaveSession(a_serde);
+        mgr.SaveOutfitDisabled(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
@@ -280,6 +281,10 @@ namespace InTheirShoes::Serialization {
 
                 case kSessionRecord:
                     ImpersonationManager::GetSingleton().LoadSession(a_serde);
+                    break;
+
+                case kOutfitDisabledRecord:
+                    ImpersonationManager::GetSingleton().LoadOutfitDisabled(a_serde);
                     break;
 
                 default:

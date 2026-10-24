@@ -9,6 +9,8 @@ namespace InTheirShoes::Serialization {
 
     inline constexpr std::uint32_t kBaselineRecord = 'BASE';
     inline constexpr std::uint32_t kSessionRecord = 'SESS';
+    // Actors whose outfit the engine no longer adds (every donor ever impersonated); absent in older saves
+    inline constexpr std::uint32_t kOutfitDisabledRecord = 'OUTF';
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);

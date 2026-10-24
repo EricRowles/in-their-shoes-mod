@@ -22,6 +22,12 @@ namespace InTheirShoes {
         return REX::W32::GetCurrentThreadId() == tid;
     }
 
+    // Whether a quest is running in the Papyrus sense. CommonLib's TESQuest::IsRunning() only checks that no
+    // stop or start is in progress, so it is also true for quests that were never started.
+    inline bool IsQuestRunning(const RE::TESQuest* a_quest) {
+        return a_quest && a_quest->IsEnabled() && !a_quest->IsStopping();
+    }
+
     inline bool IsBlockingMenuOpen() {
         auto* ui = RE::UI::GetSingleton();
         if (!ui) return true;

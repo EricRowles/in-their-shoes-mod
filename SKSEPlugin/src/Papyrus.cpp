@@ -86,7 +86,14 @@ namespace InTheirShoes::Papyrus {
         if (a_target->IsOnMount()) {
             return 6;
         }
+        if (ImpersonationManager::IsPlayerTransformed()) {
+            return 8;
+        }
         return 0;
+    }
+
+    bool IsPlayerTransformed(RE::StaticFunctionTag*) {
+        return ImpersonationManager::IsPlayerTransformed();
     }
 
     bool Register(RE::BSScript::IVirtualMachine* a_vm) {
@@ -106,6 +113,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);
         a_vm->RegisterFunction("SetPuppetFollowsPlayer", className, SetPuppetFollowsPlayer);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
+        a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;
