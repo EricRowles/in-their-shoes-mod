@@ -616,7 +616,16 @@ namespace InTheirShoes {
             inventory.TransferAllItems(player, a_puppet, true, _donorQuestItems);
         }
 
-        faces.CopyAppearance(a_donor, player);
+        // Kept for the session: the donor's rendered skin and hair tints can only be read while its 3D is
+        // loaded, and on a later load it is parked out of sight
+        FaceSnapshot donorFace;
+        if (faces.CaptureSnapshot(a_donor, donorFace)) {
+            faces.ApplySnapshot(player, donorFace);
+            _donorFace = std::move(donorFace);
+        } else {
+            SKSE::log::error("Failed to capture the appearance of donor {:08X}.", a_donor->GetFormID());
+            _donorFace.reset();
+        }
         stats.CopyStats(a_donor, player);
         inventory.CopyDonorSpells(a_donor, player);
         inventory.TransferAllItems(a_donor, player, false, _donorQuestItems);
@@ -658,6 +667,7 @@ namespace InTheirShoes {
 
         ReleasePuppet();
         _baseline.reset();
+        _donorFace.reset();
         _origVoiceType.store(nullptr, std::memory_order_release);
         _donorQuestItems.clear();
         SKSE::log::info("Reverted to the Dragonborn.");
@@ -1007,6 +1017,7 @@ namespace InTheirShoes {
             _outfitDisabled.clear();
         }
         _baseline.reset();
+        _donorFace.reset();
         _origVoiceType.store(nullptr, std::memory_order_release);
         _leashQueued = false;
         _puppetRefreshPending = false;
@@ -1016,12 +1027,20 @@ namespace InTheirShoes {
         if (!IsActive()) return;
 
         if (auto* donor = GetDonor()) {
-            // The player's record may have reloaded with stale appearance data; reapply the donor's look
-            SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle()]() {
-                if (auto d = donorHandle.get()) {
-                    FaceManager::GetSingleton().CopyAppearance(d.get(), RE::PlayerCharacter::GetSingleton());
-                }
-            });
+            // The player's record may have reloaded with stale appearance data; reapply the donor's look as
+            // captured when impersonation began. Re-capturing now would miss the donor's rendered skin and hair
+            // tints, since the parked donor has no 3D. (Saves from before the snapshot was saved re-capture.)
+            if (_donorFace) {
+                SKSE::GetTaskInterface()->AddTask([face = *_donorFace]() {
+                    FaceManager::GetSingleton().ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);
+                });
+            } else {
+                SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle()]() {
+                    if (auto d = donorHandle.get()) {
+                        FaceManager::GetSingleton().CopyAppearance(d.get(), RE::PlayerCharacter::GetSingleton());
+                    }
+                });
+            }
         }
 
         // The puppet's base record is not saved, so its appearance must be reapplied every load

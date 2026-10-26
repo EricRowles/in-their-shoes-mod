@@ -129,6 +129,10 @@ namespace InTheirShoes::Serialization {
             WriteBaseline(a_serde, *baseline);
         }
         mgr.SaveSession(a_serde);
+        if (const auto& donorFace = mgr.GetDonorFace(); donorFace && mgr.IsActive() &&
+            a_serde->OpenRecord(kDonorFaceRecord, kSerializationVersion)) {
+            WriteFaceSnapshot(a_serde, *donorFace);
+        }
         mgr.SaveOutfitDisabled(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
@@ -286,6 +290,17 @@ namespace InTheirShoes::Serialization {
                 case kOutfitDisabledRecord:
                     ImpersonationManager::GetSingleton().LoadOutfitDisabled(a_serde);
                     break;
+
+                case kDonorFaceRecord: {
+                    FaceSnapshot donorFace;
+                    if (ReadFaceSnapshot(a_serde, donorFace)) {
+                        ImpersonationManager::GetSingleton().SetDonorFace(std::move(donorFace));
+                        SKSE::log::info("Loaded the donor's appearance from co-save.");
+                    } else {
+                        SKSE::log::warn("Donor appearance record is truncated; ignoring it.");
+                    }
+                    break;
+                }
 
                 default:
                     SKSE::log::warn("Unknown record type {:08X} in co-save", type);

@@ -78,6 +78,9 @@ namespace InTheirShoes {
         // Serialization
         const std::optional<Baseline>& GetBaseline() const { return _baseline; }
         void SetBaseline(Baseline a_baseline);
+        // The donor's appearance as captured when impersonation began (rendered tints included)
+        const std::optional<FaceSnapshot>& GetDonorFace() const { return _donorFace; }
+        void SetDonorFace(FaceSnapshot a_face) { _donorFace = std::move(a_face); }
         void SaveSession(SKSE::SerializationInterface* a_serde) const;
         void LoadSession(SKSE::SerializationInterface* a_serde);
         void OnRevert();
@@ -155,6 +158,7 @@ namespace InTheirShoes {
         bool _hooksInstalled{ false };
         RE::ObjectRefHandle _storageMarker;
         std::optional<Baseline> _baseline;
+        std::optional<FaceSnapshot> _donorFace;
         std::vector<SwappedAlias> _swappedAliases;
         std::unordered_set<RE::FormID> _donorQuestItems;
 
