@@ -596,13 +596,14 @@ namespace InTheirShoes {
         auto& inventory = InventoryManager::GetSingleton();
 
         if (IsActive()) {
-            // Donor-to-donor switch: hand the current state back to the old donor, who takes the new donor's place
+            // Donor-to-donor switch: hand the current state back to the old donor, who takes the player's place
+            // (the quest script then moves the player to the new donor's spot)
             auto* oldDonor = GetDonor();
             if (oldDonor == a_donor) return false;
             EndSession();
             if (oldDonor) {
                 ReturnStateToDonor(oldDonor);
-                oldDonor->MoveTo(a_donor);
+                oldDonor->MoveTo(player);
                 oldDonor->StopCombat();
                 oldDonor->EvaluatePackage(false, false);
             }

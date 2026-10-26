@@ -93,14 +93,20 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 	PlayerPuppetRef = currentPuppet
 	PlayerPuppetRef.BlockActivation(True)
 
-	; On the first impersonation, move the puppet into the loaded cell so its 3D is attached before morphing.
-	; On a donor-to-donor switch the puppet stays where it is and the old donor takes the new donor's place.
+	; Mark the donor's spot before Impersonate parks the donor at the storage marker
+	ITS_TempMarker.MoveTo(a_donor)
+
+	; On the first impersonation, the puppet takes the player's spot (in the loaded cell, so its 3D is attached
+	; before morphing). On a donor-to-donor switch the puppet stays where it is and the old donor takes the player's spot.
 	If !Alias_OriginalDonor.GetActorReference()
-		PlayerPuppetRef.moveto(a_donor)
+		PlayerPuppetRef.moveto(a_player)
 		Utility.Wait(0.1)
 	EndIf
 
 	If ITS_NG.Impersonate(a_donor, PlayerPuppetRef)
+		; The player takes the donor's spot
+		a_player.moveto(ITS_TempMarker)
+		a_player.StopCombat()
 		Alias_OriginalDonor.ForceRefTo(a_donor)
 		If !PlayerRef.HasSpell(ITS_RevertSpell)
 			PlayerRef.addspell(ITS_RevertSpell, False)
@@ -109,6 +115,7 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 	Else
 		Debug.Notification("Impersonation failed.")
 	EndIf
+	ITS_TempMarker.moveto(ITS_StorageMarker)
 
 	Game.FadeOutGame(false, true, 0.0, 0.4)
 EndFunction
