@@ -122,22 +122,21 @@ namespace InTheirShoes {
         return found;
     }
 
-    static bool HasProcedureTreeForceGreet(const RE::IProcedureTreeItem* a_item) {
+    static bool HasProcedureTreeProcedure(const RE::IProcedureTreeItem* a_item, std::uintptr_t a_procVtbl) {
         if (!a_item) return false;
         static const std::uintptr_t kBranchVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeBranch[0]).address();
         static const std::uintptr_t kProcItemVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeProcedure[0]).address();
-        static const std::uintptr_t kForceGreetVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureForceGreet[0]).address();
 
         const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(a_item);
         if (vtbl == kProcItemVtbl) {
             const auto* procItem = static_cast<const RE::BGSProcedureTreeProcedure*>(a_item);
-            if (procItem->procedure && *reinterpret_cast<const std::uintptr_t*>(procItem->procedure) == kForceGreetVtbl) {
+            if (procItem->procedure && *reinterpret_cast<const std::uintptr_t*>(procItem->procedure) == a_procVtbl) {
                 return true;
             }
         } else if (vtbl == kBranchVtbl) {
             const auto* branch = static_cast<const RE::BGSProcedureTreeBranch*>(a_item);
             for (const auto* child : branch->conditions) {
-                if (HasProcedureTreeForceGreet(child)) {
+                if (HasProcedureTreeProcedure(child, a_procVtbl)) {
                     return true;
                 }
             }
@@ -145,17 +144,27 @@ namespace InTheirShoes {
         return false;
     }
 
-    static bool HasForceGreetProcedure(const RE::TESPackage* a_pkg) {
+    static bool HasProcedure(const RE::TESPackage* a_pkg, RE::PACKAGE_PROCEDURE_TYPE a_type, std::uintptr_t a_procVtbl) {
         if (!a_pkg) return false;
-        if (a_pkg->procedureType == RE::PACKAGE_PROCEDURE_TYPE::kGreet) {
+        if (a_pkg->procedureType == a_type) {
             return true;
         }
         const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
         if (!customData) return false;
-        if (HasProcedureTreeForceGreet(customData->procedureTree)) {
+        if (HasProcedureTreeProcedure(customData->procedureTree, a_procVtbl)) {
             return true;
         }
-        return customData->templateParent && HasForceGreetProcedure(customData->templateParent);
+        return customData->templateParent && HasProcedure(customData->templateParent, a_type, a_procVtbl);
+    }
+
+    static bool HasForceGreetProcedure(const RE::TESPackage* a_pkg) {
+        static const std::uintptr_t kForceGreetVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureForceGreet[0]).address();
+        return HasProcedure(a_pkg, RE::PACKAGE_PROCEDURE_TYPE::kGreet, kForceGreetVtbl);
+    }
+
+    static bool HasDialogueProcedure(const RE::TESPackage* a_pkg) {
+        static const std::uintptr_t kDialogueVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureDialogue[0]).address();
+        return HasProcedure(a_pkg, RE::PACKAGE_PROCEDURE_TYPE::kDialogue, kDialogueVtbl);
     }
 
     static RE::TESTopic* GetForceGreetTopic(const RE::TESPackage* a_pkg) {
@@ -285,8 +294,10 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::CheckForceGreetReachedPuppet() {
-        // A donor package that would approach or ForceGreet the Dragonborn has been retargeted to the puppet.
+        // A donor package that would ForceGreet or talk to the Dragonborn has been retargeted to the puppet.
         // When the player arrives within greeting distance, open self-dialogue once for this approach.
+        // Packages that only travel to or follow the puppet (e.g. a follower's Follow package on a swapped
+        // alias) don't count: following stays in range, so they opened dialogue every time idle AI engaged.
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
         auto* curPkg = player ? player->GetCurrentPackage() : nullptr;
@@ -297,8 +308,8 @@ namespace InTheirShoes {
         }
 
         bool isForceGreetPkg = _forceGreetProcedureActive || HasForceGreetProcedure(curPkg);
-        bool targetsPuppet = isForceGreetPkg || PackageTargetsActor(curPkg, puppet);
-        if (!targetsPuppet) {
+        bool talksToPuppet = isForceGreetPkg || (HasDialogueProcedure(curPkg) && PackageTargetsActor(curPkg, puppet));
+        if (!talksToPuppet) {
             _forceGreetTriggered = false;
             return;
         }
@@ -357,13 +368,22 @@ namespace InTheirShoes {
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         const char* blockedBy = nullptr;
+        // While AI-driven, the engine treats the player like an NPC in scenes and waits for the player's AI to
+        // run the scene's package, which idle AI never does: the player's scene lines stalled until pathing ended
+        auto* scene = player ? player->GetCurrentScene() : nullptr;
+        bool inScene = false;
         if (!player || player->IsInCombat()) {
             blockedBy = "combat";
         } else if (IsBlockingMenuOpen()) {
             blockedBy = "menu";
+        } else if (scene && scene->isPlaying) {
+            blockedBy = "scene";
+            inScene = true;
         }
         if (blockedBy != _blockedBy) {
-            if (blockedBy) {
+            if (inScene) {
+                SKSE::log::info("Idle AI waiting: scene {:08X} '{}'", scene->GetFormID(), scene->GetFormEditorID());
+            } else if (blockedBy) {
                 SKSE::log::info("Idle AI waiting: {}", blockedBy);
             }
             _blockedBy = blockedBy;
