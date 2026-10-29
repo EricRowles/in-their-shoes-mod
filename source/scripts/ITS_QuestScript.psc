@@ -14,9 +14,6 @@ ObjectReference property ITS_TempMarker Auto		; temp use to mark where an NPC is
 actor Property ITS_TempPlayer Auto				; single dragonborn puppet
 actor Property PlayerRef Auto					; the player!
 
-actor PlayerPuppetRef
-actor OriginalDonorRef
-
 ; Initiation Function -----------------------------------------------------------------------------------
 Event OnInit()
 	ITS_Maintenance()
@@ -27,13 +24,13 @@ EndEvent
 
 ; Maintenance Function -----------------------------------------------------------------------------------
 function ITS_Maintenance()
-	OriginalDonorRef = Alias_OriginalDonor.GetActorReference()
+	Actor donor = Alias_OriginalDonor.GetActorReference()
 
 	If !PlayerRef.HasSpell(ITS_ImpersonateSpell)
 		PlayerRef.AddSpell(ITS_ImpersonateSpell, false)
 	EndIf
 
-	If OriginalDonorRef
+	If donor
 		If !PlayerRef.HasSpell(ITS_RevertSpell)
 			PlayerRef.AddSpell(ITS_RevertSpell, false)
 		EndIf
@@ -83,13 +80,12 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 	Game.FadeOutGame(true, true, 0.0, 0.3)
 	
 	; Ensure puppet alias is filled and vanilla activation is blocked
-	Actor currentPuppet = Alias_PlayerPuppet.GetActorReference()
-	If !currentPuppet
+	Actor puppet = Alias_PlayerPuppet.GetActorReference()
+	If !puppet
 		Alias_PlayerPuppet.ForceRefTo(ITS_TempPlayer)
-		currentPuppet = Alias_PlayerPuppet.GetActorReference()
+		puppet = Alias_PlayerPuppet.GetActorReference()
 	EndIf
-	PlayerPuppetRef = currentPuppet
-	PlayerPuppetRef.BlockActivation(True)
+	puppet.BlockActivation(True)
 
 	; Mark the donor's spot before Impersonate parks the donor at the storage marker
 	ITS_TempMarker.MoveTo(a_donor)
@@ -97,11 +93,11 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 	; On the first impersonation, the puppet takes the player's spot (in the loaded cell, so its 3D is attached
 	; before morphing). On a donor-to-donor switch the puppet stays where it is and the old donor takes the player's spot.
 	If !Alias_OriginalDonor.GetActorReference()
-		PlayerPuppetRef.moveto(a_player)
+		puppet.moveto(a_player)
 		Utility.Wait(0.1)
 	EndIf
 
-	If ITS_NG.Impersonate(a_donor, PlayerPuppetRef)
+	If ITS_NG.Impersonate(a_donor, puppet)
 		; The player takes the donor's spot
 		a_player.moveto(ITS_TempMarker)
 		a_player.StopCombat()
@@ -120,13 +116,13 @@ EndFunction
 
 ; Revert Function -----------------------------------------------------------------------------------
 function ITS_Revert(actor a_player)
-	OriginalDonorRef = Alias_OriginalDonor.GetActorReference()
-	if OriginalDonorRef
+	Actor donor = Alias_OriginalDonor.GetActorReference()
+	if donor
 		if ITS_NG.IsPlayerTransformed()
 			Debug.Notification("Cannot return to your body while transformed.")
 			return
 		endif
-		PlayerPuppetRef = Alias_PlayerPuppet.GetActorReference()
+		Actor puppet = Alias_PlayerPuppet.GetActorReference()
 
 		Game.FadeOutGame(true, true, 0.0, 0.3)
 
@@ -136,13 +132,13 @@ function ITS_Revert(actor a_player)
 		a_player.RemoveSpell(ITS_RevertSpell)
 
 		; The player returns to the puppet's spot and the donor takes the player's old spot
-		a_player.moveto(PlayerPuppetRef)
+		a_player.moveto(puppet)
 		a_player.StopCombat()
-		OriginalDonorRef.moveto(ITS_TempMarker)
-		OriginalDonorRef.StopCombat()
+		donor.moveto(ITS_TempMarker)
+		donor.StopCombat()
 
-		PlayerPuppetRef.BlockActivation(False)
-		PlayerPuppetRef.moveto(ITS_StorageMarker)
+		puppet.BlockActivation(False)
+		puppet.moveto(ITS_StorageMarker)
 		ITS_TempMarker.moveto(ITS_StorageMarker)
 		Alias_OriginalDonor.Clear()
 		Alias_PlayerPuppet.Clear()
