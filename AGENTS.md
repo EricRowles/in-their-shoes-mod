@@ -31,6 +31,7 @@ Never put scratch or debug scripts in the root, `source/`, `SKSEPlugin/` or `too
 Machine-specific paths (Visual Studio, Skyrim, Papyrus imports, deploy folders) live in `.env` in the repo root, which isn't committed. Copy `.env.example` to `.env` to set it up. Never put local paths in committed files.
 ```powershell
 python tools/build_and_deploy.py   # build the plugin, compile Papyrus, deploy to DEPLOY_TARGETS
+python tools/build_and_deploy.py --cpp-only   # only build the plugin (e.g. to check each commit compiles)
 python tools/package_mod.py        # build and package a release zip
 ```
 Run the build through `build_and_deploy.py`; it sets up the MSVC environment that a bare `cmake --build` needs.
