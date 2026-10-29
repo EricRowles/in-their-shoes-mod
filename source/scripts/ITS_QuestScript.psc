@@ -2,8 +2,6 @@ Scriptname ITS_QuestScript extends Quest
 
 ITS_MCMScript property ITS_MCM Auto
 
-float property ITS_ModVersion = 1.0 Auto
-
 ReferenceAlias Property Alias_OriginalDonor Auto 	; Original Donor NPC
 ReferenceAlias Property Alias_PlayerPuppet Auto 	; Temp Actor currently behaving as player
 

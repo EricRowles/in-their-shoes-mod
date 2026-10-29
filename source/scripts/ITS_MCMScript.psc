@@ -73,7 +73,7 @@ event OnPageReset(string page)
 	endif
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
-	AddTextOption("Mod Version", ITS_Quest.ITS_ModVersion, OPTION_FLAG_DISABLED)
+	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
 	AddTextOption("Status", "Config Active", OPTION_FLAG_DISABLED)
 	AddEmptyOption()
 

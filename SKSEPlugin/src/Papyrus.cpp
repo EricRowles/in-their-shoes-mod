@@ -5,6 +5,7 @@
 #include "IdleChatter.h"
 #include "ImpersonationManager.h"
 #include "Session.h"
+#include "Version.h"
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
 
@@ -113,6 +114,11 @@ namespace InTheirShoes::Papyrus {
             return std::to_underlying(ValidateTarget(a_target));
         }
 
+        // The plugin's version (project VERSION in CMakeLists.txt), shown in the MCM
+        RE::BSFixedString GetPluginVersion(RE::StaticFunctionTag*) {
+            return fmt::format("{}.{}.{}", ITS_VERSION_MAJOR, ITS_VERSION_MINOR, ITS_VERSION_PATCH);
+        }
+
         bool IsPlayerTransformed(RE::StaticFunctionTag*) {
             return ImpersonationManager::IsPlayerTransformed();
         }
@@ -200,6 +206,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("SetPuppetFollowsPlayer", className, SetPuppetFollowsPlayer);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
         a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);
+        a_vm->RegisterFunction("GetPluginVersion", className, GetPluginVersion);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;
