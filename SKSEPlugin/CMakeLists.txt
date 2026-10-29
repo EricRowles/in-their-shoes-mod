@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.23)
 
 project(
     InTheirShoes
-    VERSION 1.0.0
+    VERSION 0.5.0
     LANGUAGES CXX
 )
 
@@ -49,8 +49,12 @@ add_library(${PROJECT_NAME} SHARED
     src/ImpersonationManager.cpp
 )
 
+# The plugin version comes from project(VERSION) above
+configure_file(cmake/Version.h.in "${CMAKE_CURRENT_BINARY_DIR}/generated/Version.h" @ONLY)
+
 target_include_directories(${PROJECT_NAME} PRIVATE
     src
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

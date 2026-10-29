@@ -5,13 +5,23 @@ Vortex, or manual extraction into the Skyrim Special Edition Data folder.
 """
 
 import os
+import re
 import sys
 import zipfile
 import argparse
 import subprocess
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_VERSION = "1.0.0"
+CMAKE_LISTS = os.path.join(REPO_ROOT, "SKSEPlugin", "CMakeLists.txt")
+
+
+def get_version():
+    """The plugin version, from project(... VERSION x.y.z) in SKSEPlugin/CMakeLists.txt."""
+    with open(CMAKE_LISTS, encoding="utf-8") as f:
+        match = re.search(r"project\s*\([^)]*?\bVERSION\s+([0-9.]+)", f.read(), re.DOTALL)
+    if not match:
+        sys.exit(f"Error: no project VERSION found in {os.path.relpath(CMAKE_LISTS, REPO_ROOT)}")
+    return match.group(1)
 
 def get_manifest():
     """Returns the list of relative file paths to include in the package."""
@@ -87,7 +97,7 @@ def main():
     parser = argparse.ArgumentParser(description="Package In Their Shoes as an installable mod zip.")
     parser.add_argument(
         "-o", "--output",
-        default=os.path.join(REPO_ROOT, "dist", f"InTheirShoes-v{DEFAULT_VERSION}.zip"),
+        default=os.path.join(REPO_ROOT, "dist", f"InTheirShoes-v{get_version()}.zip"),
         help="Path to output zip file (defaults to dist/InTheirShoes-v<version>.zip)"
     )
     parser.add_argument(

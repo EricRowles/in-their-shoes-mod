@@ -3,9 +3,10 @@
 #include "Lifecycle.h"
 #include "Papyrus.h"
 #include "Serialization.h"
+#include "Version.h"
 
 SKSEPluginInfo(
-    .Version = { 1, 0, 0, 0 },
+    .Version = { ITS_VERSION_MAJOR, ITS_VERSION_MINOR, ITS_VERSION_PATCH, 0 },
     .Name = "InTheirShoes",
     .Author = "ParanoidKing",
     .SupportEmail = "",
