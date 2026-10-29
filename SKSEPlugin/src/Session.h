@@ -23,7 +23,8 @@ namespace InTheirShoes {
         RE::BGSVoiceType* GetOrigPlayerVoiceType() const { return _origPlayerVoiceType.load(std::memory_order_acquire); }
         bool IsNPCVoiceEnabled() const { return _npcVoiceEnabled.load(std::memory_order_acquire); }
 
-        // Self-dialogue: the player talking to the puppet, which stands in for the donor
+        // Self-dialogue: the player talking to the puppet, which stands in for the donor. Set when the puppet
+        // enters dialogue with the player; cleared when it leaves, when another actor does, or the menu closes.
         bool IsInSelfDialogue() const { return _inSelfDialogue.load(std::memory_order_acquire); }
 
         // Where a reference counts as being for spatial checks (conditions and Papyrus natives): the parked

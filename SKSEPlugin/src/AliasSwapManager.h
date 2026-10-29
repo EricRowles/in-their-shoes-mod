@@ -9,6 +9,7 @@ namespace InTheirShoes {
     // Moves the donor's quest aliases to the player for the session and back afterwards. Swapping physically,
     // rather than only answering GetIsAliasRef for the player, is needed because scenes only run an alias's
     // actions when the actor filling it is loaded, and the parked donor isn't.
+    // Don't hook TESQuest::ForceRefIntoAlias: a 5-byte context hook split a prologue instruction and froze the game.
     // Main thread only, except GetDonorAliasFactionRank, which faction condition hooks call from AI threads.
     class AliasSwapManager {
     public:

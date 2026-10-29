@@ -806,6 +806,7 @@ namespace InTheirShoes {
 
     // --- Idle chatter ---
 
+    // Only kIdle: other "misc" subtypes such as kPickpocketTopic played the wrong lines
     static bool IsIdleTopic(const RE::TESTopic* a_topic) {
         return a_topic->data.subtype.get() == RE::DIALOGUE_DATA::Subtype::kIdle;
     }

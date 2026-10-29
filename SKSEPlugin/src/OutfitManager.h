@@ -7,6 +7,8 @@ namespace InTheirShoes {
 
     // Actors that have been impersonated never get their outfit added again by the engine: the outfit's
     // items left with the player, and re-adding the outfit duplicated what they were given back.
+    // No base record changes, so other actors sharing the donor's base keep their outfit. Papyrus SetOutfit on a
+    // donor still changes the base outfit and removes the old outfit's items, but no longer adds the new one.
     // The list is read by the outfit hook, which may run on loading threads.
     class OutfitManager {
     public:

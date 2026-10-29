@@ -1,10 +1,12 @@
 SkyrimSE.code-workspace
 skyrimse.ppj
 .vscode
-AGENTS.md
 scratch
-tools
-docs
+
+# Machine-specific paths (see .env.example)
+.env
+__pycache__/
+/dist/
 
 /SKSE/Plugins/
 /scripts/

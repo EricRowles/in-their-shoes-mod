@@ -28,6 +28,7 @@ namespace InTheirShoes {
 
     // Updates aiControlledPackage synchronously so immediate EvaluatePackage calls see the new state,
     // and dispatches Game.SetPlayerAIDriven through the VM to switch the movement controller cleanly.
+    // (Calling PlayerCharacter::SetAIDriven by its CommonLib address left the player with no package.)
     static void SetPlayerAIDriven(bool a_enable) {
         if (auto* player = RE::PlayerCharacter::GetSingleton()) {
             player->GetPlayerRuntimeData().playerFlags.aiControlledPackage = a_enable;
@@ -38,6 +39,12 @@ namespace InTheirShoes {
         vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
     }
 
+    // A package's targets and locations: packTarg/packLoc, plus the data inputs of templated packages, which
+    // keep them in TESCustomPackageData with packTarg null. Each BGSPackageDataPointerTemplate input stores
+    // its PackageTarget* ("SingleRef", "TargetSelector") or PackageLocation* ("Location") at +0x10.
+    // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
+    // Distance" Location input (radius 300) is near the player, so left alone the player is always within
+    // it and skips the Travel branch.
     template <typename Fn>
     static void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
         if (!a_pkg) return;
