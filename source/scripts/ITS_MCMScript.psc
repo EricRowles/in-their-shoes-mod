@@ -1,7 +1,6 @@
 Scriptname ITS_MCMScript extends SKI_ConfigBase 
 
 ITS_QuestScript property ITS_Quest auto
-Actor Property PlayerRef Auto
 GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the PlayerPuppet alias
 
 ; MCM Property Variables
@@ -129,7 +128,7 @@ endEvent
 
 event OnUpdate()
 	if ITS_Quest.Alias_OriginalDonor.GetActorReference()
-		ITS_Quest.ITS_Revert(PlayerRef)
+		ITS_Quest.ITS_Revert()
 	endif
 endEvent
 

@@ -44,13 +44,13 @@ function ITS_Maintenance()
 EndFunction
 
 ; Morph Complete Function -----------------------------------------------------------------------------------
-function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
-	if !a_donor || a_donor == a_player
+function ITS_ImpersonateComplete(Actor a_donor)
+	if !a_donor || a_donor == PlayerRef
 		return
 	endif
 
 	if a_donor == Alias_PlayerPuppet.GetActorReference()
-		ITS_Revert(a_player)
+		ITS_Revert()
 		return
 	EndIf
 
@@ -74,7 +74,7 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 		return
 	endif
 
-	a_player.StopCombat()
+	PlayerRef.StopCombat()
 	a_donor.StopCombat()
 	
 	Game.FadeOutGame(true, true, 0.0, 0.3)
@@ -93,14 +93,14 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 	; On the first impersonation, the puppet takes the player's spot (in the loaded cell, so its 3D is attached
 	; before morphing). On a donor-to-donor switch the puppet stays where it is and the old donor takes the player's spot.
 	If !Alias_OriginalDonor.GetActorReference()
-		puppet.moveto(a_player)
+		puppet.moveto(PlayerRef)
 		Utility.Wait(0.1)
 	EndIf
 
 	If ITS_NG.Impersonate(a_donor, puppet)
 		; The player takes the donor's spot
-		a_player.moveto(ITS_TempMarker)
-		a_player.StopCombat()
+		PlayerRef.moveto(ITS_TempMarker)
+		PlayerRef.StopCombat()
 		Alias_OriginalDonor.ForceRefTo(a_donor)
 		If !PlayerRef.HasSpell(ITS_RevertSpell)
 			PlayerRef.addspell(ITS_RevertSpell, False)
@@ -115,7 +115,7 @@ function ITS_ImpersonateComplete(Actor a_donor, Actor a_player)
 EndFunction
 
 ; Revert Function -----------------------------------------------------------------------------------
-function ITS_Revert(actor a_player)
+function ITS_Revert()
 	Actor donor = Alias_OriginalDonor.GetActorReference()
 	if donor
 		if ITS_NG.IsPlayerTransformed()
@@ -127,13 +127,13 @@ function ITS_Revert(actor a_player)
 		Game.FadeOutGame(true, true, 0.0, 0.3)
 
 		; Restore state first so the native donor leash is off before anyone moves
-		ITS_TempMarker.MoveTo(a_player)
+		ITS_TempMarker.MoveTo(PlayerRef)
 		ITS_NG.Revert()
-		a_player.RemoveSpell(ITS_RevertSpell)
+		PlayerRef.RemoveSpell(ITS_RevertSpell)
 
 		; The player returns to the puppet's spot and the donor takes the player's old spot
-		a_player.moveto(puppet)
-		a_player.StopCombat()
+		PlayerRef.moveto(puppet)
+		PlayerRef.StopCombat()
 		donor.moveto(ITS_TempMarker)
 		donor.StopCombat()
 
