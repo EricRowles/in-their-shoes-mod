@@ -164,10 +164,7 @@ namespace InTheirShoes {
         }
 
         ReleasePuppet();
-        _baseline.reset();
-        _donorFace.reset();
-        Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
-        _donorQuestItems.clear();
+        ClearSessionState();
         SKSE::log::info("Reverted to the Dragonborn.");
         return true;
     }
@@ -333,13 +330,17 @@ namespace InTheirShoes {
             }
         }
 
+        ClearSessionState();
+    }
+
+    void ImpersonationManager::ClearSessionState() {
         Session::GetSingleton().SetActive(false);
         DetachDonor();
         AttachPuppet(nullptr);
-        _donorQuestItems.clear();
         _baseline.reset();
         _donorFace.reset();
         Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
+        _donorQuestItems.clear();
         _leashQueued = false;
         _puppetRefreshPending = false;
     }

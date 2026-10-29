@@ -79,6 +79,8 @@ namespace InTheirShoes {
         void BeginSession(RE::Actor* a_donor);
         void EndSession();
         void ReturnStateToDonor(RE::Actor* a_donor);
+        // Forgets every part of the session, once Revert has handed its state back or a game revert discards it
+        void ClearSessionState();
 
         void AttachDonor(RE::Actor* a_donor);
         void DetachDonor();
