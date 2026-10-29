@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <source_location>
 
 namespace InTheirShoes {
 
@@ -11,6 +12,14 @@ namespace InTheirShoes {
         auto tid = g_mainThreadId.load(std::memory_order_relaxed);
         if (tid == 0) return true;
         return REX::W32::GetCurrentThreadId() == tid;
+    }
+
+    // Engine and Papyrus VM calls must run on the main thread (AGENTS.md). Called at entry points: logs the
+    // caller when it isn't, without changing what it does.
+    inline bool CheckMainThread(std::source_location a_caller = std::source_location::current()) {
+        if (IsMainThread()) return true;
+        SKSE::log::error("{} ran off the main thread (thread {})", a_caller.function_name(), REX::W32::GetCurrentThreadId());
+        return false;
     }
 
     // Whether a quest is running in the Papyrus sense. CommonLib's TESQuest::IsRunning() only checks that no
