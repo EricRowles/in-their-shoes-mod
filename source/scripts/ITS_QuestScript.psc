@@ -24,23 +24,25 @@ EndEvent
 
 ; Maintenance Function -----------------------------------------------------------------------------------
 function ITS_Maintenance()
-	Actor donor = Alias_OriginalDonor.GetActorReference()
-
 	If !PlayerRef.HasSpell(ITS_ImpersonateSpell)
 		PlayerRef.AddSpell(ITS_ImpersonateSpell, false)
 	EndIf
+	UpdateRevertSpell()
 
-	If donor
+	; Synchronize SKSE Native settings from MCM properties on game load.
+	; The impersonation session itself (donor, puppet) is restored natively from the co-save.
+	ITS_MCM.PushConfig()
+EndFunction
+
+; The player has the Revert spell exactly while impersonating (while the OriginalDonor alias is filled)
+function UpdateRevertSpell()
+	If Alias_OriginalDonor.GetActorReference()
 		If !PlayerRef.HasSpell(ITS_RevertSpell)
 			PlayerRef.AddSpell(ITS_RevertSpell, false)
 		EndIf
 	ElseIf PlayerRef.HasSpell(ITS_RevertSpell)
 		PlayerRef.RemoveSpell(ITS_RevertSpell)
 	EndIf
-
-	; Synchronize SKSE Native settings from MCM properties on game load.
-	; The impersonation session itself (donor, puppet) is restored natively from the co-save.
-	ITS_MCM.PushConfig()
 EndFunction
 
 ; Morph Complete Function -----------------------------------------------------------------------------------
@@ -102,9 +104,7 @@ function ITS_ImpersonateComplete(Actor a_donor)
 		PlayerRef.moveto(ITS_TempMarker)
 		PlayerRef.StopCombat()
 		Alias_OriginalDonor.ForceRefTo(a_donor)
-		If !PlayerRef.HasSpell(ITS_RevertSpell)
-			PlayerRef.addspell(ITS_RevertSpell, False)
-		EndIf
+		UpdateRevertSpell()
 		Debug.Notification("Control Swapped")
 	Else
 		Debug.Notification("Impersonation failed.")
@@ -129,7 +129,6 @@ function ITS_Revert()
 		; Restore state first so the native donor leash is off before anyone moves
 		ITS_TempMarker.MoveTo(PlayerRef)
 		ITS_NG.Revert()
-		PlayerRef.RemoveSpell(ITS_RevertSpell)
 
 		; The player returns to the puppet's spot and the donor takes the player's old spot
 		PlayerRef.moveto(puppet)
@@ -142,6 +141,7 @@ function ITS_Revert()
 		ITS_TempMarker.moveto(ITS_StorageMarker)
 		Alias_OriginalDonor.Clear()
 		Alias_PlayerPuppet.Clear()
+		UpdateRevertSpell()
 
 		Game.FadeOutGame(false, true, 0.0, 0.4)
 		
