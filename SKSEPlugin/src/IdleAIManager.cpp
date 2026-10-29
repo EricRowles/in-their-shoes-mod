@@ -39,9 +39,41 @@ namespace InTheirShoes {
         vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
     }
 
-    // A package's targets and locations: packTarg/packLoc, plus the data inputs of templated packages, which
-    // keep them in TESCustomPackageData with packTarg null. Each BGSPackageDataPointerTemplate input stores
-    // its PackageTarget* ("SingleRef", "TargetSelector") or PackageLocation* ("Location") at +0x10.
+    // Package target types (PackageTarget::targType): which member of PackageTarget::target is set
+    constexpr std::int8_t kTargetSpecificReference = 0;  // target.handle
+    constexpr std::int8_t kTargetObjectID = 1;           // target.object
+
+    // Templated packages keep their targets, locations and topics in TESCustomPackageData inputs (with
+    // packTarg/packLoc null). Each BGSPackageDataPointerTemplate input keeps its data at +0x10: a pointer to
+    // a PackageTarget ("SingleRef", "TargetSelector") or PackageLocation ("Location"), or a
+    // PackageEventAction::TopicData in place ("Topic").
+    template <class T>
+    static T* GetInputData(RE::IPackageData* a_input) {
+        constexpr std::uintptr_t kInputDataOffset = 0x10;
+        return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(a_input) + kInputDataOffset);
+    }
+
+    // Calls a_fn(input) for each of the package's own data inputs whose type is one of a_typeNames
+    template <typename Fn>
+    static void ForEachPackageInput(const RE::TESPackage* a_pkg, std::initializer_list<const char*> a_typeNames, Fn&& a_fn) {
+        const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
+        if (!customData || !customData->data.data) return;
+
+        for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
+            auto* input = customData->data.data[i];
+            if (!input) continue;
+            const auto& typeName = input->GetTypeName();
+            if (typeName.empty()) continue;
+            for (const char* name : a_typeNames) {
+                if (_stricmp(typeName.c_str(), name) == 0) {
+                    a_fn(input);
+                    break;
+                }
+            }
+        }
+    }
+
+    // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages.
     // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
     // Distance" Location input (radius 300) is near the player, so left alone the player is always within
     // it and skips the Travel branch.
@@ -51,21 +83,11 @@ namespace InTheirShoes {
         if (a_pkg->packTarg) {
             a_fn(a_pkg->packTarg);
         }
-        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
-        if (!customData || !customData->data.data) return;
-
-        for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
-            auto* item = customData->data.data[i];
-            if (!item) continue;
-            const auto& typeName = item->GetTypeName();
-            if (!typeName.empty() &&
-                (_stricmp(typeName.c_str(), "SingleRef") == 0 || _stricmp(typeName.c_str(), "TargetSelector") == 0)) {
-                auto* targ = *reinterpret_cast<RE::PackageTarget* const*>(reinterpret_cast<std::uintptr_t>(item) + 0x10);
-                if (targ) {
-                    a_fn(targ);
-                }
+        ForEachPackageInput(a_pkg, { "SingleRef", "TargetSelector" }, [&](RE::IPackageData* a_input) {
+            if (auto* targ = *GetInputData<RE::PackageTarget*>(a_input)) {
+                a_fn(targ);
             }
-        }
+        });
     }
 
     template <typename Fn>
@@ -74,28 +96,19 @@ namespace InTheirShoes {
         if (a_pkg->packLoc) {
             a_fn(a_pkg->packLoc);
         }
-        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
-        if (!customData || !customData->data.data) return;
-
-        for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
-            auto* item = customData->data.data[i];
-            if (!item) continue;
-            const auto& typeName = item->GetTypeName();
-            if (!typeName.empty() && _stricmp(typeName.c_str(), "Location") == 0) {
-                auto* loc = *reinterpret_cast<RE::PackageLocation* const*>(reinterpret_cast<std::uintptr_t>(item) + 0x10);
-                if (loc) {
-                    a_fn(loc);
-                }
+        ForEachPackageInput(a_pkg, { "Location" }, [&](RE::IPackageData* a_input) {
+            if (auto* loc = *GetInputData<RE::PackageLocation*>(a_input)) {
+                a_fn(loc);
             }
-        }
+        });
     }
 
     static bool TargetReferencesActor(const RE::PackageTarget* a_targ, RE::Actor* a_actor) {
         if (!a_targ || !a_actor) return false;
-        if (a_targ->targType == 0) {
+        if (a_targ->targType == kTargetSpecificReference) {
             return a_targ->target.handle == a_actor->GetHandle();
         }
-        if (a_targ->targType == 1) {
+        if (a_targ->targType == kTargetObjectID) {
             return a_targ->target.object == a_actor || a_targ->target.object == a_actor->GetBaseObject();
         }
         return false;
@@ -175,24 +188,17 @@ namespace InTheirShoes {
     }
 
     static RE::TESTopic* GetForceGreetTopic(const RE::TESPackage* a_pkg) {
-        if (!a_pkg) return nullptr;
-        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
+        const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
         if (!customData) return nullptr;
 
-        if (customData->data.data) {
-            for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
-                auto* item = customData->data.data[i];
-                if (!item) continue;
-                const auto& typeName = item->GetTypeName();
-                if (!typeName.empty() && _stricmp(typeName.c_str(), "Topic") == 0) {
-                    const auto* topicData = reinterpret_cast<const RE::PackageEventAction::TopicData*>(
-                        reinterpret_cast<std::uintptr_t>(item) + 0x10);
-                    if (topicData->type == RE::PackageEventAction::TopicData::Type::kTopicRef && topicData->topic) {
-                        return topicData->topic;
-                    }
-                }
+        RE::TESTopic* topic = nullptr;
+        ForEachPackageInput(a_pkg, { "Topic" }, [&](RE::IPackageData* a_input) {
+            const auto* topicData = GetInputData<const RE::PackageEventAction::TopicData>(a_input);
+            if (!topic && topicData->type == RE::PackageEventAction::TopicData::Type::kTopicRef && topicData->topic) {
+                topic = topicData->topic;
             }
-        }
+        });
+        if (topic) return topic;
         return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
     }
 
@@ -215,30 +221,36 @@ namespace InTheirShoes {
         SKSE::log::info("Hooked BGSProcedureForceGreet (0x09, 0x0C) vfuncs");
     }
 
+    // Whether this ForceGreet procedure is the impersonating player's
+    static bool IsPlayerForceGreet(const RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+        return Session::GetSingleton().IsActive() && a_execState && a_execState->context &&
+               a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
+    }
+
+    // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20) to the player's
+    // handle, which makes the player spin in a circle targeting itself. Points it at the puppet; false if
+    // there is no puppet.
+    static bool RetargetForceGreetToPuppet(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+        constexpr std::uintptr_t kTargetHandleOffset = 0x20;
+        auto* puppet = Session::GetSingleton().GetPuppet();
+        if (!puppet) return false;
+        *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + kTargetHandleOffset) =
+            puppet->GetHandle();
+        return true;
+    }
+
     std::uint64_t IdleAIManager::Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
         auto ret = _origForceGreetInitExecState(a_this, a_execState);
-        auto& session = Session::GetSingleton();
-        if (session.IsActive() && a_execState && a_execState->context &&
-            a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState) {
-            if (auto* puppet = session.GetPuppet()) {
-                // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20)
-                // to the player's handle, which makes the player spin in a circle targeting itself.
-                *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + 0x20) = puppet->GetHandle();
-                IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
-            }
+        if (IsPlayerForceGreet(a_execState) && RetargetForceGreetToPuppet(a_execState)) {
+            IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
         }
         return ret;
     }
 
     std::uint64_t IdleAIManager::Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
-        auto& session = Session::GetSingleton();
-        bool isPlayerForceGreet = session.IsActive() && a_execState && a_execState->context &&
-                                  a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
-        if (isPlayerForceGreet) {
-            if (auto* puppet = session.GetPuppet()) {
-                *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + 0x20) = puppet->GetHandle();
-                IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
-            }
+        const bool isPlayerForceGreet = IsPlayerForceGreet(a_execState);
+        if (isPlayerForceGreet && RetargetForceGreetToPuppet(a_execState)) {
+            IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
         }
         auto ret = _origForceGreetExecute(a_this, a_execState);
         if (isPlayerForceGreet) {
@@ -479,7 +491,7 @@ namespace InTheirShoes {
                 rec.origObject = a_targ->target.object;
                 _retargetedTargets.push_back(rec);
             }
-            a_targ->targType = 0;
+            a_targ->targType = kTargetSpecificReference;
             a_targ->target.handle = a_puppet->GetHandle();
             retargeted = true;
         });
@@ -596,7 +608,7 @@ namespace InTheirShoes {
             auto* targ = entry.target;
             if (!targ) continue;
             targ->targType = entry.origType;
-            if (entry.origType == 0) {
+            if (entry.origType == kTargetSpecificReference) {
                 targ->target.handle = entry.origHandle;
             } else {
                 targ->target.object = entry.origObject;
