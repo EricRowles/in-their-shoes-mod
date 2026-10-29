@@ -14,88 +14,90 @@
 
 namespace InTheirShoes {
 
-    static bool ResolveSkinTintFromRace(
-        RE::TESRace* a_race,
-        RE::SEX a_sex,
-        const std::vector<RE::TESNPC::Layer>& a_layers,
-        RE::Color& a_outColor,
-        RE::NiColor& a_outNiColor)
-    {
-        auto sexIdx = (a_sex == RE::SEX::kFemale) ? 1 : 0;
-        if (!a_race || !a_race->faceRelatedData[sexIdx] || !a_race->faceRelatedData[sexIdx]->tintMasks) {
+    namespace {
+        bool ResolveSkinTintFromRace(
+            RE::TESRace* a_race,
+            RE::SEX a_sex,
+            const std::vector<RE::TESNPC::Layer>& a_layers,
+            RE::Color& a_outColor,
+            RE::NiColor& a_outNiColor)
+        {
+            auto sexIdx = (a_sex == RE::SEX::kFemale) ? 1 : 0;
+            if (!a_race || !a_race->faceRelatedData[sexIdx] || !a_race->faceRelatedData[sexIdx]->tintMasks) {
+                return false;
+            }
+            const auto* tintMasks = a_race->faceRelatedData[sexIdx]->tintMasks;
+            for (const auto* asset : *tintMasks) {
+                if (asset && asset->texture.skinTone == RE::TESRace::FaceRelatedData::TintAsset::TintLayer::SkinTone::kSkinTone) {
+                    auto skinIndex = asset->texture.index;
+                    for (const auto& layer : a_layers) {
+                        if (layer.tintIndex == skinIndex) {
+                            a_outColor.red = layer.tintColor.red;
+                            a_outColor.green = layer.tintColor.green;
+                            a_outColor.blue = layer.tintColor.blue;
+                            a_outNiColor.red = static_cast<float>(layer.tintColor.red) / 255.0f;
+                            a_outNiColor.green = static_cast<float>(layer.tintColor.green) / 255.0f;
+                            a_outNiColor.blue = static_cast<float>(layer.tintColor.blue) / 255.0f;
+                            return true;
+                        }
+                    }
+                    break;
+                }
+            }
             return false;
         }
-        const auto* tintMasks = a_race->faceRelatedData[sexIdx]->tintMasks;
-        for (const auto* asset : *tintMasks) {
-            if (asset && asset->texture.skinTone == RE::TESRace::FaceRelatedData::TintAsset::TintLayer::SkinTone::kSkinTone) {
-                auto skinIndex = asset->texture.index;
-                for (const auto& layer : a_layers) {
-                    if (layer.tintIndex == skinIndex) {
-                        a_outColor.red = layer.tintColor.red;
-                        a_outColor.green = layer.tintColor.green;
-                        a_outColor.blue = layer.tintColor.blue;
-                        a_outNiColor.red = static_cast<float>(layer.tintColor.red) / 255.0f;
-                        a_outNiColor.green = static_cast<float>(layer.tintColor.green) / 255.0f;
-                        a_outNiColor.blue = static_cast<float>(layer.tintColor.blue) / 255.0f;
-                        return true;
-                    }
+
+        void Apply3DShaderTints(
+            RE::Actor* a_actor,
+            bool a_hasHairTint,
+            const RE::NiColor& a_hairTint,
+            bool a_hasSkinTint,
+            const RE::NiColor& a_skinTint)
+        {
+            if (!a_actor) return;
+
+            if (a_hasHairTint) {
+                if (auto* targetHair = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
+                    RE::BSVisit::TraverseScenegraphGeometries(targetHair, [&](RE::BSGeometry* geom) {
+                        if (geom) {
+                            if (auto* shaderProp = geom->lightingShaderProp_cast()) {
+                                if (auto* hairMat = skyrim_cast<RE::BSLightingShaderMaterialHairTint*>(shaderProp->material)) {
+                                    hairMat->tintColor = a_hairTint;
+                                }
+                            }
+                        }
+                        return RE::BSVisit::BSVisitControl::kContinue;
+                    });
                 }
-                break;
-            }
-        }
-        return false;
-    }
-
-    static void Apply3DShaderTints(
-        RE::Actor* a_actor,
-        bool a_hasHairTint,
-        const RE::NiColor& a_hairTint,
-        bool a_hasSkinTint,
-        const RE::NiColor& a_skinTint)
-    {
-        if (!a_actor) return;
-
-        if (a_hasHairTint) {
-            if (auto* targetHair = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kHair)) {
-                RE::BSVisit::TraverseScenegraphGeometries(targetHair, [&](RE::BSGeometry* geom) {
-                    if (geom) {
-                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                            if (auto* hairMat = skyrim_cast<RE::BSLightingShaderMaterialHairTint*>(shaderProp->material)) {
-                                hairMat->tintColor = a_hairTint;
-                            }
-                        }
-                    }
-                    return RE::BSVisit::BSVisitControl::kContinue;
-                });
-            }
-        }
-
-        if (a_hasSkinTint) {
-            auto* targetFace = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kFace);
-            if (targetFace) {
-                RE::BSVisit::TraverseScenegraphGeometries(targetFace, [&](RE::BSGeometry* geom) {
-                    if (geom) {
-                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                            if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
-                                faceMat->tintColor = a_skinTint;
-                            }
-                        }
-                    }
-                    return RE::BSVisit::BSVisitControl::kContinue;
-                });
             }
 
-            if (auto* root3D = a_actor->Get3D()) {
-                RE::BSVisit::TraverseScenegraphGeometries(root3D, [&](RE::BSGeometry* geom) {
-                    if (geom && geom != targetFace) {
-                        if (auto* shaderProp = geom->lightingShaderProp_cast()) {
-                            if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
-                                faceMat->tintColor = a_skinTint;
+            if (a_hasSkinTint) {
+                auto* targetFace = a_actor->GetHeadPartObject(RE::BGSHeadPart::HeadPartType::kFace);
+                if (targetFace) {
+                    RE::BSVisit::TraverseScenegraphGeometries(targetFace, [&](RE::BSGeometry* geom) {
+                        if (geom) {
+                            if (auto* shaderProp = geom->lightingShaderProp_cast()) {
+                                if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
+                                    faceMat->tintColor = a_skinTint;
+                                }
                             }
                         }
-                    }
-                    return RE::BSVisit::BSVisitControl::kContinue;
-                });
+                        return RE::BSVisit::BSVisitControl::kContinue;
+                    });
+                }
+
+                if (auto* root3D = a_actor->Get3D()) {
+                    RE::BSVisit::TraverseScenegraphGeometries(root3D, [&](RE::BSGeometry* geom) {
+                        if (geom && geom != targetFace) {
+                            if (auto* shaderProp = geom->lightingShaderProp_cast()) {
+                                if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
+                                    faceMat->tintColor = a_skinTint;
+                                }
+                            }
+                        }
+                        return RE::BSVisit::BSVisitControl::kContinue;
+                    });
+                }
             }
         }
     }

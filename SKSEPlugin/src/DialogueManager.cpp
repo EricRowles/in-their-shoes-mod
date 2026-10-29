@@ -45,163 +45,226 @@ namespace InTheirShoes {
     // The puppet stays the engine's speaker this long after self-dialogue's menu closes (see EndSelfDialogue)
     constexpr float kPuppetSpeakerClearSeconds = 1.0f;
 
-    static std::span<RE::BSSoundHandle> GetSoundHandles(RE::Actor* a_actor) {
-        auto* process = a_actor ? a_actor->GetActorRuntimeData().currentProcess : nullptr;
-        if (!process || !process->high) return {};
-        return process->high->soundHandles;
-    }
-
-    // A stopped handle keeps reporting "playing" for a moment, so clear it as well
-    static void StopSounds(RE::Actor* a_actor) {
-        for (auto& handle : GetSoundHandles(a_actor)) {
-            if (handle.IsValid()) {
-                handle.Stop();
-            }
-            handle = RE::BSSoundHandle();
+    namespace {
+        std::span<RE::BSSoundHandle> GetSoundHandles(RE::Actor* a_actor) {
+            auto* process = a_actor ? a_actor->GetActorRuntimeData().currentProcess : nullptr;
+            if (!process || !process->high) return {};
+            return process->high->soundHandles;
         }
-    }
 
-    static bool IsSoundActive(RE::Actor* a_actor) {
-        for (auto& handle : GetSoundHandles(a_actor)) {
-            if (!handle.IsValid()) continue;
-            auto state = handle.state.get();
-            if (handle.IsPlaying() || state == RE::BSSoundHandle::AssumedState::kPlaying ||
-                state == RE::BSSoundHandle::AssumedState::kInitialized) {
-                return true;
+        // A stopped handle keeps reporting "playing" for a moment, so clear it as well
+        void StopSounds(RE::Actor* a_actor) {
+            for (auto& handle : GetSoundHandles(a_actor)) {
+                if (handle.IsValid()) {
+                    handle.Stop();
+                }
+                handle = RE::BSSoundHandle();
             }
         }
-        return false;
-    }
 
-    // Length of the actor's voice sound in seconds, or 0 while unknown
-    static float GetSoundSeconds(RE::Actor* a_actor) {
-        for (auto& handle : GetSoundHandles(a_actor)) {
-            if (handle.IsValid() && handle.GetDuration() > 0) {
-                return static_cast<float>(handle.GetDuration()) / 1000.0f;
+        bool IsSoundActive(RE::Actor* a_actor) {
+            for (auto& handle : GetSoundHandles(a_actor)) {
+                if (!handle.IsValid()) continue;
+                auto state = handle.state.get();
+                if (handle.IsPlaying() || state == RE::BSSoundHandle::AssumedState::kPlaying ||
+                    state == RE::BSSoundHandle::AssumedState::kInitialized) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Length of the actor's voice sound in seconds, or 0 while unknown
+        float GetSoundSeconds(RE::Actor* a_actor) {
+            for (auto& handle : GetSoundHandles(a_actor)) {
+                if (handle.IsValid() && handle.GetDuration() > 0) {
+                    return static_cast<float>(handle.GetDuration()) / 1000.0f;
+                }
+            }
+            return 0.0f;
+        }
+
+        bool HasVoice(const RE::DialogueResponse* a_response) {
+            return a_response->voiceSound || !a_response->voice.empty();
+        }
+
+        RE::NiAVObject* GetHeadNode(RE::Actor* a_actor) {
+            auto* root = a_actor->Get3D();
+            RE::NiAVObject* head = root ? root->GetObjectByName("NPC Head [Head]"sv) : nullptr;
+            return head ? head : root;
+        }
+
+        // Makes the actor's playing sounds come from, and follow, its head
+        void AttachSoundsToHead(RE::Actor* a_actor) {
+            auto* head = GetHeadNode(a_actor);
+            if (!head) return;
+            for (auto& handle : GetSoundHandles(a_actor)) {
+                if (handle.IsValid()) {
+                    handle.SetPosition(head->world.translate);
+                    handle.SetObjectToFollow(head);
+                }
             }
         }
-        return 0.0f;
-    }
 
-    static bool HasVoice(const RE::DialogueResponse* a_response) {
-        return a_response->voiceSound || !a_response->voice.empty();
-    }
+        void ResetFace(RE::Actor* a_actor) {
+            if (auto* faceData = a_actor->GetFaceGenAnimationData()) {
+                RE::BSSpinLockGuard locker(faceData->lock);
+                faceData->dialogueData = nullptr;
+                faceData->Reset(0.0f, true, true, true, false);
+                faceData->ClearExpressionOverride();
+            }
+            a_actor->SetEmotionType(RE::EmotionType::kNeutral);
+            a_actor->SetEmotionValue(0);
+        }
 
-    static RE::NiAVObject* GetHeadNode(RE::Actor* a_actor) {
-        auto* root = a_actor->Get3D();
-        RE::NiAVObject* head = root ? root->GetObjectByName("NPC Head [Head]"sv) : nullptr;
-        return head ? head : root;
-    }
+        void QueueSubtitle(RE::Actor* a_speaker, const RE::DialogueResponse* a_response) {
+            if (a_response->text.empty()) return;
+            auto* subMgr = RE::SubtitleManager::GetSingleton();
+            if (!subMgr) return;
 
-    // Makes the actor's playing sounds come from, and follow, its head
-    static void AttachSoundsToHead(RE::Actor* a_actor) {
-        auto* head = GetHeadNode(a_actor);
-        if (!head) return;
-        for (auto& handle : GetSoundHandles(a_actor)) {
-            if (handle.IsValid()) {
+            RE::BSSpinLockGuard locker(subMgr->lock);
+            RE::SubtitleInfo info;
+            info.speaker = a_speaker->GetHandle();
+            info.subtitle = a_response->text;
+            info.targetDistance = 0.0f;
+            info.forceDisplay = true;
+            subMgr->subtitles.push_back(info);
+        }
+
+        // Plays the response's voice file on the actor, for when the engine didn't start it
+        // (see SpeakAsPlayer). It has no lip sync.
+        bool StartVoiceSound(RE::Actor* a_actor, const RE::DialogueResponse* a_response) {
+            auto* process = a_actor->GetActorRuntimeData().currentProcess;
+            auto* audioMgr = RE::BSAudioManager::GetSingleton();
+            if (!process || !process->high || !audioMgr) return false;
+
+            RE::BSSoundHandle handle;
+            if (a_response->voiceSound) {
+                audioMgr->GetSoundHandle(handle, a_response->voiceSound);
+            } else if (!a_response->voice.empty()) {
+                std::string path = a_response->voice.c_str();
+                std::replace(path.begin(), path.end(), '/', '\\');
+                if (path.size() >= 5 && _strnicmp(path.c_str(), "data\\", 5) == 0) {
+                    path = path.substr(5);
+                }
+                auto dot = path.rfind('.');
+                std::string base = dot != std::string::npos ? path.substr(0, dot) : path;
+                // Voice files ship as .fuz in the archives even though the response names the .wav
+                for (const auto& candidate : { base + ".fuz", base + ".wav" }) {
+                    RE::BSResource::ID resID;
+                    resID.GenerateFromPath(candidate.c_str());
+                    audioMgr->GetSoundHandleByFile(handle, resID, 0x10, 64);
+                    if (handle.IsValid()) break;
+                }
+            }
+
+            if (!handle.IsValid()) {
+                return false;
+            }
+            if (auto* head = GetHeadNode(a_actor)) {
                 handle.SetPosition(head->world.translate);
                 handle.SetObjectToFollow(head);
             }
+            handle.SetVolume(1.0f);
+            handle.Play();
+            process->high->soundHandles[0] = handle;
+            return true;
         }
-    }
 
-    static void ResetFace(RE::Actor* a_actor) {
-        if (auto* faceData = a_actor->GetFaceGenAnimationData()) {
-            RE::BSSpinLockGuard locker(faceData->lock);
-            faceData->dialogueData = nullptr;
-            faceData->Reset(0.0f, true, true, true, false);
-            faceData->ClearExpressionOverride();
-        }
-        a_actor->SetEmotionType(RE::EmotionType::kNeutral);
-        a_actor->SetEmotionValue(0);
-    }
-
-    static void QueueSubtitle(RE::Actor* a_speaker, const RE::DialogueResponse* a_response) {
-        if (a_response->text.empty()) return;
-        auto* subMgr = RE::SubtitleManager::GetSingleton();
-        if (!subMgr) return;
-
-        RE::BSSpinLockGuard locker(subMgr->lock);
-        RE::SubtitleInfo info;
-        info.speaker = a_speaker->GetHandle();
-        info.subtitle = a_response->text;
-        info.targetDistance = 0.0f;
-        info.forceDisplay = true;
-        subMgr->subtitles.push_back(info);
-    }
-
-    // Plays the response's voice file on the actor, for when the engine didn't start it
-    // (see SpeakAsPlayer). It has no lip sync.
-    static bool StartVoiceSound(RE::Actor* a_actor, const RE::DialogueResponse* a_response) {
-        auto* process = a_actor->GetActorRuntimeData().currentProcess;
-        auto* audioMgr = RE::BSAudioManager::GetSingleton();
-        if (!process || !process->high || !audioMgr) return false;
-
-        RE::BSSoundHandle handle;
-        if (a_response->voiceSound) {
-            audioMgr->GetSoundHandle(handle, a_response->voiceSound);
-        } else if (!a_response->voice.empty()) {
-            std::string path = a_response->voice.c_str();
-            std::replace(path.begin(), path.end(), '/', '\\');
-            if (path.size() >= 5 && _strnicmp(path.c_str(), "data\\", 5) == 0) {
-                path = path.substr(5);
-            }
-            auto dot = path.rfind('.');
-            std::string base = dot != std::string::npos ? path.substr(0, dot) : path;
-            // Voice files ship as .fuz in the archives even though the response names the .wav
-            for (const auto& candidate : { base + ".fuz", base + ".wav" }) {
-                RE::BSResource::ID resID;
-                resID.GenerateFromPath(candidate.c_str());
-                audioMgr->GetSoundHandleByFile(handle, resID, 0x10, 64);
-                if (handle.IsValid()) break;
+        // The engine reads these to know whether a speaker's line is still playing
+        void SetLinePlaying(RE::Actor* a_actor, bool a_playing) {
+            auto& bits = a_actor->GetActorRuntimeData().boolBits;
+            if (a_playing) {
+                bits.reset(RE::Actor::BOOL_BITS::kSpeakingDone, RE::Actor::BOOL_BITS::kSoundFileDone, RE::Actor::BOOL_BITS::kVoiceFileDone);
+            } else {
+                bits.set(RE::Actor::BOOL_BITS::kSpeakingDone, RE::Actor::BOOL_BITS::kSoundFileDone, RE::Actor::BOOL_BITS::kVoiceFileDone);
             }
         }
 
-        if (!handle.IsValid()) {
-            return false;
+        void CopyResponse(const RE::DialogueResponse* a_from, RE::DialogueResponse& a_to) {
+            a_to.text = a_from->text;
+            a_to.animFaceArchType = a_from->animFaceArchType;
+            a_to.percent = a_from->percent;
+            a_to.voice = a_from->voice;
+            a_to.voiceSound = a_from->voiceSound;
+            a_to.soundLip = a_from->soundLip;
+            a_to.speakerIdle = a_from->speakerIdle;
+            a_to.listenIdle = a_from->listenIdle;
+            a_to.useEmotion = a_from->useEmotion;
         }
-        if (auto* head = GetHeadNode(a_actor)) {
-            handle.SetPosition(head->world.translate);
-            handle.SetObjectToFollow(head);
+
+        // Leaves the response's text (for subtitles and timing) but nothing to hear or mouth
+        void Silence(RE::DialogueResponse* a_response) {
+            a_response->voice = ""sv;
+            a_response->voiceSound = nullptr;
+            a_response->soundLip = false;
+            a_response->useEmotion = false;
+            a_response->animFaceArchType = RE::EmotionType::kNeutral;
+            a_response->percent = 0;
+            a_response->speakerIdle = nullptr;
+            a_response->listenIdle = nullptr;
         }
-        handle.SetVolume(1.0f);
-        handle.Play();
-        process->high->soundHandles[0] = handle;
-        return true;
-    }
 
-    // The engine reads these to know whether a speaker's line is still playing
-    static void SetLinePlaying(RE::Actor* a_actor, bool a_playing) {
-        auto& bits = a_actor->GetActorRuntimeData().boolBits;
-        if (a_playing) {
-            bits.reset(RE::Actor::BOOL_BITS::kSpeakingDone, RE::Actor::BOOL_BITS::kSoundFileDone, RE::Actor::BOOL_BITS::kVoiceFileDone);
-        } else {
-            bits.set(RE::Actor::BOOL_BITS::kSpeakingDone, RE::Actor::BOOL_BITS::kSoundFileDone, RE::Actor::BOOL_BITS::kVoiceFileDone);
+        // Calls a_visit(eventID) for every user event the key is bound to, in any input context
+        template <class Visit>
+        void ForEachBinding(RE::INPUT_DEVICE a_device, std::uint32_t a_key, Visit a_visit) {
+            const auto* controlMap = RE::ControlMap::GetSingleton();
+            if (!controlMap || a_device >= RE::INPUT_DEVICE::kTotal) return;
+            for (const auto* context : controlMap->controlMap) {
+                if (!context) continue;
+                for (const auto& mapping : context->deviceMappings[a_device]) {
+                    if (mapping.inputKey == a_key) {
+                        a_visit(mapping.eventID);
+                    }
+                }
+            }
         }
-    }
 
-    static void CopyResponse(const RE::DialogueResponse* a_from, RE::DialogueResponse& a_to) {
-        a_to.text = a_from->text;
-        a_to.animFaceArchType = a_from->animFaceArchType;
-        a_to.percent = a_from->percent;
-        a_to.voice = a_from->voice;
-        a_to.voiceSound = a_from->voiceSound;
-        a_to.soundLip = a_from->soundLip;
-        a_to.speakerIdle = a_from->speakerIdle;
-        a_to.listenIdle = a_from->listenIdle;
-        a_to.useEmotion = a_from->useEmotion;
-    }
+        // Whether a press is one the Dialogue Menu uses to skip a line: a left click, or a key bound to
+        // Click/Accept/Activate. While the menu is open, keyboard presses carry no user event name, and
+        // control map mods bind Accept in different input contexts, so every context's bindings are checked.
+        bool IsSkipPress(const RE::ButtonEvent* a_button) {
+            auto device = a_button->GetDevice();
+            auto key = a_button->GetIDCode();
+            if (device == RE::INPUT_DEVICE::kMouse && key == 0) {
+                return true;
+            }
 
-    // Leaves the response's text (for subtitles and timing) but nothing to hear or mouth
-    static void Silence(RE::DialogueResponse* a_response) {
-        a_response->voice = ""sv;
-        a_response->voiceSound = nullptr;
-        a_response->soundLip = false;
-        a_response->useEmotion = false;
-        a_response->animFaceArchType = RE::EmotionType::kNeutral;
-        a_response->percent = 0;
-        a_response->speakerIdle = nullptr;
-        a_response->listenIdle = nullptr;
+            const auto* userEvents = RE::UserEvents::GetSingleton();
+            if (!userEvents) return false;
+            auto isSkipEvent = [&](const RE::BSFixedString& a_event) {
+                return a_event == userEvents->click || a_event == userEvents->accept || a_event == userEvents->activate;
+            };
+            if (isSkipEvent(a_button->QUserEvent())) {
+                return true;
+            }
+
+            bool bound = false;
+            ForEachBinding(device, key, [&](const RE::BSFixedString& a_event) { bound = bound || isSkipEvent(a_event); });
+            return bound;
+        }
+
+        // The engine leaves the puppet as MenuTopicManager's speaker after self-dialogue, which blocks
+        // activating it again
+        void ClearPuppetAsSpeaker() {
+            auto* topicMgr = RE::MenuTopicManager::GetSingleton();
+            auto* puppet = Session::GetSingleton().GetPuppet();
+            if (!topicMgr || !puppet) return;
+            auto handle = puppet->GetHandle();
+            if (topicMgr->speaker == handle) {
+                topicMgr->speaker.reset();
+            }
+            if (topicMgr->lastSpeaker == handle) {
+                topicMgr->lastSpeaker.reset();
+            }
+        }
+
+        bool IsDonorStandIn(const RE::Actor* a_actor) {
+            auto& session = Session::GetSingleton();
+            return a_actor && session.IsActive() &&
+                   ((a_actor == session.GetPuppet() && session.IsInSelfDialogue()) ||
+                       a_actor == session.GetDonor());
+        }
     }
 
     // --- Setup ---
@@ -296,45 +359,6 @@ namespace InTheirShoes {
         return RE::BSEventNotifyControl::kContinue;
     }
 
-    // Calls a_visit(eventID) for every user event the key is bound to, in any input context
-    template <class Visit>
-    static void ForEachBinding(RE::INPUT_DEVICE a_device, std::uint32_t a_key, Visit a_visit) {
-        const auto* controlMap = RE::ControlMap::GetSingleton();
-        if (!controlMap || a_device >= RE::INPUT_DEVICE::kTotal) return;
-        for (const auto* context : controlMap->controlMap) {
-            if (!context) continue;
-            for (const auto& mapping : context->deviceMappings[a_device]) {
-                if (mapping.inputKey == a_key) {
-                    a_visit(mapping.eventID);
-                }
-            }
-        }
-    }
-
-    // Whether a press is one the Dialogue Menu uses to skip a line: a left click, or a key bound to
-    // Click/Accept/Activate. While the menu is open, keyboard presses carry no user event name, and
-    // control map mods bind Accept in different input contexts, so every context's bindings are checked.
-    static bool IsSkipPress(const RE::ButtonEvent* a_button) {
-        auto device = a_button->GetDevice();
-        auto key = a_button->GetIDCode();
-        if (device == RE::INPUT_DEVICE::kMouse && key == 0) {
-            return true;
-        }
-
-        const auto* userEvents = RE::UserEvents::GetSingleton();
-        if (!userEvents) return false;
-        auto isSkipEvent = [&](const RE::BSFixedString& a_event) {
-            return a_event == userEvents->click || a_event == userEvents->accept || a_event == userEvents->activate;
-        };
-        if (isSkipEvent(a_button->QUserEvent())) {
-            return true;
-        }
-
-        bool bound = false;
-        ForEachBinding(device, key, [&](const RE::BSFixedString& a_event) { bound = bound || isSkipEvent(a_event); });
-        return bound;
-    }
-
     // A skip press during a self-dialogue line skips it, as it would an NPC's line; that includes
     // clicking another topic. The engine's own skip handling never reaches the player's line.
     RE::BSEventNotifyControl DialogueManager::ProcessEvent(
@@ -360,8 +384,6 @@ namespace InTheirShoes {
         }
         return RE::BSEventNotifyControl::kContinue;
     }
-
-    static void ClearPuppetAsSpeaker();
 
     bool DialogueManager::OpenSelfDialogue(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic) {
         auto* puppet = Session::GetSingleton().GetPuppet();
@@ -451,21 +473,6 @@ namespace InTheirShoes {
         SKSE::log::error("Failed to open dialogue with puppet {:08X}", a_speaker->GetFormID());
         Session::GetSingleton().SetInSelfDialogue(false);
         return false;
-    }
-
-    // The engine leaves the puppet as MenuTopicManager's speaker after self-dialogue, which blocks
-    // activating it again
-    static void ClearPuppetAsSpeaker() {
-        auto* topicMgr = RE::MenuTopicManager::GetSingleton();
-        auto* puppet = Session::GetSingleton().GetPuppet();
-        if (!topicMgr || !puppet) return;
-        auto handle = puppet->GetHandle();
-        if (topicMgr->speaker == handle) {
-            topicMgr->speaker.reset();
-        }
-        if (topicMgr->lastSpeaker == handle) {
-            topicMgr->lastSpeaker.reset();
-        }
     }
 
     void DialogueManager::EndSelfDialogue() {
@@ -711,13 +718,6 @@ namespace InTheirShoes {
     }
 
     // --- Hooks ---
-
-    static bool IsDonorStandIn(const RE::Actor* a_actor) {
-        auto& session = Session::GetSingleton();
-        return a_actor && session.IsActive() &&
-               ((a_actor == session.GetPuppet() && session.IsInSelfDialogue()) ||
-                   a_actor == session.GetDonor());
-    }
 
     bool DialogueManager::Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
         auto& session = Session::GetSingleton();

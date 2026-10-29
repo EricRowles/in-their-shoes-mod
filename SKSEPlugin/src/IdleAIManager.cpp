@@ -29,180 +29,200 @@ namespace InTheirShoes {
     // How often the donor's packages are synced to the player while idle AI runs
     constexpr float kPackageSyncSeconds = 1.5f;
 
-    // Updates aiControlledPackage synchronously so immediate EvaluatePackage calls see the new state,
-    // and dispatches Game.SetPlayerAIDriven through the VM to switch the movement controller cleanly.
-    // (Calling PlayerCharacter::SetAIDriven by its CommonLib address left the player with no package.)
-    static void SetPlayerAIDriven(bool a_enable) {
-        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-            player->GetPlayerRuntimeData().playerFlags.aiControlledPackage = a_enable;
-        }
-        auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
-        if (!vm) return;
-        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
-        vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
-    }
-
     // Package target types (PackageTarget::targType): which member of PackageTarget::target is set
     constexpr std::int8_t kTargetSpecificReference = 0;  // target.handle
     constexpr std::int8_t kTargetObjectID = 1;           // target.object
 
-    // Templated packages keep their targets, locations and topics in TESCustomPackageData inputs (with
-    // packTarg/packLoc null). Each BGSPackageDataPointerTemplate input keeps its data at +0x10: a pointer to
-    // a PackageTarget ("SingleRef", "TargetSelector") or PackageLocation ("Location"), or a
-    // PackageEventAction::TopicData in place ("Topic").
-    template <class T>
-    static T* GetInputData(RE::IPackageData* a_input) {
-        constexpr std::uintptr_t kInputDataOffset = 0x10;
-        return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(a_input) + kInputDataOffset);
-    }
+    namespace {
+        // Updates aiControlledPackage synchronously so immediate EvaluatePackage calls see the new state,
+        // and dispatches Game.SetPlayerAIDriven through the VM to switch the movement controller cleanly.
+        // (Calling PlayerCharacter::SetAIDriven by its CommonLib address left the player with no package.)
+        void SetPlayerAIDriven(bool a_enable) {
+            if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+                player->GetPlayerRuntimeData().playerFlags.aiControlledPackage = a_enable;
+            }
+            auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+            if (!vm) return;
+            RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+            vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
+        }
 
-    // Calls a_fn(input) for each of the package's own data inputs whose type is one of a_typeNames
-    template <typename Fn>
-    static void ForEachPackageInput(const RE::TESPackage* a_pkg, std::initializer_list<const char*> a_typeNames, Fn&& a_fn) {
-        const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
-        if (!customData || !customData->data.data) return;
+        // Templated packages keep their targets, locations and topics in TESCustomPackageData inputs (with
+        // packTarg/packLoc null). Each BGSPackageDataPointerTemplate input keeps its data at +0x10: a pointer to
+        // a PackageTarget ("SingleRef", "TargetSelector") or PackageLocation ("Location"), or a
+        // PackageEventAction::TopicData in place ("Topic").
+        template <class T>
+        T* GetInputData(RE::IPackageData* a_input) {
+            constexpr std::uintptr_t kInputDataOffset = 0x10;
+            return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(a_input) + kInputDataOffset);
+        }
 
-        for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
-            auto* input = customData->data.data[i];
-            if (!input) continue;
-            const auto& typeName = input->GetTypeName();
-            if (typeName.empty()) continue;
-            for (const char* name : a_typeNames) {
-                if (_stricmp(typeName.c_str(), name) == 0) {
-                    a_fn(input);
-                    break;
+        // Calls a_fn(input) for each of the package's own data inputs whose type is one of a_typeNames
+        template <typename Fn>
+        void ForEachPackageInput(const RE::TESPackage* a_pkg, std::initializer_list<const char*> a_typeNames, Fn&& a_fn) {
+            const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
+            if (!customData || !customData->data.data) return;
+
+            for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
+                auto* input = customData->data.data[i];
+                if (!input) continue;
+                const auto& typeName = input->GetTypeName();
+                if (typeName.empty()) continue;
+                for (const char* name : a_typeNames) {
+                    if (_stricmp(typeName.c_str(), name) == 0) {
+                        a_fn(input);
+                        break;
+                    }
                 }
             }
         }
-    }
 
-    // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages.
-    // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
-    // Distance" Location input (radius 300) is near the player, so left alone the player is always within
-    // it and skips the Travel branch.
-    template <typename Fn>
-    static void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
-        if (!a_pkg) return;
-        if (a_pkg->packTarg) {
-            a_fn(a_pkg->packTarg);
-        }
-        ForEachPackageInput(a_pkg, { "SingleRef", "TargetSelector" }, [&](RE::IPackageData* a_input) {
-            if (auto* targ = *GetInputData<RE::PackageTarget*>(a_input)) {
-                a_fn(targ);
+        // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages.
+        // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
+        // Distance" Location input (radius 300) is near the player, so left alone the player is always within
+        // it and skips the Travel branch.
+        template <typename Fn>
+        void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
+            if (!a_pkg) return;
+            if (a_pkg->packTarg) {
+                a_fn(a_pkg->packTarg);
             }
-        });
-    }
-
-    template <typename Fn>
-    static void ForEachPackageLocation(const RE::TESPackage* a_pkg, Fn&& a_fn) {
-        if (!a_pkg) return;
-        if (a_pkg->packLoc) {
-            a_fn(a_pkg->packLoc);
+            ForEachPackageInput(a_pkg, { "SingleRef", "TargetSelector" }, [&](RE::IPackageData* a_input) {
+                if (auto* targ = *GetInputData<RE::PackageTarget*>(a_input)) {
+                    a_fn(targ);
+                }
+            });
         }
-        ForEachPackageInput(a_pkg, { "Location" }, [&](RE::IPackageData* a_input) {
-            if (auto* loc = *GetInputData<RE::PackageLocation*>(a_input)) {
-                a_fn(loc);
+
+        template <typename Fn>
+        void ForEachPackageLocation(const RE::TESPackage* a_pkg, Fn&& a_fn) {
+            if (!a_pkg) return;
+            if (a_pkg->packLoc) {
+                a_fn(a_pkg->packLoc);
             }
-        });
-    }
+            ForEachPackageInput(a_pkg, { "Location" }, [&](RE::IPackageData* a_input) {
+                if (auto* loc = *GetInputData<RE::PackageLocation*>(a_input)) {
+                    a_fn(loc);
+                }
+            });
+        }
 
-    static bool TargetReferencesActor(const RE::PackageTarget* a_targ, RE::Actor* a_actor) {
-        if (!a_targ || !a_actor) return false;
-        if (a_targ->targType == kTargetSpecificReference) {
-            return a_targ->target.handle == a_actor->GetHandle();
-        }
-        if (a_targ->targType == kTargetObjectID) {
-            return a_targ->target.object == a_actor || a_targ->target.object == a_actor->GetBaseObject();
-        }
-        return false;
-    }
-
-    static bool LocationReferencesActor(const RE::PackageLocation* a_loc, RE::Actor* a_actor) {
-        if (!a_loc || !a_actor) return false;
-        auto type = a_loc->locType.get();
-        if (type == RE::PackageLocation::Type::kNearReference) {
-            return a_loc->data.refHandle == a_actor->GetHandle();
-        }
-        if (type == RE::PackageLocation::Type::kObjectID) {
-            return a_loc->data.object == a_actor || a_loc->data.object == a_actor->GetBaseObject();
-        }
-        return false;
-    }
-
-    static bool PackageTargetsActor(const RE::TESPackage* a_pkg, RE::Actor* a_actor) {
-        bool found = false;
-        ForEachPackageTarget(a_pkg, [&](RE::PackageTarget* a_targ) {
-            if (TargetReferencesActor(a_targ, a_actor)) {
-                found = true;
+        bool TargetReferencesActor(const RE::PackageTarget* a_targ, RE::Actor* a_actor) {
+            if (!a_targ || !a_actor) return false;
+            if (a_targ->targType == kTargetSpecificReference) {
+                return a_targ->target.handle == a_actor->GetHandle();
             }
-        });
-        if (found) return true;
-        ForEachPackageLocation(a_pkg, [&](RE::PackageLocation* a_loc) {
-            if (LocationReferencesActor(a_loc, a_actor)) {
-                found = true;
+            if (a_targ->targType == kTargetObjectID) {
+                return a_targ->target.object == a_actor || a_targ->target.object == a_actor->GetBaseObject();
             }
-        });
-        return found;
-    }
+            return false;
+        }
 
-    static bool HasProcedureTreeProcedure(const RE::IProcedureTreeItem* a_item, std::uintptr_t a_procVtbl) {
-        if (!a_item) return false;
-        static const std::uintptr_t kBranchVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeBranch[0]).address();
-        static const std::uintptr_t kProcItemVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeProcedure[0]).address();
-
-        const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(a_item);
-        if (vtbl == kProcItemVtbl) {
-            const auto* procItem = static_cast<const RE::BGSProcedureTreeProcedure*>(a_item);
-            if (procItem->procedure && *reinterpret_cast<const std::uintptr_t*>(procItem->procedure) == a_procVtbl) {
-                return true;
+        bool LocationReferencesActor(const RE::PackageLocation* a_loc, RE::Actor* a_actor) {
+            if (!a_loc || !a_actor) return false;
+            auto type = a_loc->locType.get();
+            if (type == RE::PackageLocation::Type::kNearReference) {
+                return a_loc->data.refHandle == a_actor->GetHandle();
             }
-        } else if (vtbl == kBranchVtbl) {
-            const auto* branch = static_cast<const RE::BGSProcedureTreeBranch*>(a_item);
-            for (const auto* child : branch->conditions) {
-                if (HasProcedureTreeProcedure(child, a_procVtbl)) {
+            if (type == RE::PackageLocation::Type::kObjectID) {
+                return a_loc->data.object == a_actor || a_loc->data.object == a_actor->GetBaseObject();
+            }
+            return false;
+        }
+
+        bool PackageTargetsActor(const RE::TESPackage* a_pkg, RE::Actor* a_actor) {
+            bool found = false;
+            ForEachPackageTarget(a_pkg, [&](RE::PackageTarget* a_targ) {
+                if (TargetReferencesActor(a_targ, a_actor)) {
+                    found = true;
+                }
+            });
+            if (found) return true;
+            ForEachPackageLocation(a_pkg, [&](RE::PackageLocation* a_loc) {
+                if (LocationReferencesActor(a_loc, a_actor)) {
+                    found = true;
+                }
+            });
+            return found;
+        }
+
+        bool HasProcedureTreeProcedure(const RE::IProcedureTreeItem* a_item, std::uintptr_t a_procVtbl) {
+            if (!a_item) return false;
+            static const std::uintptr_t kBranchVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeBranch[0]).address();
+            static const std::uintptr_t kProcItemVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeProcedure[0]).address();
+
+            const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(a_item);
+            if (vtbl == kProcItemVtbl) {
+                const auto* procItem = static_cast<const RE::BGSProcedureTreeProcedure*>(a_item);
+                if (procItem->procedure && *reinterpret_cast<const std::uintptr_t*>(procItem->procedure) == a_procVtbl) {
                     return true;
                 }
+            } else if (vtbl == kBranchVtbl) {
+                const auto* branch = static_cast<const RE::BGSProcedureTreeBranch*>(a_item);
+                for (const auto* child : branch->conditions) {
+                    if (HasProcedureTreeProcedure(child, a_procVtbl)) {
+                        return true;
+                    }
+                }
             }
+            return false;
         }
-        return false;
-    }
 
-    static bool HasProcedure(const RE::TESPackage* a_pkg, RE::PACKAGE_PROCEDURE_TYPE a_type, std::uintptr_t a_procVtbl) {
-        if (!a_pkg) return false;
-        if (a_pkg->procedureType == a_type) {
+        bool HasProcedure(const RE::TESPackage* a_pkg, RE::PACKAGE_PROCEDURE_TYPE a_type, std::uintptr_t a_procVtbl) {
+            if (!a_pkg) return false;
+            if (a_pkg->procedureType == a_type) {
+                return true;
+            }
+            const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
+            if (!customData) return false;
+            if (HasProcedureTreeProcedure(customData->procedureTree, a_procVtbl)) {
+                return true;
+            }
+            return customData->templateParent && HasProcedure(customData->templateParent, a_type, a_procVtbl);
+        }
+
+        bool HasForceGreetProcedure(const RE::TESPackage* a_pkg) {
+            static const std::uintptr_t kForceGreetVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureForceGreet[0]).address();
+            return HasProcedure(a_pkg, RE::PACKAGE_PROCEDURE_TYPE::kGreet, kForceGreetVtbl);
+        }
+
+        bool HasDialogueProcedure(const RE::TESPackage* a_pkg) {
+            static const std::uintptr_t kDialogueVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureDialogue[0]).address();
+            return HasProcedure(a_pkg, RE::PACKAGE_PROCEDURE_TYPE::kDialogue, kDialogueVtbl);
+        }
+
+        RE::TESTopic* GetForceGreetTopic(const RE::TESPackage* a_pkg) {
+            const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
+            if (!customData) return nullptr;
+
+            RE::TESTopic* topic = nullptr;
+            ForEachPackageInput(a_pkg, { "Topic" }, [&](RE::IPackageData* a_input) {
+                const auto* topicData = GetInputData<const RE::PackageEventAction::TopicData>(a_input);
+                if (!topic && topicData->type == RE::PackageEventAction::TopicData::Type::kTopicRef && topicData->topic) {
+                    topic = topicData->topic;
+                }
+            });
+            if (topic) return topic;
+            return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
+        }
+
+        // Whether this ForceGreet procedure is the impersonating player's
+        bool IsPlayerForceGreet(const RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+            return Session::GetSingleton().IsActive() && a_execState && a_execState->context &&
+                   a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
+        }
+
+        // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20) to the player's
+        // handle, which makes the player spin in a circle targeting itself. Points it at the puppet; false if
+        // there is no puppet.
+        bool RetargetForceGreetToPuppet(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+            constexpr std::uintptr_t kTargetHandleOffset = 0x20;
+            auto* puppet = Session::GetSingleton().GetPuppet();
+            if (!puppet) return false;
+            *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + kTargetHandleOffset) =
+                puppet->GetHandle();
             return true;
         }
-        const auto* customData = skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data);
-        if (!customData) return false;
-        if (HasProcedureTreeProcedure(customData->procedureTree, a_procVtbl)) {
-            return true;
-        }
-        return customData->templateParent && HasProcedure(customData->templateParent, a_type, a_procVtbl);
-    }
-
-    static bool HasForceGreetProcedure(const RE::TESPackage* a_pkg) {
-        static const std::uintptr_t kForceGreetVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureForceGreet[0]).address();
-        return HasProcedure(a_pkg, RE::PACKAGE_PROCEDURE_TYPE::kGreet, kForceGreetVtbl);
-    }
-
-    static bool HasDialogueProcedure(const RE::TESPackage* a_pkg) {
-        static const std::uintptr_t kDialogueVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureDialogue[0]).address();
-        return HasProcedure(a_pkg, RE::PACKAGE_PROCEDURE_TYPE::kDialogue, kDialogueVtbl);
-    }
-
-    static RE::TESTopic* GetForceGreetTopic(const RE::TESPackage* a_pkg) {
-        const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
-        if (!customData) return nullptr;
-
-        RE::TESTopic* topic = nullptr;
-        ForEachPackageInput(a_pkg, { "Topic" }, [&](RE::IPackageData* a_input) {
-            const auto* topicData = GetInputData<const RE::PackageEventAction::TopicData>(a_input);
-            if (!topic && topicData->type == RE::PackageEventAction::TopicData::Type::kTopicRef && topicData->topic) {
-                topic = topicData->topic;
-            }
-        });
-        if (topic) return topic;
-        return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
     }
 
     void IdleAIManager::Initialize() {
@@ -222,24 +242,6 @@ namespace InTheirShoes {
         _origForceGreetInitExecState = forceGreetVtbl.write_vfunc(0x09, &Hook_ForceGreet_InitExecState);
         _origForceGreetExecute = forceGreetVtbl.write_vfunc(0x0C, &Hook_ForceGreet_Execute);
         SKSE::log::info("Hooked BGSProcedureForceGreet (0x09, 0x0C) vfuncs");
-    }
-
-    // Whether this ForceGreet procedure is the impersonating player's
-    static bool IsPlayerForceGreet(const RE::IProcedureTreeItem::ExecStateContext* a_execState) {
-        return Session::GetSingleton().IsActive() && a_execState && a_execState->context &&
-               a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
-    }
-
-    // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20) to the player's
-    // handle, which makes the player spin in a circle targeting itself. Points it at the puppet; false if
-    // there is no puppet.
-    static bool RetargetForceGreetToPuppet(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
-        constexpr std::uintptr_t kTargetHandleOffset = 0x20;
-        auto* puppet = Session::GetSingleton().GetPuppet();
-        if (!puppet) return false;
-        *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + kTargetHandleOffset) =
-            puppet->GetHandle();
-        return true;
     }
 
     std::uint64_t IdleAIManager::Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {

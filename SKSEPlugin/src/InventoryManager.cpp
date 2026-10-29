@@ -6,43 +6,54 @@
 
 namespace InTheirShoes {
 
-    static bool IsModSystemSpell(RE::SpellItem* a_spell) {
-        return a_spell && (a_spell == Forms::impersonateSpell || a_spell == Forms::revertSpell);
-    }
-
-    static bool IsCastableSpell(RE::SpellItem* a_spell) {
-        if (!a_spell) return false;
-        auto spellType = a_spell->GetSpellType();
-        return (spellType == RE::MagicSystem::SpellType::kSpell ||
-                spellType == RE::MagicSystem::SpellType::kPower ||
-                spellType == RE::MagicSystem::SpellType::kLesserPower ||
-                spellType == RE::MagicSystem::SpellType::kVoicePower);
-    }
-
-    static bool IsBaseSpellOf(RE::SpellItem* a_spell, RE::TESNPC* a_base) {
-        auto* effects = a_base ? a_base->actorEffects : nullptr;
-        if (!effects) return false;
-        for (std::uint32_t i = 0; i < effects->numSpells; ++i) {
-            if (effects->spells[i] == a_spell) return true;
+    namespace {
+        bool IsModSystemSpell(RE::SpellItem* a_spell) {
+            return a_spell && (a_spell == Forms::impersonateSpell || a_spell == Forms::revertSpell);
         }
-        for (std::uint32_t i = 0; i < effects->numShouts; ++i) {
-            if (auto* shout = effects->shouts[i]) {
-                for (const auto& var : shout->variations) {
-                    if (var.spell == a_spell) return true;
+
+        bool IsCastableSpell(RE::SpellItem* a_spell) {
+            if (!a_spell) return false;
+            auto spellType = a_spell->GetSpellType();
+            return (spellType == RE::MagicSystem::SpellType::kSpell ||
+                    spellType == RE::MagicSystem::SpellType::kPower ||
+                    spellType == RE::MagicSystem::SpellType::kLesserPower ||
+                    spellType == RE::MagicSystem::SpellType::kVoicePower);
+        }
+
+        bool IsBaseSpellOf(RE::SpellItem* a_spell, RE::TESNPC* a_base) {
+            auto* effects = a_base ? a_base->actorEffects : nullptr;
+            if (!effects) return false;
+            for (std::uint32_t i = 0; i < effects->numSpells; ++i) {
+                if (effects->spells[i] == a_spell) return true;
+            }
+            for (std::uint32_t i = 0; i < effects->numShouts; ++i) {
+                if (auto* shout = effects->shouts[i]) {
+                    for (const auto& var : shout->variations) {
+                        if (var.spell == a_spell) return true;
+                    }
                 }
             }
+            return false;
         }
-        return false;
-    }
 
-    static std::vector<RE::SpellItem*> GetCastableAddedSpells(RE::Actor* a_actor) {
-        std::vector<RE::SpellItem*> result;
-        for (auto* spell : a_actor->GetActorRuntimeData().addedSpells) {
-            if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
-                result.push_back(spell);
+        std::vector<RE::SpellItem*> GetCastableAddedSpells(RE::Actor* a_actor) {
+            std::vector<RE::SpellItem*> result;
+            for (auto* spell : a_actor->GetActorRuntimeData().addedSpells) {
+                if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell)) {
+                    result.push_back(spell);
+                }
             }
+            return result;
         }
-        return result;
+
+        // Skins (non-playable body armor) stay with their actor. The player gets the donor's skin through the
+        // appearance copy, and an actor's skin items are managed for it: the engine gives an actor its skin again
+        // on load, and mods swap skin items in and out (e.g. Lyra's damage stages). Handing them over made copies
+        // that piled up on the donor.
+        bool IsSkinItem(const RE::TESBoundObject* a_object) {
+            const auto* armor = a_object ? a_object->As<RE::TESObjectARMO>() : nullptr;
+            return armor && !armor->GetPlayable() && armor->HasPartOf(RE::BGSBipedObjectForm::BipedObjectSlot::kBody);
+        }
     }
 
     void InventoryManager::StashPlayerSpells(RE::Actor* a_player, SpellSnapshot& a_outSnapshot) {
@@ -126,15 +137,6 @@ namespace InTheirShoes {
             a_player->RemoveSpell(spell);
         }
         SKSE::log::info("Returned {} spells to donor.", returnedCount);
-    }
-
-    // Skins (non-playable body armor) stay with their actor. The player gets the donor's skin through the
-    // appearance copy, and an actor's skin items are managed for it: the engine gives an actor its skin again
-    // on load, and mods swap skin items in and out (e.g. Lyra's damage stages). Handing them over made copies
-    // that piled up on the donor.
-    static bool IsSkinItem(const RE::TESBoundObject* a_object) {
-        const auto* armor = a_object ? a_object->As<RE::TESObjectARMO>() : nullptr;
-        return armor && !armor->GetPlayable() && armor->HasPartOf(RE::BGSBipedObjectForm::BipedObjectSlot::kBody);
     }
 
     bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor, bool a_forceEquip,
