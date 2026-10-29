@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <cstdint>
 
+#include "AliasSwapManager.h"
 #include "FaceManager.h"
 #include "InventoryManager.h"
 #include "Session.h"
@@ -55,8 +56,11 @@ namespace InTheirShoes {
         // The donor's appearance as captured when impersonation began (rendered tints included)
         const std::optional<FaceSnapshot>& GetDonorFace() const { return _donorFace; }
         void SetDonorFace(FaceSnapshot a_face) { _donorFace = std::move(a_face); }
-        void SaveSession(SKSE::SerializationInterface* a_serde) const;
-        void LoadSession(SKSE::SerializationInterface* a_serde);
+        // Donor quest items the player carries ('SESS' record)
+        const std::unordered_set<RE::FormID>& GetDonorQuestItems() const { return _donorQuestItems; }
+        // Restores a saved session; a_donor is null if it no longer exists, and the session then isn't restored
+        void RestoreSession(RE::Actor* a_donor, RE::Actor* a_puppet, std::vector<AliasSwapManager::SwappedAlias> a_aliases,
+            std::unordered_set<RE::FormID> a_questItems);
         void OnRevert();
         void OnPostLoadGame();
 

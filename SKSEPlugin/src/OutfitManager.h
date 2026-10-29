@@ -25,8 +25,8 @@ namespace InTheirShoes {
         void Clear();
 
         // The 'OUTF' co-save record
-        void Save(SKSE::SerializationInterface* a_serde) const;
-        void Load(SKSE::SerializationInterface* a_serde);
+        std::unordered_set<RE::FormID> GetOutfitDisabledIDs() const;
+        void SetOutfitDisabledIDs(std::unordered_set<RE::FormID> a_ids);
 
     private:
         OutfitManager() = default;

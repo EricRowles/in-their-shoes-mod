@@ -6,7 +6,6 @@
 #include "Forms.h"
 #include "Lifecycle.h"
 #include "OutfitManager.h"
-#include "Serialization.h"
 
 namespace InTheirShoes {
 
@@ -308,68 +307,22 @@ namespace InTheirShoes {
         });
     }
 
-    void ImpersonationManager::SaveSession(SKSE::SerializationInterface* a_serde) const {
-        auto* donor = GetDonor();
-        auto* puppet = GetPuppet();
-        if (!IsActive() || !donor) return;
-        if (!a_serde->OpenRecord(Serialization::kSessionRecord, Serialization::kSessionVersion)) return;
-
-        const RE::FormID donorID = donor->GetFormID();
-        const RE::FormID puppetID = puppet ? puppet->GetFormID() : 0;
-        a_serde->WriteRecordData(&donorID, sizeof(donorID));
-        a_serde->WriteRecordData(&puppetID, sizeof(puppetID));
-
-        auto& aliases = AliasSwapManager::GetSingleton();
-        aliases.WriteSwappedAliases(a_serde);
-
-        const auto itemCount = static_cast<std::uint32_t>(_donorQuestItems.size());
-        a_serde->WriteRecordData(&itemCount, sizeof(itemCount));
-        for (auto id : _donorQuestItems) {
-            a_serde->WriteRecordData(&id, sizeof(id));
+    void ImpersonationManager::RestoreSession(RE::Actor* a_donor, RE::Actor* a_puppet,
+        std::vector<AliasSwapManager::SwappedAlias> a_aliases, std::unordered_set<RE::FormID> a_questItems) {
+        _donorQuestItems = std::move(a_questItems);
+        if (a_puppet) {
+            AttachPuppet(a_puppet);
         }
-        SKSE::log::info("Saved impersonation session ({} swapped aliases, {} donor quest items).",
-            aliases.GetSwappedAliasCount(), itemCount);
-    }
-
-    void ImpersonationManager::LoadSession(SKSE::SerializationInterface* a_serde) {
-        RE::FormID donorID = 0;
-        RE::FormID puppetID = 0;
-        std::vector<AliasSwapManager::SwappedAlias> aliases;
-        if (!a_serde->ReadRecordData(&donorID, sizeof(donorID)) ||
-            !a_serde->ReadRecordData(&puppetID, sizeof(puppetID)) ||
-            !AliasSwapManager::ReadSwappedAliases(a_serde, aliases)) {
-            SKSE::log::warn("Impersonation session record is truncated; ignoring it.");
+        if (!a_donor) {
+            SKSE::log::warn("Impersonation session donor no longer exists; session not restored.");
             return;
         }
 
-        std::uint32_t itemCount = 0;
-        if (a_serde->ReadRecordData(&itemCount, sizeof(itemCount))) {
-            for (std::uint32_t i = 0; i < itemCount; ++i) {
-                RE::FormID id = 0;
-                if (a_serde->ReadRecordData(&id, sizeof(id)) && a_serde->ResolveFormID(id, id)) {
-                    _donorQuestItems.insert(id);
-                }
-            }
-        }
-
-        if (puppetID != 0 && a_serde->ResolveFormID(puppetID, puppetID)) {
-            AttachPuppet(RE::TESForm::LookupByID<RE::Actor>(puppetID));
-        }
-
-        RE::Actor* donor = nullptr;
-        if (a_serde->ResolveFormID(donorID, donorID)) {
-            donor = RE::TESForm::LookupByID<RE::Actor>(donorID);
-        }
-        if (!donor) {
-            SKSE::log::warn("Impersonation session donor {:08X} no longer exists; session not restored.", donorID);
-            return;
-        }
-
-        AttachDonor(donor);
-        const auto aliasCount = aliases.size();
-        AliasSwapManager::GetSingleton().SetSwappedAliases(std::move(aliases));
+        AttachDonor(a_donor);
+        const auto aliasCount = a_aliases.size();
+        AliasSwapManager::GetSingleton().SetSwappedAliases(std::move(a_aliases));
         Session::GetSingleton().SetActive(true);
-        SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", donorID, aliasCount);
+        SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", a_donor->GetFormID(), aliasCount);
     }
 
     void ImpersonationManager::OnRevert() {

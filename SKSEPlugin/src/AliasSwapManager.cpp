@@ -1,7 +1,6 @@
 #include "PCH.h"
 #include "AliasSwapManager.h"
 #include "Forms.h"
-#include "Serialization.h"
 #include "Session.h"
 
 #include <unordered_map>
@@ -148,58 +147,14 @@ namespace InTheirShoes {
         return std::nullopt;
     }
 
-    void AliasSwapManager::WriteSwappedAliases(SKSE::SerializationInterface* a_serde) const {
-        const auto aliasCount = static_cast<std::uint32_t>(_swappedAliases.size());
-        a_serde->WriteRecordData(&aliasCount, sizeof(aliasCount));
-        for (const auto& entry : _swappedAliases) {
-            a_serde->WriteRecordData(&entry.questFormID, sizeof(entry.questFormID));
-            a_serde->WriteRecordData(&entry.aliasID, sizeof(entry.aliasID));
-        }
-    }
-
-    bool AliasSwapManager::ReadSwappedAliases(SKSE::SerializationInterface* a_serde, std::vector<SwappedAlias>& a_out) {
-        std::uint32_t aliasCount = 0;
-        if (!a_serde->ReadRecordData(&aliasCount, sizeof(aliasCount))) return false;
-        for (std::uint32_t i = 0; i < aliasCount; ++i) {
-            SwappedAlias entry;
-            if (!a_serde->ReadRecordData(&entry.questFormID, sizeof(entry.questFormID)) ||
-                !a_serde->ReadRecordData(&entry.aliasID, sizeof(entry.aliasID))) {
-                break;
-            }
-            if (a_serde->ResolveFormID(entry.questFormID, entry.questFormID)) {
-                a_out.push_back(entry);
-            }
-        }
-        return true;
-    }
-
-    void AliasSwapManager::SaveDonorAliasFactions(SKSE::SerializationInterface* a_serde) const {
+    std::vector<AliasSwapManager::FactionRank> AliasSwapManager::GetDonorAliasFactions() const {
         std::scoped_lock lock(_donorAliasFactionsLock);
-        if (!Session::GetSingleton().IsActive() || _donorAliasFactions.empty()) return;
-        if (!a_serde->OpenRecord(Serialization::kDonorAliasFactionsRecord, Serialization::kDonorAliasFactionsVersion)) return;
-        const auto count = static_cast<std::uint32_t>(_donorAliasFactions.size());
-        a_serde->WriteRecordData(&count, sizeof(count));
-        for (const auto& [faction, rank] : _donorAliasFactions) {
-            const RE::FormID id = faction->GetFormID();
-            a_serde->WriteRecordData(&id, sizeof(id));
-            a_serde->WriteRecordData(&rank, sizeof(rank));
-        }
+        return _donorAliasFactions;
     }
 
-    void AliasSwapManager::LoadDonorAliasFactions(SKSE::SerializationInterface* a_serde) {
+    void AliasSwapManager::SetDonorAliasFactions(std::vector<FactionRank> a_factions) {
         std::scoped_lock lock(_donorAliasFactionsLock);
-        std::uint32_t count = 0;
-        if (!a_serde->ReadRecordData(&count, sizeof(count))) return;
-        for (std::uint32_t i = 0; i < count; ++i) {
-            RE::FormID id = 0;
-            std::int8_t rank = 0;
-            if (!a_serde->ReadRecordData(&id, sizeof(id)) || !a_serde->ReadRecordData(&rank, sizeof(rank))) break;
-            if (!a_serde->ResolveFormID(id, id)) continue;
-            if (auto* faction = RE::TESForm::LookupByID<RE::TESFaction>(id)) {
-                _donorAliasFactions.emplace_back(faction, rank);
-            }
-        }
-        SKSE::log::info("Loaded {} donor alias factions.", _donorAliasFactions.size());
+        _donorAliasFactions = std::move(a_factions);
     }
 
 }
