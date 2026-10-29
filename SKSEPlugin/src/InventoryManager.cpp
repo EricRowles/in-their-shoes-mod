@@ -54,13 +54,179 @@ namespace InTheirShoes {
             const auto* armor = a_object ? a_object->As<RE::TESObjectARMO>() : nullptr;
             return armor && !armor->GetPlayable() && armor->HasPartOf(RE::BGSBipedObjectForm::BipedObjectSlot::kBody);
         }
+
+        RE::BGSEquipSlot* GetEquipSlot(RE::BGSDefaultObjectManager::DefaultObject a_slot) {
+            auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
+            return defaultObjMgr ? defaultObjMgr->GetObject<RE::BGSEquipSlot>(a_slot) : nullptr;
+        }
+
+        // The spells in an actor's hands and its selected shout or power
+        struct EquippedMagic {
+            RE::SpellItem* left{ nullptr };
+            RE::SpellItem* right{ nullptr };
+            RE::TESShout* shout{ nullptr };
+        };
+
+        EquippedMagic GetEquippedMagic(RE::Actor* a_actor) {
+            auto& runtime = a_actor->GetActorRuntimeData();
+            return { skyrim_cast<RE::SpellItem*>(runtime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]),
+                skyrim_cast<RE::SpellItem*>(runtime.selectedSpells[RE::Actor::SlotTypes::kRightHand]),
+                skyrim_cast<RE::TESShout*>(runtime.selectedPower) };
+        }
+
+        void EquipMagic(RE::Actor* a_actor, const EquippedMagic& a_magic) {
+            auto* equipMgr = RE::ActorEquipManager::GetSingleton();
+            if (!equipMgr) return;
+            auto* leftSlot = GetEquipSlot(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip);
+            auto* rightSlot = GetEquipSlot(RE::BGSDefaultObjectManager::DefaultObject::kRightHandEquip);
+            if (a_magic.left && leftSlot) {
+                equipMgr->EquipSpell(a_actor, a_magic.left, leftSlot);
+            }
+            if (a_magic.right && rightSlot) {
+                equipMgr->EquipSpell(a_actor, a_magic.right, rightSlot);
+            }
+            if (a_magic.shout) {
+                equipMgr->EquipShout(a_actor, a_magic.shout);
+            }
+        }
+
+        struct ItemStack {
+            RE::TESBoundObject* object{ nullptr };
+            std::int32_t count{ 0 };
+        };
+
+        // Removes everything from a_actor except quest items and its skin. Collected first: removing items
+        // while walking the inventory would invalidate it.
+        void ClearInventory(RE::Actor* a_actor) {
+            std::vector<ItemStack> toRemove;
+            for (const auto& [object, entry] : a_actor->GetInventory()) {
+                const auto& [count, data] = entry;
+                if (!object || count <= 0) continue;
+                if (data && data->IsQuestObject()) continue;
+                if (IsSkinItem(object)) continue;
+                toRemove.push_back({ object, count });
+            }
+            for (const auto& stack : toRemove) {
+                a_actor->RemoveItem(stack.object, stack.count, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+            }
+        }
+
+        // A worn item, and whether it's worn in the left hand. An item worn in both hands has a record for each.
+        struct WornItem {
+            RE::TESBoundObject* object{ nullptr };
+            bool isLeft{ false };
+        };
+
+        std::vector<WornItem> GetWornItems(const RE::TESObjectREFR::InventoryItemMap& a_inventory) {
+            std::vector<WornItem> worn;
+            for (const auto& [object, entry] : a_inventory) {
+                const auto& data = entry.second;
+                if (!object || !data || !data->IsWorn()) continue;
+
+                bool foundHand = false;
+                if (data->extraLists) {
+                    for (auto* xList : *data->extraLists) {
+                        if (!xList) continue;
+                        if (xList->HasType(RE::ExtraDataType::kWornLeft)) {
+                            worn.push_back({ object, true });
+                            foundHand = true;
+                        } else if (xList->HasType(RE::ExtraDataType::kWorn)) {
+                            worn.push_back({ object, false });
+                            foundHand = true;
+                        }
+                    }
+                }
+                if (!foundHand) {
+                    worn.push_back({ object, false });
+                }
+            }
+            return worn;
+        }
+
+        // The stacks to move from a_from to a_to, updating which donor quest items the player carries.
+        // Skins stay with their actor, and the player keeps their own quest items.
+        std::vector<ItemStack> GetItemsToMove(RE::Actor* a_from, RE::Actor* a_to, const RE::TESObjectREFR::InventoryItemMap& a_inventory,
+            std::unordered_set<RE::FormID>& a_donorQuestItems, std::int32_t& a_skinsKept) {
+            const bool toDonor = a_from->IsPlayerRef() && !a_to->IsPlayerRef();
+            const bool toPlayer = !a_from->IsPlayerRef() && a_to->IsPlayerRef();
+
+            std::vector<ItemStack> toMove;
+            for (const auto& [object, entry] : a_inventory) {
+                const auto& [count, data] = entry;
+                if (!object || count <= 0) continue;
+                if (IsSkinItem(object)) {
+                    a_skinsKept++;
+                    continue;
+                }
+
+                if (data && data->IsQuestObject()) {
+                    if (toDonor) {
+                        if (!a_donorQuestItems.erase(object->GetFormID())) {
+                            continue;  // the player's own quest item
+                        }
+                    } else if (toPlayer) {
+                        a_donorQuestItems.insert(object->GetFormID());
+                    }
+                }
+                toMove.push_back({ object, count });
+            }
+            return toMove;
+        }
+
+        // Equips a_worn on a_actor again, from the stacks it now holds
+        void EquipWornItems(RE::Actor* a_actor, const std::vector<WornItem>& a_worn, bool a_forceEquip) {
+            auto* equipMgr = RE::ActorEquipManager::GetSingleton();
+            if (!equipMgr) return;
+            auto* leftSlot = GetEquipSlot(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip);
+
+            auto inventory = a_actor->GetInventory();
+            for (const auto& worn : a_worn) {
+                auto it = inventory.find(worn.object);
+                if (it == inventory.end() || it->second.first <= 0) continue;
+
+                // Prefer an extra data list that isn't already worn
+                const auto& data = it->second.second;
+                RE::ExtraDataList* xList = nullptr;
+                if (data && data->extraLists && !data->extraLists->empty()) {
+                    for (auto* x : *data->extraLists) {
+                        if (x && !x->HasType(RE::ExtraDataType::kWorn) && !x->HasType(RE::ExtraDataType::kWornLeft)) {
+                            xList = x;
+                            break;
+                        }
+                    }
+                    if (!xList) {
+                        xList = data->extraLists->front();
+                    }
+                }
+                const RE::BGSEquipSlot* slot = worn.isLeft ? leftSlot : nullptr;
+                std::uint32_t equipCount = worn.object->Is(RE::FormType::Ammo) ? static_cast<std::uint32_t>(it->second.first) : 1;
+                // Non-playable items require forceEquip on the player
+                bool forceEquip = a_forceEquip || !worn.object->GetPlayable();
+                equipMgr->EquipObject(a_actor, worn.object, xList, equipCount, slot, false, forceEquip, false, true);
+            }
+        }
+
+        // Unequips what an NPC put on by itself when the items arrived (AddObjectToContainer auto-equips),
+        // keeping a_keep and its skin
+        void UnequipAutoEquipped(RE::Actor* a_actor, const std::unordered_set<RE::TESBoundObject*>& a_keep) {
+            auto* equipMgr = RE::ActorEquipManager::GetSingleton();
+            if (!equipMgr) return;
+            for (const auto& [object, entry] : a_actor->GetInventory()) {
+                const auto& data = entry.second;
+                // The skin stays worn: unequipping it left the donor without one, and the engine added its skin
+                // and outfit items again
+                if (object && data && data->IsWorn() && !IsSkinItem(object) && !a_keep.contains(object)) {
+                    equipMgr->UnequipObject(a_actor, object, nullptr, 1, nullptr, false, true, false, true);
+                }
+            }
+        }
     }
 
     void InventoryManager::StashPlayerSpells(RE::Actor* a_player, SpellSnapshot& a_outSnapshot) {
-        auto& runtime = a_player->GetActorRuntimeData();
-        a_outSnapshot.leftSpell = skyrim_cast<RE::SpellItem*>(runtime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
-        a_outSnapshot.rightSpell = skyrim_cast<RE::SpellItem*>(runtime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
-        a_outSnapshot.shout = skyrim_cast<RE::TESShout*>(runtime.selectedPower);
+        const auto magic = GetEquippedMagic(a_player);
+        a_outSnapshot.leftSpell = magic.left;
+        a_outSnapshot.rightSpell = magic.right;
+        a_outSnapshot.shout = magic.shout;
 
         a_outSnapshot.addedSpells.clear();
         for (auto* spell : GetCastableAddedSpells(a_player)) {
@@ -80,21 +246,7 @@ namespace InTheirShoes {
             }
         }
 
-        auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
-        auto* equipMgr = RE::ActorEquipManager::GetSingleton();
-        if (defaultObjMgr && equipMgr) {
-            auto* leftSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip);
-            auto* rightSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kRightHandEquip);
-            if (a_snapshot.leftSpell && leftSlot) {
-                equipMgr->EquipSpell(a_player, a_snapshot.leftSpell, leftSlot);
-            }
-            if (a_snapshot.rightSpell && rightSlot) {
-                equipMgr->EquipSpell(a_player, a_snapshot.rightSpell, rightSlot);
-            }
-            if (a_snapshot.shout) {
-                equipMgr->EquipShout(a_player, a_snapshot.shout);
-            }
-        }
+        EquipMagic(a_player, { a_snapshot.leftSpell, a_snapshot.rightSpell, a_snapshot.shout });
         SKSE::log::info("Restored {} player spells.", restoredCount);
     }
 
@@ -146,162 +298,32 @@ namespace InTheirShoes {
             return false;
         }
 
-        struct ItemRecord {
-            RE::TESBoundObject* object{ nullptr };
-            std::int32_t count{ 0 };
-        };
+        ClearInventory(a_toActor);
 
-        // 1. Clear the target's non-quest inventory in two passes (collect first, then remove)
-        std::vector<ItemRecord> itemsToRemove;
-        for (const auto& [boundObj, entryPair] : a_toActor->GetInventory()) {
-            std::int32_t count = entryPair.first;
-            const auto& entryData = entryPair.second;
+        // What the source wears and casts, read before its items leave
+        const auto magic = GetEquippedMagic(a_fromActor);
+        const auto fromInventory = a_fromActor->GetInventory();
+        const auto worn = GetWornItems(fromInventory);
 
-            if (!boundObj || count <= 0) continue;
-            if (entryData && entryData->IsQuestObject()) continue;
-            if (IsSkinItem(boundObj)) continue;
-            itemsToRemove.push_back({ boundObj, count });
-        }
-
-        for (const auto& entry : itemsToRemove) {
-            a_toActor->RemoveItem(entry.object, entry.count, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
-        }
-
-        // 2. Get equipped spells & shout from source actor
-        auto& fromRuntime = a_fromActor->GetActorRuntimeData();
-        auto* leftSpell = skyrim_cast<RE::SpellItem*>(fromRuntime.selectedSpells[RE::Actor::SlotTypes::kLeftHand]);
-        auto* rightSpell = skyrim_cast<RE::SpellItem*>(fromRuntime.selectedSpells[RE::Actor::SlotTypes::kRightHand]);
-        auto* shout = skyrim_cast<RE::TESShout*>(fromRuntime.selectedPower);
-
-        // 3. Identify worn items and their equipped slots before transfer
-        auto fromInv = a_fromActor->GetInventory();
-        auto* equipMgr = RE::ActorEquipManager::GetSingleton();
-        auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
-        auto* leftSlot = defaultObjMgr ? defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kLeftHandEquip) : nullptr;
-
-        struct WornItemRecord {
-            RE::TESBoundObject* object{ nullptr };
-            bool isLeft{ false };
-        };
-        std::vector<WornItemRecord> wornRecords;
-        std::unordered_set<RE::TESBoundObject*> wornObjects;
-
-        for (const auto& [boundObj, entryPair] : fromInv) {
-            const auto& entryData = entryPair.second;
-            if (!boundObj || !entryData || !entryData->IsWorn()) continue;
-
-            wornObjects.insert(boundObj);
-            bool foundHand = false;
-            if (entryData->extraLists) {
-                for (auto* xList : *entryData->extraLists) {
-                    if (!xList) continue;
-                    if (xList->HasType(RE::ExtraDataType::kWornLeft)) {
-                        wornRecords.push_back({ boundObj, true });
-                        foundHand = true;
-                    } else if (xList->HasType(RE::ExtraDataType::kWorn)) {
-                        wornRecords.push_back({ boundObj, false });
-                        foundHand = true;
-                    }
-                }
-            }
-            if (!foundHand) {
-                wornRecords.push_back({ boundObj, false });
-            }
-        }
-
-        // 4. Transfer items in two passes (collect and update quest tracking first, then transfer)
-        std::vector<ItemRecord> itemsToTransfer;
         std::int32_t skinsKept = 0;
-        for (const auto& [boundObj, entryPair] : fromInv) {
-            std::int32_t count = entryPair.first;
-            const auto& entryData = entryPair.second;
-            if (!boundObj || count <= 0) continue;
-            if (IsSkinItem(boundObj)) {
-                skinsKept++;
-                continue;
-            }
-
-            bool isQuest = entryData && entryData->IsQuestObject();
-            if (isQuest) {
-                if (a_fromActor->IsPlayerRef() && !a_toActor->IsPlayerRef()) {
-                    if (a_donorQuestItems.find(boundObj->GetFormID()) == a_donorQuestItems.end()) {
-                        continue; // Keep player's own quest items on the player
-                    }
-                    a_donorQuestItems.erase(boundObj->GetFormID());
-                } else if (!a_fromActor->IsPlayerRef() && a_toActor->IsPlayerRef()) {
-                    a_donorQuestItems.insert(boundObj->GetFormID());
-                }
-            }
-
-            itemsToTransfer.push_back({ boundObj, count });
+        const auto toMove = GetItemsToMove(a_fromActor, a_toActor, fromInventory, a_donorQuestItems, skinsKept);
+        for (const auto& stack : toMove) {
+            a_fromActor->RemoveItem(stack.object, stack.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
         }
 
-        std::int32_t itemsTransferred = 0;
-        for (const auto& entry : itemsToTransfer) {
-            a_fromActor->RemoveItem(entry.object, entry.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
-            itemsTransferred++;
-        }
-
-        // 5. Re-equip worn items on target actor
-        auto toInvAfter = a_toActor->GetInventory();
-        for (const auto& wornRec : wornRecords) {
-            auto it = toInvAfter.find(wornRec.object);
-            if (it != toInvAfter.end() && it->second.first > 0) {
-                auto& toEntry = it->second.second;
-                RE::ExtraDataList* xList = nullptr;
-                if (toEntry && toEntry->extraLists && !toEntry->extraLists->empty()) {
-                    for (auto* x : *toEntry->extraLists) {
-                        if (x && !x->HasType(RE::ExtraDataType::kWorn) && !x->HasType(RE::ExtraDataType::kWornLeft)) {
-                            xList = x;
-                            break;
-                        }
-                    }
-                    if (!xList) {
-                        xList = toEntry->extraLists->front();
-                    }
-                }
-                const RE::BGSEquipSlot* slot = wornRec.isLeft ? leftSlot : nullptr;
-                std::uint32_t equipCount = wornRec.object->Is(RE::FormType::Ammo) ? static_cast<std::uint32_t>(it->second.first) : 1;
-                // Non-playable items require forceEquip on the player
-                bool forceEquip = a_forceEquip || !wornRec.object->GetPlayable();
-                equipMgr->EquipObject(a_toActor, wornRec.object, xList, equipCount, slot, false, forceEquip, false, true);
+        EquipWornItems(a_toActor, worn, a_forceEquip);
+        if (a_toActor->IsPlayerRef()) {
+            EquipMagic(a_toActor, magic);
+        } else {
+            std::unordered_set<RE::TESBoundObject*> wornObjects;
+            for (const auto& item : worn) {
+                wornObjects.insert(item.object);
             }
-        }
-
-        // 6. Unequip any items auto-equipped by AddObjectToContainer on NPCs that were not worn by source
-        if (!a_toActor->IsPlayerRef()) {
-            for (const auto& [boundObj, entryPair] : a_toActor->GetInventory()) {
-                const auto& entryData = entryPair.second;
-                // The target's skin stays worn: unequipping it left the donor without one, and the engine
-                // added its skin and outfit items again
-                if (boundObj && entryData && entryData->IsWorn() && !IsSkinItem(boundObj)) {
-                    if (wornObjects.find(boundObj) == wornObjects.end()) {
-                        equipMgr->UnequipObject(a_toActor, boundObj, nullptr, 1, nullptr, false, true, false, true);
-                    }
-                }
-            }
-        }
-
-        // 7. Re-equip spells if target is the player
-        if (a_toActor->IsPlayerRef() && defaultObjMgr) {
-            auto* rightSlot = defaultObjMgr->GetObject<RE::BGSEquipSlot>(RE::BGSDefaultObjectManager::DefaultObject::kRightHandEquip);
-            if (leftSpell && leftSlot) {
-                equipMgr->EquipSpell(a_toActor, leftSpell, leftSlot);
-            }
-            if (rightSpell && rightSlot) {
-                equipMgr->EquipSpell(a_toActor, rightSpell, rightSlot);
-            }
-            if (shout) {
-                equipMgr->EquipShout(a_toActor, shout);
-            }
+            UnequipAutoEquipped(a_toActor, wornObjects);
         }
 
         SKSE::log::info("Transferred {} item stacks from {:08X} to {:08X} ({} skin stacks kept).",
-            itemsTransferred,
-            static_cast<std::uint32_t>(a_fromActor->GetFormID()),
-            static_cast<std::uint32_t>(a_toActor->GetFormID()),
-            skinsKept
-        );
+            toMove.size(), a_fromActor->GetFormID(), a_toActor->GetFormID(), skinsKept);
 
         a_toActor->Update3DModel();
         return true;
