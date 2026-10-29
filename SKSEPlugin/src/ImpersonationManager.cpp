@@ -118,6 +118,10 @@ namespace InTheirShoes {
                         return true;
                     }
                 }
+                if (auto rank = mgr.GetDonorAliasFactionRank(static_cast<RE::TESFaction*>(a_p1))) {
+                    a_result = 1.0;
+                    return true;
+                }
                 if (a_thisObj == player) {
                     return orig(player, a_p1, a_p2, a_result);
                 }
@@ -130,6 +134,10 @@ namespace InTheirShoes {
                         a_result = donorRes;
                         return true;
                     }
+                }
+                if (auto rank = mgr.GetDonorAliasFactionRank(static_cast<RE::TESFaction*>(a_p1))) {
+                    a_result = *rank;
+                    return true;
                 }
                 if (a_thisObj == player) {
                     return orig(player, a_p1, a_p2, a_result);
@@ -226,29 +234,13 @@ namespace InTheirShoes {
         }
 
         auto* player = mgr.GetPlayer();
-        auto* donor = mgr.GetDonor();
-        auto* puppet = mgr.GetPuppet();
-        bool isSelfDialogue = DialogueManager::GetSingleton().IsInSelfDialogue();
-
-        auto* evalThis = a_thisObj;
-        auto* evalP1 = a_p1;
-
-        if (donor && evalThis == donor) {
-            evalThis = player;
-        }
-        if (isSelfDialogue && puppet && evalThis == puppet) {
-            evalThis = player;
-        }
+        auto* evalThis = mgr.ResolveSpatialRef(a_thisObj);
+        void* evalP1 = a_p1;
 
         if constexpr (Cond == SpatialCondition::kGetDistance ||
                       Cond == SpatialCondition::kGetInSameCell ||
                       Cond == SpatialCondition::kGetHeadingAngle) {
-            if (donor && evalP1 == donor) {
-                evalP1 = player;
-            }
-            if (isSelfDialogue && puppet && evalP1 == puppet) {
-                evalP1 = player;
-            }
+            evalP1 = mgr.ResolveSpatialRef(static_cast<RE::TESObjectREFR*>(a_p1));
 
             // Per requirements.md ("Conditions that require the player to be nearby will still target
             // the impersonator"), self-distance / same-cell checks between donor and player resolve
@@ -268,6 +260,17 @@ namespace InTheirShoes {
         }
 
         return orig(evalThis, evalP1, a_p2, a_result);
+    }
+
+    RE::TESObjectREFR* ImpersonationManager::ResolveSpatialRef(RE::TESObjectREFR* a_ref) const {
+        if (!a_ref || !IsActive()) return a_ref;
+        auto* donor = GetDonor();
+        auto* puppet = GetPuppet();
+        if ((donor && a_ref == donor) ||
+            (puppet && a_ref == puppet && DialogueManager::GetSingleton().IsInSelfDialogue())) {
+            return GetPlayer();
+        }
+        return a_ref;
     }
 
     bool ImpersonationManager::IsModInternalQuest(RE::TESQuest* a_quest) {
@@ -819,8 +822,23 @@ namespace InTheirShoes {
         });
     }
 
+    static std::unordered_map<RE::TESFaction*, std::int8_t> GetFactionRanks(RE::Actor* a_actor) {
+        std::unordered_map<RE::TESFaction*, std::int8_t> ranks;
+        a_actor->VisitFactions([&](RE::TESFaction* a_faction, std::int8_t a_rank) {
+            if (a_faction && a_rank >= 0) {
+                ranks[a_faction] = a_rank;
+            }
+            return false;
+        });
+        return ranks;
+    }
+
     void ImpersonationManager::SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player) {
         _swappedAliases.clear();
+        {
+            std::scoped_lock lock(_donorAliasFactionsLock);
+            _donorAliasFactions.clear();
+        }
 
         auto* aliasArray = a_donor->extraList.GetByType<RE::ExtraAliasInstanceArray>();
         if (!aliasArray) return;
@@ -840,12 +858,61 @@ namespace InTheirShoes {
             }
         }
 
+        // Alias factions leave the donor with the aliases: whatever factions the swap takes away are those
+        auto ranksBefore = GetFactionRanks(a_donor);
         for (const auto& [quest, aid] : toSwap) {
             quest->ForceRefIntoAlias(aid, a_player);
             _swappedAliases.push_back({ quest->GetFormID(), aid });
             SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player in quest {:08X} alias ID {}",
                 a_donor->GetFormID(), quest->GetFormID(), aid);
         }
+
+        auto ranksAfter = GetFactionRanks(a_donor);
+        std::scoped_lock lock(_donorAliasFactionsLock);
+        for (const auto& [faction, rank] : ranksBefore) {
+            if (!ranksAfter.contains(faction)) {
+                _donorAliasFactions.emplace_back(faction, rank);
+                SKSE::log::info("SwapDonorAliasesToPlayer: Donor {:08X} lost alias faction {:08X} (rank {})",
+                    a_donor->GetFormID(), faction->GetFormID(), rank);
+            }
+        }
+    }
+
+    std::optional<std::int8_t> ImpersonationManager::GetDonorAliasFactionRank(const RE::TESFaction* a_faction) const {
+        std::scoped_lock lock(_donorAliasFactionsLock);
+        for (const auto& [faction, rank] : _donorAliasFactions) {
+            if (faction == a_faction) return rank;
+        }
+        return std::nullopt;
+    }
+
+    void ImpersonationManager::SaveDonorAliasFactions(SKSE::SerializationInterface* a_serde) const {
+        std::scoped_lock lock(_donorAliasFactionsLock);
+        if (!IsActive() || _donorAliasFactions.empty()) return;
+        if (!a_serde->OpenRecord(Serialization::kDonorAliasFactionsRecord, Serialization::kSerializationVersion)) return;
+        const auto count = static_cast<std::uint32_t>(_donorAliasFactions.size());
+        a_serde->WriteRecordData(&count, sizeof(count));
+        for (const auto& [faction, rank] : _donorAliasFactions) {
+            const RE::FormID id = faction->GetFormID();
+            a_serde->WriteRecordData(&id, sizeof(id));
+            a_serde->WriteRecordData(&rank, sizeof(rank));
+        }
+    }
+
+    void ImpersonationManager::LoadDonorAliasFactions(SKSE::SerializationInterface* a_serde) {
+        std::scoped_lock lock(_donorAliasFactionsLock);
+        std::uint32_t count = 0;
+        if (!a_serde->ReadRecordData(&count, sizeof(count))) return;
+        for (std::uint32_t i = 0; i < count; ++i) {
+            RE::FormID id = 0;
+            std::int8_t rank = 0;
+            if (!a_serde->ReadRecordData(&id, sizeof(id)) || !a_serde->ReadRecordData(&rank, sizeof(rank))) break;
+            if (!a_serde->ResolveFormID(id, id)) continue;
+            if (auto* faction = RE::TESForm::LookupByID<RE::TESFaction>(id)) {
+                _donorAliasFactions.emplace_back(faction, rank);
+            }
+        }
+        SKSE::log::info("Loaded {} donor alias factions.", _donorAliasFactions.size());
     }
 
     void ImpersonationManager::AdoptPuppetAliases() {
@@ -913,6 +980,9 @@ namespace InTheirShoes {
                 a_donor->GetFormID(), quest->GetFormID(), entry.aliasID);
         }
         _swappedAliases.clear();
+        // The aliases gave their factions back
+        std::scoped_lock lock(_donorAliasFactionsLock);
+        _donorAliasFactions.clear();
     }
 
     void ImpersonationManager::SaveSession(SKSE::SerializationInterface* a_serde) const {
@@ -1015,6 +1085,10 @@ namespace InTheirShoes {
         {
             std::scoped_lock lock(_outfitDisabledLock);
             _outfitDisabled.clear();
+        }
+        {
+            std::scoped_lock lock(_donorAliasFactionsLock);
+            _donorAliasFactions.clear();
         }
         _baseline.reset();
         _donorFace.reset();

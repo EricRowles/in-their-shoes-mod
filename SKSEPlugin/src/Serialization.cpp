@@ -134,6 +134,7 @@ namespace InTheirShoes::Serialization {
             WriteFaceSnapshot(a_serde, *donorFace);
         }
         mgr.SaveOutfitDisabled(a_serde);
+        mgr.SaveDonorAliasFactions(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
@@ -289,6 +290,10 @@ namespace InTheirShoes::Serialization {
 
                 case kOutfitDisabledRecord:
                     ImpersonationManager::GetSingleton().LoadOutfitDisabled(a_serde);
+                    break;
+
+                case kDonorAliasFactionsRecord:
+                    ImpersonationManager::GetSingleton().LoadDonorAliasFactions(a_serde);
                     break;
 
                 case kDonorFaceRecord: {

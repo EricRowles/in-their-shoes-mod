@@ -48,6 +48,10 @@ namespace InTheirShoes {
         RE::Actor* GetPuppet() const { return _puppetActor.load(std::memory_order_acquire); }
         RE::Actor* GetPlayer() const { return RE::PlayerCharacter::GetSingleton(); }
 
+        // Where a reference counts as being for spatial checks (conditions and Papyrus natives): the parked
+        // donor is where the player is, and so is the puppet during self-dialogue. May run on any thread.
+        RE::TESObjectREFR* ResolveSpatialRef(RE::TESObjectREFR* a_ref) const;
+
         RE::BGSVoiceType* GetOrigPlayerVoiceType() const { return _origVoiceType.load(std::memory_order_acquire); }
         RE::BGSVoiceType* GetDonorVoiceType() const { return _donorVoiceType.load(std::memory_order_acquire); }
 
@@ -67,6 +71,13 @@ namespace InTheirShoes {
         bool IsOutfitDisabled(const RE::Actor* a_actor) const;
         void SaveOutfitDisabled(SKSE::SerializationInterface* a_serde) const;
         void LoadOutfitDisabled(SKSE::SerializationInterface* a_serde);
+
+        // Factions the donor's swapped aliases gave it (alias factions, e.g. a follower alias's
+        // CurrentFollowerFaction). Swapping the aliases moves them to the player, so the donor's faction
+        // conditions also count these. May be read from any thread.
+        std::optional<std::int8_t> GetDonorAliasFactionRank(const RE::TESFaction* a_faction) const;
+        void SaveDonorAliasFactions(SKSE::SerializationInterface* a_serde) const;
+        void LoadDonorAliasFactions(SKSE::SerializationInterface* a_serde);
 
         bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
             for (const auto& entry : _swappedAliases) {
@@ -165,6 +176,10 @@ namespace InTheirShoes {
         // Read by the outfit hook, which may run on loading threads
         mutable std::mutex _outfitDisabledLock;
         std::unordered_set<RE::FormID> _outfitDisabled;
+
+        // Read by the faction condition hooks, which may run on AI threads
+        mutable std::mutex _donorAliasFactionsLock;
+        std::vector<std::pair<RE::TESFaction*, std::int8_t>> _donorAliasFactions;
     };
 
 }

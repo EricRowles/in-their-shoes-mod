@@ -96,11 +96,75 @@ namespace InTheirShoes::Papyrus {
         return ImpersonationManager::IsPlayerTransformed();
     }
 
+    // --- Vanilla ObjectReference spatial natives, overridden ---
+    // Scripts check where the donor is (e.g. "is Remi in the player's cell?"), but the donor is parked in the
+    // holding cell. Like the spatial condition hooks, these answer for the parked donor (and the puppet during
+    // self-dialogue) as if it were the player. Everything else matches the vanilla callbacks, which are
+    // long-form natives that call the same engine functions (checked against the 1.6.1170 code).
+    // IsInInterior, IsInLocation and IsNearPlayer are Papyrus functions built on these, so they follow.
+
+    using VM = RE::BSScript::IVirtualMachine;
+
+    static RE::TESObjectREFR* Spatial(RE::TESObjectREFR* a_ref) {
+        return ImpersonationManager::GetSingleton().ResolveSpatialRef(a_ref);
+    }
+
+    RE::TESObjectCELL* GetParentCell(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {
+        return Spatial(a_self)->GetParentCell();
+    }
+
+    RE::TESWorldSpace* GetWorldSpace(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {
+        return Spatial(a_self)->GetWorldspace();
+    }
+
+    RE::BGSLocation* GetCurrentLocation(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {
+        return Spatial(a_self)->GetCurrentLocation();
+    }
+
+    float GetPositionX(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) { return Spatial(a_self)->GetPositionX(); }
+    float GetPositionY(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) { return Spatial(a_self)->GetPositionY(); }
+    float GetPositionZ(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) { return Spatial(a_self)->GetPositionZ(); }
+
+    float GetDistance(VM* a_vm, RE::VMStackID a_stackID, RE::TESObjectREFR* a_self, RE::TESObjectREFR* a_other) {
+        if (!a_other) {
+            a_vm->TraceStack("Cannot get the distance to a None object", a_stackID);
+            return 0.0f;
+        }
+        return Spatial(a_self)->GetDistance(Spatial(a_other), true, false);
+    }
+
+    float GetHeadingAngle(VM* a_vm, RE::VMStackID a_stackID, RE::TESObjectREFR* a_self, RE::TESObjectREFR* a_other) {
+        if (!a_other) {
+            a_vm->TraceStack("Cannot get the heading angle to a None object", a_stackID);
+            return 0.0f;
+        }
+        auto* self = Spatial(a_self);
+        auto* other = Spatial(a_other);
+        // Both standing in for the player: facing (as the GetHeadingAngle condition hook answers)
+        if (self == other) return 0.0f;
+        return self->GetHeadingAngle(other->GetPosition(), false);
+    }
+
+    static void RegisterSpatialOverrides(VM* a_vm) {
+        constexpr std::string_view cls = "ObjectReference";
+        a_vm->RegisterFunction("GetParentCell", cls, GetParentCell);
+        a_vm->RegisterFunction("GetWorldSpace", cls, GetWorldSpace);
+        a_vm->RegisterFunction("GetCurrentLocation", cls, GetCurrentLocation);
+        a_vm->RegisterFunction("GetPositionX", cls, GetPositionX);
+        a_vm->RegisterFunction("GetPositionY", cls, GetPositionY);
+        a_vm->RegisterFunction("GetPositionZ", cls, GetPositionZ);
+        a_vm->RegisterFunction("GetDistance", cls, GetDistance);
+        a_vm->RegisterFunction("GetHeadingAngle", cls, GetHeadingAngle);
+        SKSE::log::info("Overrode ObjectReference spatial natives for the parked donor.");
+    }
+
     bool Register(RE::BSScript::IVirtualMachine* a_vm) {
         if (!a_vm) {
             SKSE::log::error("Papyrus VM is null!");
             return false;
         }
+
+        RegisterSpatialOverrides(a_vm);
 
         constexpr std::string_view className = "ITS_NG";
 

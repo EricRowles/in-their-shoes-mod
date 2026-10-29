@@ -13,6 +13,8 @@ namespace InTheirShoes::Serialization {
     inline constexpr std::uint32_t kOutfitDisabledRecord = 'OUTF';
     // The donor's appearance as captured when impersonation began; absent in older saves
     inline constexpr std::uint32_t kDonorFaceRecord = 'DFAC';
+    // Factions the donor's swapped aliases gave it, which the player holds while impersonating; absent in older saves
+    inline constexpr std::uint32_t kDonorAliasFactionsRecord = 'AFAC';
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);
