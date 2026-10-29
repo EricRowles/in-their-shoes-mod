@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <optional>
 #include <vector>
 #include "RE/D/DialogueItem.h"
 
@@ -64,8 +65,8 @@ namespace InTheirShoes {
         void FinishPlayerLine();
 
         // Stand-in speakers (the puppet in self-dialogue, the hidden donor)
-        void HoldStandIn(RE::Actor* a_standIn);
-        void ReleaseStandIn();
+        void HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response);
+        static void ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response);
 
         // Idle chatter
         void RebuildIdleTopicCache();
@@ -101,24 +102,29 @@ namespace InTheirShoes {
         std::atomic<bool> _puppetSpeakerClearPending{ false };
         std::chrono::steady_clock::time_point _puppetSpeakerClearAt{};
 
-        // Line the player is voicing, and the stand-in whose line it is (if any)
-        bool _playerLineActive{ false };
-        RE::ActorHandle _standIn;
-        RE::DialogueResponse* _standInResponse{ nullptr };  // the engine's response the stand-in runs
-        // The player's copy of the stand-in's line (the stand-in's own response is silenced)
+        // The line the player is voicing. It exists only while the line plays, and is dropped as a whole
+        // when it ends.
+        struct PlayerLine {
+            // The stand-in whose line it is (if any), and the engine's response the stand-in runs
+            RE::ActorHandle standIn;
+            RE::DialogueResponse* standInResponse{ nullptr };
+            // Set while the line's voice hasn't started yet (see StartPlayerVoiceLate)
+            RE::DialogueResponse* pendingVoice{ nullptr };
+            // Owns the response of a line we built ourselves (idle chatter)
+            RE::BSTSmartPointer<RE::DialogueItem> item;
+            bool isIdleChatter{ false };
+            bool hadSound{ false };
+            bool waitsForMenu{ false };
+            float unvoicedDuration{ 0.0f };
+            float soundSeconds{ 0.0f };
+            std::chrono::steady_clock::time_point start{};
+            std::chrono::steady_clock::time_point soundStart{};
+            std::chrono::steady_clock::time_point lastVoiceRetry{};
+        };
+        std::optional<PlayerLine> _line;
+        // The player's copy of a stand-in's line (the stand-in's own response is silenced). Kept outside
+        // PlayerLine: the line being voiced points at it, and replacing a line must not free it.
         RE::DialogueResponse _standInLine;
-        bool _playerLineIsIdleChatter{ false };
-        bool _playerLineHadSound{ false };
-        bool _playerLineWaitsForMenu{ false };
-        // Set while the line's voice hasn't started yet (see StartPlayerVoiceLate)
-        RE::DialogueResponse* _playerLineResponse{ nullptr };
-        // Owns the response of a line we built ourselves (idle chatter)
-        RE::BSTSmartPointer<RE::DialogueItem> _playerLineItem;
-        float _playerLineUnvoicedDuration{ 0.0f };
-        float _playerLineSoundSeconds{ 0.0f };
-        std::chrono::steady_clock::time_point _playerLineStart{};
-        std::chrono::steady_clock::time_point _playerLineSoundStart{};
-        std::chrono::steady_clock::time_point _lastVoiceRetry{};
 
         // Idle chatter
         struct IdleTopic {

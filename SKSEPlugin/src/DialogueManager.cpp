@@ -249,7 +249,7 @@ namespace InTheirShoes {
                 OpenSelfDialogueDirect(puppet, topic);
             }
         }
-        if (_playerLineActive) {
+        if (_line) {
             TickPlayerLine();
         }
         UpdatePuppetSpeakerClear();
@@ -269,12 +269,9 @@ namespace InTheirShoes {
         _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
         _puppetSpeakerClearPending.store(false, std::memory_order_release);
         _puppetSpeakerClearAt = {};
-        _playerLineActive = false;
-        _playerLineIsIdleChatter = false;
+        _line.reset();
         _idleTopicsCached = false;
         _idleTopics.clear();
-        _playerLineResponse = nullptr;
-        _playerLineItem.reset();
         _lastIdleEvalTime = {};
         _lastIdleChatterTime = std::chrono::steady_clock::now();
     }
@@ -345,8 +342,8 @@ namespace InTheirShoes {
     RE::BSEventNotifyControl DialogueManager::ProcessEvent(
         RE::InputEvent* const* a_event,
         RE::BSTEventSource<RE::InputEvent*>* /*a_eventSource*/) {
-        if (!a_event || !_playerLineActive || !_standIn || !Session::GetSingleton().IsInSelfDialogue() ||
-            SecondsSince(_playerLineStart) < kLineStartGraceSeconds) {
+        if (!a_event || !_line || !_line->standIn || !Session::GetSingleton().IsInSelfDialogue() ||
+            SecondsSince(_line->start) < kLineStartGraceSeconds) {
             return RE::BSEventNotifyControl::kContinue;
         }
         auto* ui = RE::UI::GetSingleton();
@@ -398,7 +395,7 @@ namespace InTheirShoes {
         if (IdleAIManager::GetSingleton().IsAIActive()) {
             IdleAIManager::GetSingleton().StopIdleAI();
         }
-        if (_playerLineActive) {
+        if (_line) {
             FinishPlayerLine();
         }
 
@@ -479,7 +476,7 @@ namespace InTheirShoes {
         SKSE::log::info("Self-dialogue ended");
         Session::GetSingleton().SetInSelfDialogue(false);
         // Leaving mid-line ends the line, so the engine sees the puppet finish speaking
-        if (_playerLineActive) {
+        if (_line) {
             FinishPlayerLine();
         }
         // The engine still needs the puppet as its (last) speaker while the menu closes: a Goodbye info's
@@ -536,7 +533,13 @@ namespace InTheirShoes {
     void DialogueManager::SpeakAsPlayer(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StopSounds(player);
-        _playerLineItem.reset();
+
+        PlayerLine line;
+        if (_line) {
+            // A line that replaces another keeps the other's stand-in held until this one ends
+            line.standIn = _line->standIn;
+            line.standInResponse = _line->standInResponse;
+        }
 
         if (a_response->useEmotion) {
             player->SetEmotionType(a_response->animFaceArchType.get());
@@ -554,64 +557,65 @@ namespace InTheirShoes {
         // the line itself (with lip sync) when the voice file is loaded. TickPlayerLine retries it while
         // the file loads, and falls back to playing the file without lip sync.
         auto* ui = RE::UI::GetSingleton();
-        _playerLineWaitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
-        if (!_playerLineWaitsForMenu) {
+        line.waitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
+        if (!line.waitsForMenu) {
             _origCharUpdateInDialogue(player, a_response, a_unused);
             runtime.soundCallBackSet = 1;
         }
 
-        _playerLineStart = std::chrono::steady_clock::now();
-        _playerLineHadSound = IsSoundActive(player);
-        _playerLineSoundStart = _playerLineStart;
-        _playerLineSoundSeconds = 0.0f;
-        _playerLineResponse = (!_playerLineHadSound && HasVoice(a_response)) ? a_response : nullptr;
-        if (_playerLineHadSound) {
+        line.start = std::chrono::steady_clock::now();
+        line.hadSound = IsSoundActive(player);
+        line.soundStart = line.start;
+        line.pendingVoice = (!line.hadSound && HasVoice(a_response)) ? a_response : nullptr;
+        if (line.hadSound) {
             AttachSoundsToHead(player);
         }
         SKSE::log::info("Player line: '{}' (engine voiced={}, idleChatter={})",
-            a_response->text.c_str(), _playerLineHadSound, a_isIdleChatter);
+            a_response->text.c_str(), line.hadSound, a_isIdleChatter);
 
         float textLen = static_cast<float>(a_response->text.length());
-        _playerLineUnvoicedDuration = std::max(kUnvoicedMinSeconds, textLen * kUnvoicedSecondsPerChar);
-        _playerLineIsIdleChatter = a_isIdleChatter;
-        _playerLineActive = true;
+        line.unvoicedDuration = std::max(kUnvoicedMinSeconds, textLen * kUnvoicedSecondsPerChar);
+        line.isIdleChatter = a_isIdleChatter;
+        _line = std::move(line);
     }
 
     void DialogueManager::StartPlayerVoiceLate() {
         auto* player = RE::PlayerCharacter::GetSingleton();
-        if (_playerLineWaitsForMenu) {
+        auto& line = *_line;
+        if (line.waitsForMenu) {
             auto* ui = RE::UI::GetSingleton();
             bool menuOpen = ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME);
-            if (!menuOpen && SecondsSince(_playerLineStart) < kMenuWaitSeconds) return;
-            _playerLineWaitsForMenu = false;
-            _playerLineStart = std::chrono::steady_clock::now();  // the line starts now
+            if (!menuOpen && SecondsSince(line.start) < kMenuWaitSeconds) return;
+            line.waitsForMenu = false;
+            line.start = std::chrono::steady_clock::now();  // the line starts now
             player->GetActorRuntimeData().soundCallBackSet = 1;
         }
 
-        float elapsed = SecondsSince(_playerLineStart);
+        float elapsed = SecondsSince(line.start);
 
         if (elapsed < kEngineVoiceRetrySeconds) {
-            if (SecondsSince(_lastVoiceRetry) < kVoiceRetryIntervalSeconds) return;
-            _lastVoiceRetry = std::chrono::steady_clock::now();
-            _origCharUpdateInDialogue(player, _playerLineResponse, false);
+            if (SecondsSince(line.lastVoiceRetry) < kVoiceRetryIntervalSeconds) return;
+            line.lastVoiceRetry = std::chrono::steady_clock::now();
+            _origCharUpdateInDialogue(player, line.pendingVoice, false);
             if (!IsSoundActive(player)) return;
             SKSE::log::info("Engine voiced the player line on retry after {:.2f}s", elapsed);
-        } else if (StartVoiceSound(player, _playerLineResponse)) {
+        } else if (StartVoiceSound(player, line.pendingVoice)) {
             SKSE::log::info("Engine didn't voice the player line; playing the voice file without lip sync");
         } else {
-            SKSE::log::warn("No voice sound could be started for '{}'", _playerLineResponse->voice.c_str());
-            _playerLineResponse = nullptr;
+            SKSE::log::warn("No voice sound could be started for '{}'", line.pendingVoice->voice.c_str());
+            line.pendingVoice = nullptr;
             return;
         }
 
         AttachSoundsToHead(player);
-        _playerLineResponse = nullptr;
-        _playerLineHadSound = true;
-        _playerLineSoundStart = std::chrono::steady_clock::now();
+        line.pendingVoice = nullptr;
+        line.hadSound = true;
+        line.soundStart = std::chrono::steady_clock::now();
     }
 
     void DialogueManager::TickPlayerLine() {
         auto* player = RE::PlayerCharacter::GetSingleton();
+        auto& line = *_line;
 
         // The player's line isn't ticked while the Dialogue Menu is open; doing so stalls its lip sync
         auto* ui = RE::UI::GetSingleton();
@@ -619,65 +623,64 @@ namespace InTheirShoes {
             _origCharUpdateInDialogue(player, nullptr, false);
         }
 
-        if (_playerLineResponse) {
+        if (line.pendingVoice) {
             StartPlayerVoiceLate();
         }
 
-        if (_playerLineHadSound) {
+        if (line.hadSound) {
             // Timed from the sound's duration: an engine-started sound keeps reporting "playing" while the
             // Dialogue Menu is open, so its state can't be relied on
-            if (_playerLineSoundSeconds <= 0.0f) {
-                _playerLineSoundSeconds = GetSoundSeconds(player);
+            if (line.soundSeconds <= 0.0f) {
+                line.soundSeconds = GetSoundSeconds(player);
             }
-            float playing = SecondsSince(_playerLineSoundStart);
-            bool done = _playerLineSoundSeconds > 0.0f ? playing >= _playerLineSoundSeconds + kSoundTailSeconds
-                                                       : playing >= kLineStartGraceSeconds && !IsSoundActive(player);
+            float playing = SecondsSince(line.soundStart);
+            bool done = line.soundSeconds > 0.0f ? playing >= line.soundSeconds + kSoundTailSeconds
+                                                 : playing >= kLineStartGraceSeconds && !IsSoundActive(player);
             if (!done) {
                 if (playing < kMaxLineSeconds) return;
                 SKSE::log::warn("Player line still playing after {:.0f}s; finishing it", playing);
             }
-        } else if (_playerLineResponse || SecondsSince(_playerLineStart) < _playerLineUnvoicedDuration) {
+        } else if (line.pendingVoice || SecondsSince(line.start) < line.unvoicedDuration) {
             return;
         }
 
         SKSE::log::info("Player line finished after {:.2f}s (voiced={}, sound length {:.2f}s)",
-            SecondsSince(_playerLineStart), _playerLineHadSound, _playerLineSoundSeconds);
+            SecondsSince(line.start), line.hadSound, line.soundSeconds);
         FinishPlayerLine();
     }
 
     void DialogueManager::FinishPlayerLine() {
+        if (!_line) return;
+        // Dropped first: the speaking hooks must see that no line is playing
+        const auto line = std::move(*_line);
+        _line.reset();
+
         auto* player = RE::PlayerCharacter::GetSingleton();
-        _playerLineActive = false;
-        _playerLineResponse = nullptr;
-        _playerLineItem.reset();
-        ReleaseStandIn();
+        ReleaseStandIn(line.standIn, line.standInResponse);
         StopSounds(player);
         player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSpeakingDone);
         player->GetActorRuntimeData().voiceTimer = 0.0f;
         _origPlayerSetSpeakingDone(player, true);
         ResetFace(player);
 
-        if (_playerLineIsIdleChatter) {
-            _playerLineIsIdleChatter = false;
+        if (line.isIdleChatter) {
             _lastIdleChatterTime = std::chrono::steady_clock::now();
         }
     }
 
     // --- Stand-in speakers ---
 
-    void DialogueManager::HoldStandIn(RE::Actor* a_standIn) {
+    void DialogueManager::HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response) {
         // The stand-in's silenced line would finish at once; the engine has to see it still speaking until
         // the player's line ends
-        _standIn = a_standIn->GetHandle();
+        _line->standIn = a_standIn->GetHandle();
+        _line->standInResponse = a_response;
         SetLinePlaying(a_standIn, true);
         a_standIn->GetActorRuntimeData().voiceTimer = 0.0f;
     }
 
-    void DialogueManager::ReleaseStandIn() {
-        auto standIn = _standIn.get();
-        auto* response = _standInResponse;
-        _standIn.reset();
-        _standInResponse = nullptr;
+    void DialogueManager::ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response) {
+        auto standIn = a_standIn.get();
         if (!standIn) return;
 
         SetLinePlaying(standIn.get(), false);
@@ -700,7 +703,7 @@ namespace InTheirShoes {
 
         auto* dialogue = topicMgr->lastSelectedDialogue;
         auto* node = dialogue ? dialogue->currentResponse : nullptr;
-        if (!node || node->item != response) {
+        if (!node || node->item != a_response) {
             SKSE::log::info("Stand-in's line isn't the selected topic's current response; not advancing");
             return;
         }
@@ -730,7 +733,7 @@ namespace InTheirShoes {
         if (!a_response) {
             // The engine ticks the speaker's line every frame; keep the stand-in "speaking" meanwhile
             bool ret = _origCharUpdateInDialogue(a_this, nullptr, a_unused);
-            if (self._playerLineActive && self._standIn.get().get() == a_this) {
+            if (self._line && self._line->standIn.get().get() == a_this) {
                 SetLinePlaying(a_this, true);
             }
             return ret;
@@ -746,11 +749,10 @@ namespace InTheirShoes {
                 QueueSubtitle(RE::PlayerCharacter::GetSingleton(), a_response);
             }
             CopyResponse(a_response, self._standInLine);
-            self._standInResponse = a_response;
             Silence(a_response);
             bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
             self.SpeakAsPlayer(&self._standInLine, a_unused, false);
-            self.HoldStandIn(a_this);
+            self.HoldStandIn(a_this, a_response);
             return ret;
         }
 
@@ -768,7 +770,7 @@ namespace InTheirShoes {
             return _origCharQSpeakingDone(a_this);
         }
         // The stand-in is done when the player has finished voicing its line
-        return !DialogueManager::GetSingleton()._playerLineActive;
+        return !DialogueManager::GetSingleton()._line;
     }
 
     bool DialogueManager::Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
@@ -791,14 +793,14 @@ namespace InTheirShoes {
 
     bool DialogueManager::Hook_Player_QSpeakingDone(const RE::Actor* a_this) {
         if (a_this && Session::GetSingleton().IsActive()) {
-            return !DialogueManager::GetSingleton()._playerLineActive;
+            return !DialogueManager::GetSingleton()._line;
         }
         return _origPlayerQSpeakingDone(a_this);
     }
 
     void DialogueManager::Hook_Player_SetSpeakingDone(RE::Actor* a_this, bool a_set) {
         // While the player voices a line, only FinishPlayerLine decides when it's done
-        if (a_set && Session::GetSingleton().IsActive() && DialogueManager::GetSingleton()._playerLineActive) {
+        if (a_set && Session::GetSingleton().IsActive() && DialogueManager::GetSingleton()._line) {
             return;
         }
         _origPlayerSetSpeakingDone(a_this, a_set);
@@ -908,7 +910,7 @@ namespace InTheirShoes {
 
     void DialogueManager::UpdateIdleChatter() {
         auto& session = Session::GetSingleton();
-        if (!session.IsActive() || !session.IsNPCVoiceEnabled() || _playerLineActive) return;
+        if (!session.IsActive() || !session.IsNPCVoiceEnabled() || _line) return;
         if (SecondsSince(_lastIdleChatterTime) < _idleChatterTimeSeconds || SecondsSince(_lastIdleEvalTime) < 1.5f) return;
         _lastIdleEvalTime = std::chrono::steady_clock::now();
 
@@ -945,7 +947,7 @@ namespace InTheirShoes {
         _idleChatterFoundNothing = false;
 
         SpeakAsPlayer(item->responses.front(), false, true);
-        _playerLineItem = std::move(item);  // the response must outlive the line
+        _line->item = std::move(item);  // the response must outlive the line
         _lastIdleChatterTime = std::chrono::steady_clock::now();
     }
 
