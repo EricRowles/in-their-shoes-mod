@@ -82,7 +82,9 @@ Event OnPageReset(String page)
 	_oid_npcVoice = AddToggleOption("NPC Voice", NPCVoiceEnabled)
 	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s")
 	_oid_puppetFollows = AddToggleOption("Puppet Follows Player", PuppetFollowsPlayer)
-	AddEmptyOption()
+	; Leave a gap before Return to Body. (Not AddEmptyOption: SkyUI versions disagree on whether it returns
+	; an Int, and a mismatch logs a Papyrus error every time the page opens.)
+	SetCursorPosition(15)
 
 	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
