@@ -45,6 +45,24 @@ function UpdateRevertSpell()
 	EndIf
 EndFunction
 
+; Why a target can't be impersonated, from a ValidateImpersonateTarget result (the codes are listed in ITS_NG.psc)
+string function ValidationMessage(int a_code)
+	if a_code == 3
+		return "Cannot impersonate: target is dead or dying."
+	elseif a_code == 4
+		return "Cannot impersonate: target is a child."
+	elseif a_code == 5
+		return "Cannot impersonate: target is not humanoid."
+	elseif a_code == 6
+		return "Cannot impersonate: target is mounted."
+	elseif a_code == 7
+		return "Cannot impersonate: target is a ghost."
+	elseif a_code == 8
+		return "Cannot impersonate while transformed."
+	endif
+	return "Cannot impersonate this target."
+EndFunction
+
 ; Morph Complete Function -----------------------------------------------------------------------------------
 function ITS_ImpersonateComplete(Actor a_donor)
 	if !a_donor || a_donor == PlayerRef
@@ -58,21 +76,7 @@ function ITS_ImpersonateComplete(Actor a_donor)
 
 	int validation = ITS_NG.ValidateImpersonateTarget(a_donor)
 	if validation != 0
-		if validation == 3
-			Debug.Notification("Cannot impersonate: target is dead or dying.")
-		elseif validation == 4
-			Debug.Notification("Cannot impersonate: target is a child.")
-		elseif validation == 5
-			Debug.Notification("Cannot impersonate: target is not humanoid.")
-		elseif validation == 6
-			Debug.Notification("Cannot impersonate: target is mounted.")
-		elseif validation == 7
-			Debug.Notification("Cannot impersonate: target is a ghost.")
-		elseif validation == 8
-			Debug.Notification("Cannot impersonate while transformed.")
-		else
-			Debug.Notification("Cannot impersonate this target.")
-		endif
+		Debug.Notification(ValidationMessage(validation))
 		return
 	endif
 
