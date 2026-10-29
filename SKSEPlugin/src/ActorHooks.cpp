@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "ActorHooks.h"
+#include "GameUtil.h"
 #include "Lifecycle.h"
 #include "Session.h"
 

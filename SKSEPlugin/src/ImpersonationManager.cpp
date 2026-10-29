@@ -4,9 +4,9 @@
 #include "AliasSwapManager.h"
 #include "FaceManager.h"
 #include "Forms.h"
+#include "GameUtil.h"
 #include "Lifecycle.h"
 #include "OutfitManager.h"
-#include "Serialization.h"
 
 namespace InTheirShoes {
 
@@ -30,11 +30,6 @@ namespace InTheirShoes {
             }
         }
         extraFaction->factionChanges.clear();
-    }
-
-    void ImpersonationManager::AdoptPuppetAliases() {
-        if (!IsActive()) return;
-        AliasSwapManager::GetSingleton().AdoptPuppetAliases(GetPuppet(), GetPlayer());
     }
 
     void ImpersonationManager::Initialize() {
@@ -66,8 +61,12 @@ namespace InTheirShoes {
 
     void ImpersonationManager::CaptureBaseline(RE::Actor* a_player) {
         Baseline baseline;
-        FaceManager::GetSingleton().CaptureSnapshot(a_player, baseline.face);
-        StatManager::CaptureSnapshot(a_player, baseline.stats);
+        if (auto face = FaceManager::GetSingleton().CaptureSnapshot(a_player)) {
+            baseline.face = std::move(*face);
+        }
+        if (auto stats = StatManager::CaptureSnapshot(a_player)) {
+            baseline.stats = std::move(*stats);
+        }
         InventoryManager::StashPlayerSpells(a_player, baseline.spells);
         SetBaseline(std::move(baseline));
         SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
@@ -81,6 +80,7 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet) {
+        CheckMainThread();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !a_donor || !a_puppet || a_donor == player || a_donor == a_puppet) {
             SKSE::log::warn("Impersonate called with invalid actors.");
@@ -117,13 +117,11 @@ namespace InTheirShoes {
 
         // Kept for the session: the donor's rendered skin and hair tints can only be read while its 3D is
         // loaded, and on a later load it is parked out of sight
-        FaceSnapshot donorFace;
-        if (faces.CaptureSnapshot(a_donor, donorFace)) {
-            faces.ApplySnapshot(player, donorFace);
-            _donorFace = std::move(donorFace);
+        _donorFace = faces.CaptureSnapshot(a_donor);
+        if (_donorFace) {
+            faces.ApplySnapshot(player, *_donorFace);
         } else {
             SKSE::log::error("Failed to capture the appearance of donor {:08X}.", a_donor->GetFormID());
-            _donorFace.reset();
         }
         StatManager::CopyStats(a_donor, player);
         InventoryManager::CopyDonorSpells(a_donor, player);
@@ -138,6 +136,7 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::Revert() {
+        CheckMainThread();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !IsActive()) return false;
         // Restoring the baseline race mid-transformation would be undone (to the donor's race) when it ends
@@ -165,10 +164,7 @@ namespace InTheirShoes {
         }
 
         ReleasePuppet();
-        _baseline.reset();
-        _donorFace.reset();
-        Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
-        _donorQuestItems.clear();
+        ClearSessionState();
         SKSE::log::info("Reverted to the Dragonborn.");
         return true;
     }
@@ -246,6 +242,7 @@ namespace InTheirShoes {
     }
 
     void ImpersonationManager::SetPuppetFollowsPlayer(bool a_follows) {
+        CheckMainThread();
         _puppetFollows = a_follows;
         auto* puppet = GetPuppet();
         if (!puppet || !IsActive()) return;
@@ -255,7 +252,7 @@ namespace InTheirShoes {
         if (a_follows && player &&
             (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f)) {
             puppet->MoveTo(player);
-            SKSE::log::info("SetPuppetFollowsPlayer: Teleported puppet to player.");
+            SKSE::log::info("Teleported the puppet to the player.");
         }
         puppet->EvaluatePackage(true, true);
         SKSE::log::info("Updated puppet follows player: {}", a_follows);
@@ -296,7 +293,7 @@ namespace InTheirShoes {
                           !(ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
         if (!worldReady) return;
 
-        SKSE::log::info("Tick: Donor {:08X} moved away from holding marker; leashing back.", donor->GetFormID());
+        SKSE::log::info("Donor {:08X} moved away from holding marker; leashing back.", donor->GetFormID());
         _leashQueued = true;
         SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle(), markerHandle = _storageMarker]() {
             ImpersonationManager::GetSingleton()._leashQueued = false;
@@ -308,68 +305,22 @@ namespace InTheirShoes {
         });
     }
 
-    void ImpersonationManager::SaveSession(SKSE::SerializationInterface* a_serde) const {
-        auto* donor = GetDonor();
-        auto* puppet = GetPuppet();
-        if (!IsActive() || !donor) return;
-        if (!a_serde->OpenRecord(Serialization::kSessionRecord, Serialization::kSessionVersion)) return;
-
-        const RE::FormID donorID = donor->GetFormID();
-        const RE::FormID puppetID = puppet ? puppet->GetFormID() : 0;
-        a_serde->WriteRecordData(&donorID, sizeof(donorID));
-        a_serde->WriteRecordData(&puppetID, sizeof(puppetID));
-
-        auto& aliases = AliasSwapManager::GetSingleton();
-        aliases.WriteSwappedAliases(a_serde);
-
-        const auto itemCount = static_cast<std::uint32_t>(_donorQuestItems.size());
-        a_serde->WriteRecordData(&itemCount, sizeof(itemCount));
-        for (auto id : _donorQuestItems) {
-            a_serde->WriteRecordData(&id, sizeof(id));
+    void ImpersonationManager::RestoreSession(RE::Actor* a_donor, RE::Actor* a_puppet,
+        std::vector<AliasSwapManager::SwappedAlias> a_aliases, std::unordered_set<RE::FormID> a_questItems) {
+        _donorQuestItems = std::move(a_questItems);
+        if (a_puppet) {
+            AttachPuppet(a_puppet);
         }
-        SKSE::log::info("Saved impersonation session ({} swapped aliases, {} donor quest items).",
-            aliases.GetSwappedAliasCount(), itemCount);
-    }
-
-    void ImpersonationManager::LoadSession(SKSE::SerializationInterface* a_serde) {
-        RE::FormID donorID = 0;
-        RE::FormID puppetID = 0;
-        std::vector<AliasSwapManager::SwappedAlias> aliases;
-        if (!a_serde->ReadRecordData(&donorID, sizeof(donorID)) ||
-            !a_serde->ReadRecordData(&puppetID, sizeof(puppetID)) ||
-            !AliasSwapManager::ReadSwappedAliases(a_serde, aliases)) {
-            SKSE::log::warn("Impersonation session record is truncated; ignoring it.");
+        if (!a_donor) {
+            SKSE::log::warn("Impersonation session donor no longer exists; session not restored.");
             return;
         }
 
-        std::uint32_t itemCount = 0;
-        if (a_serde->ReadRecordData(&itemCount, sizeof(itemCount))) {
-            for (std::uint32_t i = 0; i < itemCount; ++i) {
-                RE::FormID id = 0;
-                if (a_serde->ReadRecordData(&id, sizeof(id)) && a_serde->ResolveFormID(id, id)) {
-                    _donorQuestItems.insert(id);
-                }
-            }
-        }
-
-        if (puppetID != 0 && a_serde->ResolveFormID(puppetID, puppetID)) {
-            AttachPuppet(RE::TESForm::LookupByID<RE::Actor>(puppetID));
-        }
-
-        RE::Actor* donor = nullptr;
-        if (a_serde->ResolveFormID(donorID, donorID)) {
-            donor = RE::TESForm::LookupByID<RE::Actor>(donorID);
-        }
-        if (!donor) {
-            SKSE::log::warn("Impersonation session donor {:08X} no longer exists; session not restored.", donorID);
-            return;
-        }
-
-        AttachDonor(donor);
-        const auto aliasCount = aliases.size();
-        AliasSwapManager::GetSingleton().SetSwappedAliases(std::move(aliases));
+        AttachDonor(a_donor);
+        const auto aliasCount = a_aliases.size();
+        AliasSwapManager::GetSingleton().SetSwappedAliases(std::move(a_aliases));
         Session::GetSingleton().SetActive(true);
-        SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", donorID, aliasCount);
+        SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", a_donor->GetFormID(), aliasCount);
     }
 
     void ImpersonationManager::OnRevert() {
@@ -380,13 +331,17 @@ namespace InTheirShoes {
             }
         }
 
+        ClearSessionState();
+    }
+
+    void ImpersonationManager::ClearSessionState() {
         Session::GetSingleton().SetActive(false);
         DetachDonor();
         AttachPuppet(nullptr);
-        _donorQuestItems.clear();
         _baseline.reset();
         _donorFace.reset();
         Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
+        _donorQuestItems.clear();
         _leashQueued = false;
         _puppetRefreshPending = false;
     }

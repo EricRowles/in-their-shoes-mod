@@ -1,14 +1,10 @@
-Scriptname ITS_PlayerScript extends ReferenceAlias  
+Scriptname ITS_PlayerScript extends ReferenceAlias
+; On the Player alias: load-game maintenance. SKI_PlayerLoadGameAlias, on the same alias, reloads the MCM.
 
 ITS_QuestScript Property ITS_Quest Auto
-ITS_MCMScript Property ITS_MCM Auto
 
 Event OnPlayerLoadGame()
-	If ITS_MCM
-		ITS_MCM.RefreshConfig()
-	EndIf
 	If ITS_Quest
 		ITS_Quest.ITS_Maintenance()
 	EndIf
 EndEvent
-

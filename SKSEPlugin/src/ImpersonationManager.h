@@ -1,9 +1,11 @@
 #pragma once
 
+#include "Singleton.h"
 #include <optional>
 #include <unordered_set>
 #include <cstdint>
 
+#include "AliasSwapManager.h"
 #include "FaceManager.h"
 #include "InventoryManager.h"
 #include "Session.h"
@@ -21,13 +23,8 @@ namespace InTheirShoes {
     // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the
     // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
     // Main thread only.
-    class ImpersonationManager {
+    class ImpersonationManager : public Singleton<ImpersonationManager> {
     public:
-        static ImpersonationManager& GetSingleton() {
-            static ImpersonationManager instance;
-            return instance;
-        }
-
         void Initialize();
         void Tick();
 
@@ -44,10 +41,8 @@ namespace InTheirShoes {
 
         void SetPuppetFollowsPlayer(bool a_follows);
 
-        // Hand changes made to the puppet in self-dialogue (it stands in for the donor) to the donor:
-        // factions go to the donor, and quest aliases go to the player, who holds the donor's aliases
+        // Faction changes made to the puppet in self-dialogue (it stands in for the donor) go to the donor
         void ForwardPuppetFactionsToDonor();
-        void AdoptPuppetAliases();
 
         // Serialization
         const std::optional<Baseline>& GetBaseline() const { return _baseline; }
@@ -55,16 +50,18 @@ namespace InTheirShoes {
         // The donor's appearance as captured when impersonation began (rendered tints included)
         const std::optional<FaceSnapshot>& GetDonorFace() const { return _donorFace; }
         void SetDonorFace(FaceSnapshot a_face) { _donorFace = std::move(a_face); }
-        void SaveSession(SKSE::SerializationInterface* a_serde) const;
-        void LoadSession(SKSE::SerializationInterface* a_serde);
+        // Donor quest items the player carries ('SESS' record)
+        const std::unordered_set<RE::FormID>& GetDonorQuestItems() const { return _donorQuestItems; }
+        // Restores a saved session; a_donor is null if it no longer exists, and the session then isn't restored
+        void RestoreSession(RE::Actor* a_donor, RE::Actor* a_puppet, std::vector<AliasSwapManager::SwappedAlias> a_aliases,
+            std::unordered_set<RE::FormID> a_questItems);
         void OnRevert();
         void OnPostLoadGame();
 
     private:
+        friend Singleton<ImpersonationManager>;
         ImpersonationManager() = default;
         ~ImpersonationManager() = default;
-        ImpersonationManager(const ImpersonationManager&) = delete;
-        ImpersonationManager& operator=(const ImpersonationManager&) = delete;
 
         static bool IsActive() { return Session::GetSingleton().IsActive(); }
         static RE::Actor* GetDonor() { return Session::GetSingleton().GetDonor(); }
@@ -75,6 +72,8 @@ namespace InTheirShoes {
         void BeginSession(RE::Actor* a_donor);
         void EndSession();
         void ReturnStateToDonor(RE::Actor* a_donor);
+        // Forgets every part of the session, once Revert has handed its state back or a game revert discards it
+        void ClearSessionState();
 
         void AttachDonor(RE::Actor* a_donor);
         void DetachDonor();

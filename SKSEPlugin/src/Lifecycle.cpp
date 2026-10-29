@@ -5,7 +5,9 @@
 #include "ConditionHooks.h"
 #include "DialogueManager.h"
 #include "Forms.h"
+#include "GameUtil.h"
 #include "IdleAIManager.h"
+#include "IdleChatter.h"
 #include "ImpersonationManager.h"
 #include "OutfitManager.h"
 #include "Session.h"
@@ -13,10 +15,12 @@
 namespace InTheirShoes::Lifecycle {
 
     void OnInputLoaded() {
+        CheckMainThread();
         IdleAIManager::GetSingleton().Initialize();
     }
 
     void OnDataLoaded() {
+        CheckMainThread();
         // Installing a hook twice would make it call itself
         static bool s_loaded = false;
         if (s_loaded) return;
@@ -31,6 +35,7 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnPostLoadGame() {
+        CheckMainThread();
         ImpersonationManager::GetSingleton().OnPostLoadGame();
         if (Session::GetSingleton().IsActive()) {
             IdleAIManager::GetSingleton().OnImpersonationChanged(true);
@@ -38,11 +43,13 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnGameRevert() {
+        CheckMainThread();
         ImpersonationManager::GetSingleton().OnRevert();
         AliasSwapManager::GetSingleton().Clear();
         OutfitManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
+        IdleChatter::GetSingleton().Clear();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
@@ -53,13 +60,23 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnSessionBegin() {
+        CheckMainThread();
         IdleAIManager::GetSingleton().ClearPlayerPackages();
-        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
+        IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
     }
 
+    void OnPuppetChangedInSelfDialogue() {
+        CheckMainThread();
+        ImpersonationManager::GetSingleton().ForwardPuppetFactionsToDonor();
+        if (auto& session = Session::GetSingleton(); session.IsActive()) {
+            AliasSwapManager::GetSingleton().AdoptPuppetAliases(session.GetPuppet(), Session::GetPlayer());
+        }
+    }
+
     void OnSessionEnd() {
-        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
+        CheckMainThread();
+        IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
     }
 

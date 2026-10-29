@@ -37,3 +37,6 @@ Int Function ValidateImpersonateTarget(Actor a_target) Global Native
 ; Whether the player is in Werewolf or Vampire Lord form, or changing into or out of it.
 ; Impersonate and Revert refuse while it is true.
 Bool Function IsPlayerTransformed() Global Native
+
+; The plugin's version, e.g. "0.5.0"
+String Function GetPluginVersion() Global Native

@@ -20,4 +20,9 @@ namespace InTheirShoes::Lifecycle {
     void OnSessionBegin();
     void OnSessionEnd();
 
+    // DialogueManager, while self-dialogue runs and as it ends: topic fragments may have changed the puppet,
+    // which stands in for the donor. Factions go to the donor, and quest aliases go to the player, who holds
+    // the donor's aliases.
+    void OnPuppetChangedInSelfDialogue();
+
 }

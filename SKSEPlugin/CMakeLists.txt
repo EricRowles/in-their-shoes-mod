@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.23)
+cmake_minimum_required(VERSION 3.25)
 
 project(
     InTheirShoes
@@ -13,14 +13,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(BUILD_TESTS OFF CACHE BOOL "Disable CommonLibSSE unit tests" FORCE)
 set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "Enable Xbyak support" FORCE)
 set(COMMONLIB_ENABLE_IPO OFF CACHE BOOL "Disable IPO to speed up builds" FORCE)
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../extern/CommonLibSSE-NG" "${CMAKE_CURRENT_BINARY_DIR}/CommonLibSSE-NG" EXCLUDE_FROM_ALL)
+# SYSTEM: CommonLib's headers are external, so the plugin's warning level doesn't apply to them
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../extern/CommonLibSSE-NG" "${CMAKE_CURRENT_BINARY_DIR}/CommonLibSSE-NG" EXCLUDE_FROM_ALL SYSTEM)
 
 add_library(${PROJECT_NAME} SHARED
     src/PCH.h
     src/main.cpp
     src/Forms.h
     src/Forms.cpp
+    src/GameUtil.h
     src/Session.h
+    src/Singleton.h
     src/Lifecycle.h
     src/Lifecycle.cpp
     src/ActorHooks.h
@@ -41,6 +44,10 @@ add_library(${PROJECT_NAME} SHARED
     src/IdleAIManager.cpp
     src/DialogueManager.h
     src/DialogueManager.cpp
+    src/IdleChatter.h
+    src/IdleChatter.cpp
+    src/QuestConditions.h
+    src/QuestConditions.cpp
     src/Papyrus.h
     src/Papyrus.cpp
     src/Serialization.h
@@ -60,6 +67,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
     CommonLibSSE::CommonLibSSE
 )
+
+target_compile_options(${PROJECT_NAME} PRIVATE /W4)
 
 target_precompile_headers(${PROJECT_NAME} PRIVATE
     src/PCH.h

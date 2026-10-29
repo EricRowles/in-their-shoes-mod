@@ -1,12 +1,14 @@
 """
 Build and Deploy Script for InTheirShoes
 Builds the C++ SKSE plugin (MSVC x64 Release) and compiles all Papyrus scripts (.psc -> .pex),
-then deploys the artifacts to the mod folders listed in .env.
+then deploys the artifacts to the mod folders listed in .env. --no-deploy skips the deploy step, and
+--cpp-only builds only the plugin.
 
 Machine-specific paths are read from .env in the repo root (not committed). Copy .env.example to .env
 and fill it in.
 """
 
+import argparse
 import os
 import subprocess
 import shutil
@@ -76,6 +78,12 @@ def build_cpp():
         print(res.stderr)
         sys.exit(res.returncode)
     print("C++ Plugin build successful!")
+    # Only rebuilt files report warnings, so a warning shows on the build that introduced it
+    warnings = sorted({line.strip() for line in res.stdout.splitlines() if ": warning C" in line})
+    for line in warnings:
+        print(line)
+    if warnings:
+        print(f"{len(warnings)} compiler warning(s)")
 
     os.makedirs(os.path.dirname(DLL_REPO_DEST), exist_ok=True)
     if os.path.exists(DLL_SRC):
@@ -166,7 +174,19 @@ def deploy():
     print("\nDeployment complete!")
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="Build the plugin, compile Papyrus and deploy to DEPLOY_TARGETS.")
+    parser.add_argument("--no-deploy", action="store_true", help="build and compile, but don't copy to the mod folders")
+    parser.add_argument("--cpp-only", action="store_true", help="only build the C++ plugin (implies --no-deploy)")
+    args = parser.parse_args()
+
     build_cpp()
+    if args.cpp_only:
+        return
     compile_papyrus()
-    deploy()
+    if not args.no_deploy:
+        deploy()
+
+
+if __name__ == "__main__":
+    main()

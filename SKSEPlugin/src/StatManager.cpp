@@ -34,19 +34,17 @@ namespace InTheirShoes {
         RE::ActorValue::kEnchanting
     };
 
-    bool StatManager::CaptureSnapshot(RE::Actor* a_actor, StatSnapshot& a_outSnapshot) {
-        if (!a_actor) return false;
+    std::optional<StatSnapshot> StatManager::CaptureSnapshot(RE::Actor* a_actor) {
+        if (!a_actor) return std::nullopt;
 
         auto* avOwner = a_actor->AsActorValueOwner();
-        if (!avOwner) return false;
+        if (!avOwner) return std::nullopt;
 
-        a_outSnapshot.baseValues.clear();
+        StatSnapshot snapshot;
         for (auto av : kCoreStatsAndSkills) {
-            float val = avOwner->GetBaseActorValue(av);
-            a_outSnapshot.baseValues[static_cast<std::uint32_t>(av)] = val;
+            snapshot.baseValues[static_cast<std::uint32_t>(av)] = avOwner->GetBaseActorValue(av);
         }
-
-        return true;
+        return snapshot;
     }
 
     bool StatManager::ApplySnapshot(RE::Actor* a_targetActor, const StatSnapshot& a_snapshot) {
@@ -69,7 +67,7 @@ namespace InTheirShoes {
 
         SKSE::log::info("Applied {} stat/skill values to actor {:08X}.",
             a_snapshot.baseValues.size(),
-            static_cast<std::uint32_t>(a_targetActor->GetFormID()));
+            a_targetActor->GetFormID());
 
         return true;
     }
@@ -80,14 +78,14 @@ namespace InTheirShoes {
             return false;
         }
 
-        StatSnapshot snapshot;
-        if (!CaptureSnapshot(a_fromActor, snapshot)) {
+        auto snapshot = CaptureSnapshot(a_fromActor);
+        if (!snapshot) {
             SKSE::log::error("Failed to capture stats from actor {:08X}.",
-                static_cast<std::uint32_t>(a_fromActor->GetFormID()));
+                a_fromActor->GetFormID());
             return false;
         }
 
-        return ApplySnapshot(a_toActor, snapshot);
+        return ApplySnapshot(a_toActor, *snapshot);
     }
 
 }

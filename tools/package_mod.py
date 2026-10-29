@@ -53,7 +53,7 @@ def build_if_needed():
     build_script = os.path.join(REPO_ROOT, "tools", "build_and_deploy.py")
     if os.path.exists(build_script):
         print("Ensuring latest build and compiled scripts...")
-        res = subprocess.run([sys.executable, build_script], capture_output=False)
+        res = subprocess.run([sys.executable, build_script, "--no-deploy"], capture_output=False)
         if res.returncode != 0:
             print(f"Error: Build failed with exit code {res.returncode}")
             sys.exit(res.returncode)

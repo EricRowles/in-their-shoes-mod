@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include <spdlog/sinks/msvc_sink.h>
+#include "GameUtil.h"
 #include "Lifecycle.h"
 #include "Papyrus.h"
 #include "Serialization.h"

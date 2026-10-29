@@ -1,6 +1,5 @@
 #include "PCH.h"
 #include "OutfitManager.h"
-#include "Serialization.h"
 
 namespace InTheirShoes {
 
@@ -54,29 +53,14 @@ namespace InTheirShoes {
         _outfitDisabled.clear();
     }
 
-    void OutfitManager::Save(SKSE::SerializationInterface* a_serde) const {
+    std::unordered_set<RE::FormID> OutfitManager::GetOutfitDisabledIDs() const {
         std::scoped_lock lock(_lock);
-        if (_outfitDisabled.empty()) return;
-        if (!a_serde->OpenRecord(Serialization::kOutfitDisabledRecord, Serialization::kOutfitDisabledVersion)) return;
-        const auto count = static_cast<std::uint32_t>(_outfitDisabled.size());
-        a_serde->WriteRecordData(&count, sizeof(count));
-        for (auto id : _outfitDisabled) {
-            a_serde->WriteRecordData(&id, sizeof(id));
-        }
+        return _outfitDisabled;
     }
 
-    void OutfitManager::Load(SKSE::SerializationInterface* a_serde) {
+    void OutfitManager::SetOutfitDisabledIDs(std::unordered_set<RE::FormID> a_ids) {
         std::scoped_lock lock(_lock);
-        std::uint32_t count = 0;
-        if (!a_serde->ReadRecordData(&count, sizeof(count))) return;
-        for (std::uint32_t i = 0; i < count; ++i) {
-            RE::FormID id = 0;
-            if (!a_serde->ReadRecordData(&id, sizeof(id))) break;
-            if (a_serde->ResolveFormID(id, id)) {
-                _outfitDisabled.insert(id);
-            }
-        }
-        SKSE::log::info("Loaded {} actors with their outfit disabled.", _outfitDisabled.size());
+        _outfitDisabled = std::move(a_ids);
     }
 
 }

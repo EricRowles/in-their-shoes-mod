@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Singleton.h"
+#include <array>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -23,8 +26,8 @@ namespace InTheirShoes {
         RE::BSFixedString fullName;
 
         // Face Morphs
-        float morphs[RE::TESNPC::FaceData::Morphs::kTotal]{ 0.0f };
-        std::int32_t parts[RE::TESNPC::FaceData::Parts::kTotal]{ 0 };
+        std::array<float, RE::TESNPC::FaceData::Morphs::kTotal> morphs{};
+        std::array<std::int32_t, RE::TESNPC::FaceData::Parts::kTotal> parts{};
 
         // Head Parts
         std::vector<RE::BGSHeadPart*> headParts;
@@ -41,16 +44,12 @@ namespace InTheirShoes {
         bool hasSkinTintColor{ false };
     };
 
-    // Stateless appearance capture/apply. The Dragonborn's saved appearance lives in
-    // ImpersonationManager's Baseline.
-    class FaceManager {
+    // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline;
+    // the only state here is which head part arrays this plugin allocated (#11).
+    class FaceManager : public Singleton<FaceManager> {
     public:
-        static FaceManager& GetSingleton() {
-            static FaceManager instance;
-            return instance;
-        }
-
-        bool CaptureSnapshot(RE::Actor* a_actor, FaceSnapshot& a_outSnapshot);
+        // Empty if the actor has no NPC base record
+        std::optional<FaceSnapshot> CaptureSnapshot(RE::Actor* a_actor);
 
         // a_asPuppet: the puppet gets the Dragonborn's look but no voice type or face template of its own
         bool ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D = true, bool a_asPuppet = false);
@@ -59,10 +58,9 @@ namespace InTheirShoes {
         bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
     private:
+        friend Singleton<FaceManager>;
         FaceManager() = default;
         ~FaceManager() = default;
-        FaceManager(const FaceManager&) = delete;
-        FaceManager& operator=(const FaceManager&) = delete;
 
         // Head part arrays we allocated, so we never free one the engine owns
         std::unordered_set<void*> _allocatedHeadPartBuffers;

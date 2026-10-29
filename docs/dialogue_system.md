@@ -1,6 +1,6 @@
 # Dialogue
 
-While impersonating, the **player** voices every line the donor would say, and talking to the **puppet** shows the donor's dialogue. All of this is in `DialogueManager`.
+While impersonating, the **player** voices every line the donor would say, and talking to the **puppet** shows the donor's dialogue. This is `DialogueManager`, with idle lines picked by `IdleChatter`.
 
 ## Who counts as whom
 

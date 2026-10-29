@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -11,13 +12,8 @@ namespace InTheirShoes {
     // actions when the actor filling it is loaded, and the parked donor isn't.
     // Don't hook TESQuest::ForceRefIntoAlias: a 5-byte context hook split a prologue instruction and froze the game.
     // Main thread only, except GetDonorAliasFactionRank, which faction condition hooks call from AI threads.
-    class AliasSwapManager {
+    class AliasSwapManager : public Singleton<AliasSwapManager> {
     public:
-        static AliasSwapManager& GetSingleton() {
-            static AliasSwapManager instance;
-            return instance;
-        }
-
         struct SwappedAlias {
             RE::FormID questFormID{ 0 };
             std::uint32_t aliasID{ 0 };
@@ -42,26 +38,24 @@ namespace InTheirShoes {
         // conditions also count these. May be read from any thread.
         std::optional<std::int8_t> GetDonorAliasFactionRank(const RE::TESFaction* a_faction) const;
 
-        // The swapped aliases are part of the session ('SESS') record
-        void WriteSwappedAliases(SKSE::SerializationInterface* a_serde) const;
-        // False if the record ends before the alias count
-        static bool ReadSwappedAliases(SKSE::SerializationInterface* a_serde, std::vector<SwappedAlias>& a_out);
+        // Serialization: the swapped aliases are part of the session ('SESS') record, the donor's alias
+        // factions are the 'AFAC' record
+        const std::vector<SwappedAlias>& GetSwappedAliases() const { return _swappedAliases; }
         void SetSwappedAliases(std::vector<SwappedAlias> a_aliases) { _swappedAliases = std::move(a_aliases); }
 
-        // The 'AFAC' co-save record
-        void SaveDonorAliasFactions(SKSE::SerializationInterface* a_serde) const;
-        void LoadDonorAliasFactions(SKSE::SerializationInterface* a_serde);
+        using FactionRank = std::pair<RE::TESFaction*, std::int8_t>;
+        std::vector<FactionRank> GetDonorAliasFactions() const;
+        void SetDonorAliasFactions(std::vector<FactionRank> a_factions);
 
     private:
+        friend Singleton<AliasSwapManager>;
         AliasSwapManager() = default;
         ~AliasSwapManager() = default;
-        AliasSwapManager(const AliasSwapManager&) = delete;
-        AliasSwapManager& operator=(const AliasSwapManager&) = delete;
 
         std::vector<SwappedAlias> _swappedAliases;
 
         mutable std::mutex _donorAliasFactionsLock;
-        std::vector<std::pair<RE::TESFaction*, std::int8_t>> _donorAliasFactions;
+        std::vector<FactionRank> _donorAliasFactions;
     };
 
 }
