@@ -471,7 +471,7 @@ namespace InTheirShoes {
             _savedUserRunning = pc->data.running;
         }
         _lastInputTime = std::chrono::steady_clock::now();
-        SKSE::log::info("IdleAIManager: impersonation active = {}", a_active);
+        SKSE::log::info("Idle AI: impersonation active = {}", a_active);
     }
 
     bool IdleAIManager::RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet) {
@@ -625,7 +625,7 @@ namespace InTheirShoes {
             loc->rad = entry.origRad;
         }
         if (!_retargetedTargets.empty() || !_retargetedLocations.empty()) {
-            SKSE::log::info("ClearPlayerPackages: Restored {} retargeted targets and {} retargeted locations",
+            SKSE::log::info("Restored {} retargeted package targets and {} package locations",
                 _retargetedTargets.size(), _retargetedLocations.size());
         }
         _retargetedTargets.clear();

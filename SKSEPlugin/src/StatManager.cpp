@@ -67,7 +67,7 @@ namespace InTheirShoes {
 
         SKSE::log::info("Applied {} stat/skill values to actor {:08X}.",
             a_snapshot.baseValues.size(),
-            static_cast<std::uint32_t>(a_targetActor->GetFormID()));
+            a_targetActor->GetFormID());
 
         return true;
     }
@@ -81,7 +81,7 @@ namespace InTheirShoes {
         auto snapshot = CaptureSnapshot(a_fromActor);
         if (!snapshot) {
             SKSE::log::error("Failed to capture stats from actor {:08X}.",
-                static_cast<std::uint32_t>(a_fromActor->GetFormID()));
+                a_fromActor->GetFormID());
             return false;
         }
 

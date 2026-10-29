@@ -389,7 +389,7 @@ namespace InTheirShoes {
             a_speaker = puppet;
         }
         if (!a_speaker || a_speaker != puppet) {
-            SKSE::log::warn("OpenSelfDialogue: speaker must be the puppet");
+            SKSE::log::warn("Self-dialogue not opened: the speaker must be the puppet");
             return false;
         }
 
@@ -404,7 +404,7 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* ui = RE::UI::GetSingleton();
         if (!player || (ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME) || ui->IsModalMenuOpen()))) {
-            SKSE::log::warn("OpenSelfDialogueDirect: Menu or pause state blocking dialogue initiation");
+            SKSE::log::warn("Self-dialogue not opened: a menu is open or the game is paused");
             return false;
         }
 
@@ -454,7 +454,7 @@ namespace InTheirShoes {
                 if (info->saidOnce && info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kSayOnce)) continue;
                 if (QuestConditions::Evaluate(info->objConditions, a_forceGreetTopic->ownerQuest, a_speaker, player)) {
                     forceGreetInfo = info;
-                    SKSE::log::info("OpenSelfDialogueDirect: resolved ForceGreet topic {:08X} -> info {:08X}",
+                    SKSE::log::info("Resolved ForceGreet topic {:08X} to info {:08X}",
                         a_forceGreetTopic->GetFormID(), info->GetFormID());
                     break;
                 }
@@ -494,7 +494,7 @@ namespace InTheirShoes {
         if (a_this && session.IsActive()) {
             auto& self = DialogueManager::GetSingleton();
             if (a_this == session.GetPuppet()) {
-                SKSE::log::info("Hook_SetDialogueWithPlayer: puppet flag={} forceGreet={}", a_flag, a_forceGreet);
+                SKSE::log::info("Puppet dialogue with player: flag={} forceGreet={}", a_flag, a_forceGreet);
                 if (a_flag) {
                     session.SetInSelfDialogue(true);
                 } else if (session.IsInSelfDialogue()) {

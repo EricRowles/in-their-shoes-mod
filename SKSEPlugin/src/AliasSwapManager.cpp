@@ -59,7 +59,7 @@ namespace InTheirShoes {
         for (const auto& [quest, aid] : toSwap) {
             quest->ForceRefIntoAlias(aid, a_player);
             _swappedAliases.push_back({ quest->GetFormID(), aid });
-            SKSE::log::info("SwapDonorAliasesToPlayer: Swapped donor {:08X} to player in quest {:08X} alias ID {}",
+            SKSE::log::info("Swapped donor {:08X} to player in quest {:08X} alias ID {}",
                 a_donor->GetFormID(), quest->GetFormID(), aid);
         }
 
@@ -68,7 +68,7 @@ namespace InTheirShoes {
         for (const auto& [faction, rank] : ranksBefore) {
             if (!ranksAfter.contains(faction)) {
                 _donorAliasFactions.emplace_back(faction, rank);
-                SKSE::log::info("SwapDonorAliasesToPlayer: Donor {:08X} lost alias faction {:08X} (rank {})",
+                SKSE::log::info("Donor {:08X} lost alias faction {:08X} (rank {})",
                     a_donor->GetFormID(), faction->GetFormID(), rank);
             }
         }
@@ -79,7 +79,7 @@ namespace InTheirShoes {
         for (const auto& entry : _swappedAliases) {
             auto* quest = RE::TESForm::LookupByID<RE::TESQuest>(entry.questFormID);
             if (!IsQuestRunning(quest) || !a_donor) {
-                SKSE::log::info("RestoreSwappedAliases: Skipping quest {:08X} alias ID {} (quest stopped or no donor)",
+                SKSE::log::info("Skipping quest {:08X} alias ID {} (quest stopped or no donor)",
                     entry.questFormID, entry.aliasID);
                 continue;
             }
@@ -95,14 +95,14 @@ namespace InTheirShoes {
             if (baseAlias && baseAlias->QType() == "Ref"sv) {
                 auto* currentRef = static_cast<RE::BGSRefAlias*>(baseAlias)->GetReference();
                 if (currentRef && currentRef != player && currentRef != a_donor) {
-                    SKSE::log::info("RestoreSwappedAliases: Alias ID {} in quest {:08X} now holds {:08X}, leaving it alone.",
+                    SKSE::log::info("Alias ID {} in quest {:08X} now holds {:08X}, leaving it alone.",
                         entry.aliasID, entry.questFormID, currentRef->GetFormID());
                     continue;
                 }
             }
 
             quest->ForceRefIntoAlias(entry.aliasID, a_donor);
-            SKSE::log::info("RestoreSwappedAliases: Restored donor {:08X} into quest {:08X} alias ID {}",
+            SKSE::log::info("Restored donor {:08X} into quest {:08X} alias ID {}",
                 a_donor->GetFormID(), quest->GetFormID(), entry.aliasID);
         }
         _swappedAliases.clear();
@@ -120,7 +120,7 @@ namespace InTheirShoes {
             if (!IsSwappedAlias(quest->GetFormID(), aid)) {
                 _swappedAliases.push_back({ quest->GetFormID(), aid });
             }
-            SKSE::log::info("AdoptPuppetAliases: Moved puppet's alias ID {} in quest {:08X} to the player", aid, quest->GetFormID());
+            SKSE::log::info("Moved puppet's alias ID {} in quest {:08X} to the player", aid, quest->GetFormID());
         }
         if (!toAdopt.empty()) {
             a_puppet->EvaluatePackage(false, false);

@@ -349,12 +349,12 @@ namespace InTheirShoes {
         }
 
         SKSE::log::info("Applied appearance snapshot (Race: {:08X}, Sex: {}, Voice: {:08X}, Tints: {}, Parts: {}) to actor {:08X}",
-            a_snapshot.race ? static_cast<std::uint32_t>(a_snapshot.race->GetFormID()) : 0,
+            a_snapshot.race ? a_snapshot.race->GetFormID() : 0u,
             a_snapshot.sex == RE::SEX::kFemale ? "Female" : "Male",
-            targetNPC->voiceType ? static_cast<std::uint32_t>(targetNPC->voiceType->GetFormID()) : 0,
+            targetNPC->voiceType ? targetNPC->voiceType->GetFormID() : 0u,
             a_snapshot.tintLayers.size(),
             a_snapshot.headParts.size(),
-            static_cast<std::uint32_t>(a_targetActor->GetFormID())
+            a_targetActor->GetFormID()
         );
 
         return true;
@@ -369,7 +369,7 @@ namespace InTheirShoes {
         auto donorSnapshot = CaptureSnapshot(a_donor);
         if (!donorSnapshot) {
             SKSE::log::error("Failed to capture appearance of donor actor {:08X}.",
-                static_cast<std::uint32_t>(a_donor->GetFormID()));
+                a_donor->GetFormID());
             return false;
         }
 

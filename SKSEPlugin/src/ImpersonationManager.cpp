@@ -252,7 +252,7 @@ namespace InTheirShoes {
         if (a_follows && player &&
             (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f)) {
             puppet->MoveTo(player);
-            SKSE::log::info("SetPuppetFollowsPlayer: Teleported puppet to player.");
+            SKSE::log::info("Teleported the puppet to the player.");
         }
         puppet->EvaluatePackage(true, true);
         SKSE::log::info("Updated puppet follows player: {}", a_follows);
@@ -293,7 +293,7 @@ namespace InTheirShoes {
                           !(ui && ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
         if (!worldReady) return;
 
-        SKSE::log::info("Tick: Donor {:08X} moved away from holding marker; leashing back.", donor->GetFormID());
+        SKSE::log::info("Donor {:08X} moved away from holding marker; leashing back.", donor->GetFormID());
         _leashQueued = true;
         SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle(), markerHandle = _storageMarker]() {
             ImpersonationManager::GetSingleton()._leashQueued = false;
