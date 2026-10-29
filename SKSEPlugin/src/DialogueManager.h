@@ -17,7 +17,8 @@ namespace InTheirShoes {
     // Hooks run on the main thread, except IsInSelfDialogue(), which condition hooks may call from AI threads.
     class DialogueManager :
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>,
-        public RE::BSTEventSink<RE::InputEvent*> {
+        public RE::BSTEventSink<RE::InputEvent*>,
+        public RE::BSTEventSink<RE::TESTopicInfoEvent> {
     public:
         static DialogueManager& GetSingleton() {
             static DialogueManager instance;
@@ -33,6 +34,9 @@ namespace InTheirShoes {
 
         // BSTEventSink<RE::InputEvent*>: skipping self-dialogue lines
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
+
+        // BSTEventSink<RE::TESTopicInfoEvent>: logs the puppet's topic infos starting and ending
+        RE::BSEventNotifyControl ProcessEvent(const RE::TESTopicInfoEvent* a_event, RE::BSTEventSource<RE::TESTopicInfoEvent>* a_eventSource) override;
 
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
@@ -51,6 +55,7 @@ namespace InTheirShoes {
         void InstallHooks();
         bool OpenSelfDialogueDirect(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic = nullptr);
         void EndSelfDialogue();
+        void UpdatePuppetSpeakerClear();
 
         // Player voice
         void SpeakAsPlayer(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
@@ -93,6 +98,9 @@ namespace InTheirShoes {
         std::atomic<bool> _inSelfDialogue{ false };
         std::atomic<bool> _pendingSelfDialogue{ false };
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
+        // Set when self-dialogue ends; the puppet is cleared as the engine's speaker shortly after the menu closes
+        std::atomic<bool> _puppetSpeakerClearPending{ false };
+        std::chrono::steady_clock::time_point _puppetSpeakerClearAt{};
 
         // Line the player is voicing, and the stand-in whose line it is (if any)
         bool _playerLineActive{ false };

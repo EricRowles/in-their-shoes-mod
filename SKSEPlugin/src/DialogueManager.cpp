@@ -39,6 +39,8 @@ namespace InTheirShoes {
     constexpr float kVoiceRetryIntervalSeconds = 0.1f;
     // A voiced line is done this long after its sound's duration has played
     constexpr float kSoundTailSeconds = 0.25f;
+    // The puppet stays the engine's speaker this long after self-dialogue's menu closes (see EndSelfDialogue)
+    constexpr float kPuppetSpeakerClearSeconds = 1.0f;
 
     static float SecondsSince(std::chrono::steady_clock::time_point a_time) {
         return std::chrono::duration<float>(std::chrono::steady_clock::now() - a_time).count();
@@ -217,6 +219,9 @@ namespace InTheirShoes {
         } else {
             SKSE::log::warn("DialogueManager failed to get BSInputDeviceManager singleton.");
         }
+        if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
+            events->AddEventSink<RE::TESTopicInfoEvent>(this);
+        }
         InstallHooks();
         _initialized = true;
     }
@@ -245,6 +250,7 @@ namespace InTheirShoes {
         if (_playerLineActive) {
             TickPlayerLine();
         }
+        UpdatePuppetSpeakerClear();
         if (IsInSelfDialogue()) {
             // Topic fragments (run by the VM, a frame or more after their line) change the speaker, the
             // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen.
@@ -259,6 +265,8 @@ namespace InTheirShoes {
         _inSelfDialogue.store(false, std::memory_order_release);
         _pendingSelfDialogue.store(false, std::memory_order_release);
         _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
+        _puppetSpeakerClearPending.store(false, std::memory_order_release);
+        _puppetSpeakerClearAt = {};
         _playerLineActive = false;
         _playerLineIsIdleChatter = false;
         _idleTopicsCached = false;
@@ -276,6 +284,17 @@ namespace InTheirShoes {
         RE::BSTEventSource<RE::MenuOpenCloseEvent>* /*a_eventSource*/) {
         if (a_event && !a_event->opening && a_event->menuName == RE::DialogueMenu::MENU_NAME && IsInSelfDialogue()) {
             EndSelfDialogue();
+        }
+        return RE::BSEventNotifyControl::kContinue;
+    }
+
+    RE::BSEventNotifyControl DialogueManager::ProcessEvent(
+        const RE::TESTopicInfoEvent* a_event,
+        RE::BSTEventSource<RE::TESTopicInfoEvent>* /*a_eventSource*/) {
+        auto& impMgr = ImpersonationManager::GetSingleton();
+        if (a_event && impMgr.IsActive() && a_event->speakerRef && a_event->speakerRef.get() == impMgr.GetPuppet()) {
+            bool ended = a_event->type == RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd;
+            SKSE::log::info("Puppet topic info {:08X} {}", a_event->topicInfoFormID, ended ? "ended" : "began");
         }
         return RE::BSEventNotifyControl::kContinue;
     }
@@ -347,6 +366,7 @@ namespace InTheirShoes {
 
     static bool EvaluateInQuest(const RE::TESCondition& a_conditions, RE::TESQuest* a_quest,
         RE::TESObjectREFR* a_subject, RE::TESObjectREFR* a_target);
+    static void ClearPuppetAsSpeaker();
 
     bool DialogueManager::OpenSelfDialogue(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic) {
         auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
@@ -400,6 +420,10 @@ namespace InTheirShoes {
             topicMgr->shutMenu = false;
             topicMgr->closeInProgress = false;
         }
+
+        // Not yet cleared if the last conversation just ended
+        ClearPuppetAsSpeaker();
+        _puppetSpeakerClearPending.store(false, std::memory_order_release);
 
         a_speaker->AllowPCDialogue(true);
         a_speaker->AllowBleedoutDialogue(true);
@@ -456,7 +480,9 @@ namespace InTheirShoes {
         if (_playerLineActive) {
             FinishPlayerLine();
         }
-        ClearPuppetAsSpeaker();
+        // The engine still needs the puppet as its (last) speaker while the menu closes: a Goodbye info's
+        // end fragment runs then, and clearing it at once skipped the fragment. Update() clears it shortly after.
+        _puppetSpeakerClearPending.store(true, std::memory_order_release);
         // What topic fragments did to the speaker (the puppet) belongs to the donor: factions go to the
         // donor, and quest aliases (e.g. a follower alias) go to the player standing in for the donor.
         // Update() forwards them every frame during self-dialogue; this catches the last frame's.
@@ -482,9 +508,25 @@ namespace InTheirShoes {
         }
         bool ret = _origSetDialogueWithPlayer(a_this, a_flag, a_forceGreet, a_topic);
         if (!a_flag && a_this && impMgr.IsActive() && a_this == impMgr.GetPuppet()) {
-            ClearPuppetAsSpeaker();
+            GetSingleton()._puppetSpeakerClearPending.store(true, std::memory_order_release);
         }
         return ret;
+    }
+
+    void DialogueManager::UpdatePuppetSpeakerClear() {
+        if (!_puppetSpeakerClearPending.load(std::memory_order_acquire)) return;
+        auto* ui = RE::UI::GetSingleton();
+        if (ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
+            _puppetSpeakerClearAt = {};
+            return;
+        }
+        if (_puppetSpeakerClearAt == std::chrono::steady_clock::time_point{}) {
+            _puppetSpeakerClearAt = std::chrono::steady_clock::now();
+        }
+        if (SecondsSince(_puppetSpeakerClearAt) < kPuppetSpeakerClearSeconds) return;
+        _puppetSpeakerClearPending.store(false, std::memory_order_release);
+        _puppetSpeakerClearAt = {};
+        ClearPuppetAsSpeaker();
     }
 
     // --- Player voice ---
