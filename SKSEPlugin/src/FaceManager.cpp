@@ -100,71 +100,69 @@ namespace InTheirShoes {
         }
     }
 
-    bool FaceManager::CaptureSnapshot(RE::Actor* a_actor, FaceSnapshot& a_outSnapshot) {
-        if (!a_actor) return false;
+    std::optional<FaceSnapshot> FaceManager::CaptureSnapshot(RE::Actor* a_actor) {
+        if (!a_actor) return std::nullopt;
 
         auto* base = a_actor->GetActorBase();
-        if (!base) return false;
+        if (!base) return std::nullopt;
 
         auto* npc = skyrim_cast<RE::TESNPC*>(base);
-        if (!npc) return false;
+        if (!npc) return std::nullopt;
 
-        a_outSnapshot.hasSkinTintColor = false;
-        a_outSnapshot.hasHairTintColor = false;
+        FaceSnapshot snapshot;
 
-        a_outSnapshot.race = npc->GetRace();
-        a_outSnapshot.skin = npc->skin;
-        a_outSnapshot.farSkin = npc->farSkin;
+        snapshot.race = npc->GetRace();
+        snapshot.skin = npc->skin;
+        snapshot.farSkin = npc->farSkin;
         if (npc->GetFormID() == Forms::kPlayerBaseID) {
-            a_outSnapshot.faceNPC = nullptr;
+            snapshot.faceNPC = nullptr;
         } else {
-            a_outSnapshot.faceNPC = (npc->faceNPC && npc->faceNPC != npc) ? npc->faceNPC : npc;
+            snapshot.faceNPC = (npc->faceNPC && npc->faceNPC != npc) ? npc->faceNPC : npc;
         }
         const char* dispName = a_actor->GetDisplayFullName();
         if (dispName && dispName[0] != '\0') {
-            a_outSnapshot.fullName = dispName;
+            snapshot.fullName = dispName;
         } else {
-            a_outSnapshot.fullName = npc->GetFullName();
+            snapshot.fullName = npc->GetFullName();
         }
-        a_outSnapshot.height = npc->height;
+        snapshot.height = npc->height;
 
         auto* extraScale = a_actor->extraList.GetByType<RE::ExtraScale>();
-        a_outSnapshot.scale = extraScale ? extraScale->scale : 1.0f;
+        snapshot.scale = extraScale ? extraScale->scale : 1.0f;
 
-        a_outSnapshot.weight = npc->weight;
-        a_outSnapshot.sex = npc->GetSex();
-        a_outSnapshot.bodyTintColor = npc->bodyTintColor;
+        snapshot.weight = npc->weight;
+        snapshot.sex = npc->GetSex();
+        snapshot.bodyTintColor = npc->bodyTintColor;
 
         // Tint layers
-        a_outSnapshot.tintLayers.clear();
         if (npc->tintLayers) {
             for (auto* layer : *npc->tintLayers) {
                 if (layer) {
-                    a_outSnapshot.tintLayers.push_back(*layer);
+                    snapshot.tintLayers.push_back(*layer);
                 }
             }
         }
 
         // Resolve skin tone from race tint assets if bodyTintColor is uninitialized (common on vanilla NPCs)
-        if (a_outSnapshot.bodyTintColor.red == 0 &&
-            a_outSnapshot.bodyTintColor.green == 0 &&
-            a_outSnapshot.bodyTintColor.blue == 0) {
-            a_outSnapshot.hasSkinTintColor = ResolveSkinTintFromRace(
+        if (snapshot.bodyTintColor.red == 0 &&
+            snapshot.bodyTintColor.green == 0 &&
+            snapshot.bodyTintColor.blue == 0) {
+            snapshot.hasSkinTintColor = ResolveSkinTintFromRace(
                 a_actor->GetRace(),
-                a_outSnapshot.sex,
-                a_outSnapshot.tintLayers,
-                a_outSnapshot.bodyTintColor,
-                a_outSnapshot.skinTintColor);
+                snapshot.sex,
+                snapshot.tintLayers,
+                snapshot.bodyTintColor,
+                snapshot.skinTintColor);
         }
 
-        a_outSnapshot.voiceType = ActorHooks::GetNPCVoiceType(npc);
+        snapshot.voiceType = ActorHooks::GetNPCVoiceType(npc);
 
         if (npc->headRelatedData) {
-            a_outSnapshot.hairColor = npc->headRelatedData->hairColor;
-            a_outSnapshot.faceDetails = npc->headRelatedData->faceDetails;
+            snapshot.hairColor = npc->headRelatedData->hairColor;
+            snapshot.faceDetails = npc->headRelatedData->faceDetails;
         } else {
-            a_outSnapshot.hairColor = nullptr;
-            a_outSnapshot.faceDetails = nullptr;
+            snapshot.hairColor = nullptr;
+            snapshot.faceDetails = nullptr;
         }
 
         // Capture 3D rendered hair tint directly from 3D geometry
@@ -173,8 +171,8 @@ namespace InTheirShoes {
                 if (geom) {
                     if (auto* shaderProp = geom->lightingShaderProp_cast()) {
                         if (auto* hairMat = skyrim_cast<RE::BSLightingShaderMaterialHairTint*>(shaderProp->material)) {
-                            a_outSnapshot.hairTintColor = hairMat->tintColor;
-                            a_outSnapshot.hasHairTintColor = true;
+                            snapshot.hairTintColor = hairMat->tintColor;
+                            snapshot.hasHairTintColor = true;
                             return RE::BSVisit::BSVisitControl::kStop;
                         }
                     }
@@ -189,8 +187,8 @@ namespace InTheirShoes {
                 if (geom) {
                     if (auto* shaderProp = geom->lightingShaderProp_cast()) {
                         if (auto* faceMat = skyrim_cast<RE::BSLightingShaderMaterialFacegenTint*>(shaderProp->material)) {
-                            a_outSnapshot.skinTintColor = faceMat->tintColor;
-                            a_outSnapshot.hasSkinTintColor = true;
+                            snapshot.skinTintColor = faceMat->tintColor;
+                            snapshot.hasSkinTintColor = true;
                             return RE::BSVisit::BSVisitControl::kStop;
                         }
                     }
@@ -202,36 +200,35 @@ namespace InTheirShoes {
         // Face morphs & parts
         if (npc->faceData) {
             for (std::size_t i = 0; i < RE::TESNPC::FaceData::Morphs::kTotal; ++i) {
-                a_outSnapshot.morphs[i] = npc->faceData->morphs[i];
+                snapshot.morphs[i] = npc->faceData->morphs[i];
             }
             for (std::size_t i = 0; i < RE::TESNPC::FaceData::Parts::kTotal; ++i) {
-                a_outSnapshot.parts[i] = npc->faceData->parts[i];
+                snapshot.parts[i] = npc->faceData->parts[i];
             }
         }
 
         // Comprehensive Head parts capture (all types 0..6)
-        a_outSnapshot.headParts.clear();
         for (int t = 0; t <= static_cast<int>(RE::BGSHeadPart::HeadPartType::kEyebrows); ++t) {
             auto type = static_cast<RE::BGSHeadPart::HeadPartType>(t);
             auto* part = npc->GetCurrentHeadPartByType(type);
             if (!part) part = npc->GetHeadPartByType(type);
             if (part) {
-                a_outSnapshot.headParts.push_back(part);
+                snapshot.headParts.push_back(part);
             }
         }
         if (npc->headParts && npc->numHeadParts > 0) {
             for (std::int8_t i = 0; i < npc->numHeadParts; ++i) {
                 if (npc->headParts[i]) {
                     bool found = false;
-                    for (auto* existing : a_outSnapshot.headParts) {
+                    for (auto* existing : snapshot.headParts) {
                         if (existing == npc->headParts[i]) { found = true; break; }
                     }
-                    if (!found) a_outSnapshot.headParts.push_back(npc->headParts[i]);
+                    if (!found) snapshot.headParts.push_back(npc->headParts[i]);
                 }
             }
         }
 
-        return true;
+        return snapshot;
     }
 
     bool FaceManager::ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D, bool a_asPuppet) {
@@ -252,7 +249,7 @@ namespace InTheirShoes {
         targetNPC->skin = a_snapshot.skin;
         targetNPC->farSkin = a_snapshot.farSkin;
 
-        if (!a_asPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != 0x07) {
+        if (!a_asPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != Forms::kPlayerBaseID) {
             targetNPC->faceNPC = a_snapshot.faceNPC;
         } else {
             targetNPC->faceNPC = nullptr;
@@ -425,14 +422,14 @@ namespace InTheirShoes {
             return false;
         }
 
-        FaceSnapshot donorSnapshot;
-        if (!CaptureSnapshot(a_donor, donorSnapshot)) {
+        auto donorSnapshot = CaptureSnapshot(a_donor);
+        if (!donorSnapshot) {
             SKSE::log::error("Failed to capture appearance of donor actor {:08X}.",
                 static_cast<std::uint32_t>(a_donor->GetFormID()));
             return false;
         }
 
-        return ApplySnapshot(a_target, donorSnapshot);
+        return ApplySnapshot(a_target, *donorSnapshot);
     }
 
 }

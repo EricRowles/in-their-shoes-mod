@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -23,8 +25,8 @@ namespace InTheirShoes {
         RE::BSFixedString fullName;
 
         // Face Morphs
-        float morphs[RE::TESNPC::FaceData::Morphs::kTotal]{ 0.0f };
-        std::int32_t parts[RE::TESNPC::FaceData::Parts::kTotal]{ 0 };
+        std::array<float, RE::TESNPC::FaceData::Morphs::kTotal> morphs{};
+        std::array<std::int32_t, RE::TESNPC::FaceData::Parts::kTotal> parts{};
 
         // Head Parts
         std::vector<RE::BGSHeadPart*> headParts;
@@ -50,7 +52,8 @@ namespace InTheirShoes {
             return instance;
         }
 
-        bool CaptureSnapshot(RE::Actor* a_actor, FaceSnapshot& a_outSnapshot);
+        // Empty if the actor has no NPC base record
+        std::optional<FaceSnapshot> CaptureSnapshot(RE::Actor* a_actor);
 
         // a_asPuppet: the puppet gets the Dragonborn's look but no voice type or face template of its own
         bool ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D = true, bool a_asPuppet = false);

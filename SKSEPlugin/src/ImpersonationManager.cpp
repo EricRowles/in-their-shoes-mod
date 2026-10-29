@@ -66,8 +66,12 @@ namespace InTheirShoes {
 
     void ImpersonationManager::CaptureBaseline(RE::Actor* a_player) {
         Baseline baseline;
-        FaceManager::GetSingleton().CaptureSnapshot(a_player, baseline.face);
-        StatManager::CaptureSnapshot(a_player, baseline.stats);
+        if (auto face = FaceManager::GetSingleton().CaptureSnapshot(a_player)) {
+            baseline.face = std::move(*face);
+        }
+        if (auto stats = StatManager::CaptureSnapshot(a_player)) {
+            baseline.stats = std::move(*stats);
+        }
         InventoryManager::StashPlayerSpells(a_player, baseline.spells);
         SetBaseline(std::move(baseline));
         SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
@@ -117,13 +121,11 @@ namespace InTheirShoes {
 
         // Kept for the session: the donor's rendered skin and hair tints can only be read while its 3D is
         // loaded, and on a later load it is parked out of sight
-        FaceSnapshot donorFace;
-        if (faces.CaptureSnapshot(a_donor, donorFace)) {
-            faces.ApplySnapshot(player, donorFace);
-            _donorFace = std::move(donorFace);
+        _donorFace = faces.CaptureSnapshot(a_donor);
+        if (_donorFace) {
+            faces.ApplySnapshot(player, *_donorFace);
         } else {
             SKSE::log::error("Failed to capture the appearance of donor {:08X}.", a_donor->GetFormID());
-            _donorFace.reset();
         }
         StatManager::CopyStats(a_donor, player);
         InventoryManager::CopyDonorSpells(a_donor, player);

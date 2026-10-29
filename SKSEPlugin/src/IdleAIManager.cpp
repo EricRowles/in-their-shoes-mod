@@ -278,7 +278,7 @@ namespace InTheirShoes {
             CheckIdleAI();
         }
 
-        if (!_aiActive || !Session::GetSingleton().IsActive()) return;
+        if (!_aiActive || !player || !Session::GetSingleton().IsActive()) return;
 
         if (!_evaluatedAfterEngage && SecondsSince(_aiStartTime) >= kEvaluateAfterEngageSeconds) {
             _evaluatedAfterEngage = true;
