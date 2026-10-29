@@ -4,6 +4,7 @@
 #include "AliasSwapManager.h"
 #include "FaceManager.h"
 #include "Forms.h"
+#include "GameUtil.h"
 #include "Lifecycle.h"
 #include "OutfitManager.h"
 

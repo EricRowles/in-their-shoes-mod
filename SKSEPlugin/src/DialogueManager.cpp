@@ -2,6 +2,7 @@
 #include "DialogueManager.h"
 #include "ImpersonationManager.h"
 #include "Forms.h"
+#include "GameUtil.h"
 #include "Session.h"
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
@@ -43,10 +44,6 @@ namespace InTheirShoes {
     constexpr float kSoundTailSeconds = 0.25f;
     // The puppet stays the engine's speaker this long after self-dialogue's menu closes (see EndSelfDialogue)
     constexpr float kPuppetSpeakerClearSeconds = 1.0f;
-
-    static float SecondsSince(std::chrono::steady_clock::time_point a_time) {
-        return std::chrono::duration<float>(std::chrono::steady_clock::now() - a_time).count();
-    }
 
     static std::span<RE::BSSoundHandle> GetSoundHandles(RE::Actor* a_actor) {
         auto* process = a_actor ? a_actor->GetActorRuntimeData().currentProcess : nullptr;
@@ -273,7 +270,7 @@ namespace InTheirShoes {
         _pendingSelfDialogue.store(false, std::memory_order_release);
         _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
         _puppetSpeakerClearPending.store(false, std::memory_order_release);
-        _puppetSpeakerClearAt = {};
+        _puppetSpeakerClearAt.reset();
         _line.reset();
     }
 
@@ -515,15 +512,15 @@ namespace InTheirShoes {
         if (!_puppetSpeakerClearPending.load(std::memory_order_acquire)) return;
         auto* ui = RE::UI::GetSingleton();
         if (ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
-            _puppetSpeakerClearAt = {};
+            _puppetSpeakerClearAt.reset();
             return;
         }
-        if (_puppetSpeakerClearAt == std::chrono::steady_clock::time_point{}) {
+        if (!_puppetSpeakerClearAt) {
             _puppetSpeakerClearAt = std::chrono::steady_clock::now();
         }
-        if (SecondsSince(_puppetSpeakerClearAt) < kPuppetSpeakerClearSeconds) return;
+        if (SecondsSince(*_puppetSpeakerClearAt) < kPuppetSpeakerClearSeconds) return;
         _puppetSpeakerClearPending.store(false, std::memory_order_release);
-        _puppetSpeakerClearAt = {};
+        _puppetSpeakerClearAt.reset();
         ClearPuppetAsSpeaker();
     }
 

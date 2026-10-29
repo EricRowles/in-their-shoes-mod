@@ -92,7 +92,8 @@ namespace InTheirShoes {
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
         // Set when self-dialogue ends; the puppet is cleared as the engine's speaker shortly after the menu closes
         std::atomic<bool> _puppetSpeakerClearPending{ false };
-        std::chrono::steady_clock::time_point _puppetSpeakerClearAt{};
+        // When the menu was first seen closed, once it has
+        std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
 
         // The line the player is voicing. It exists only while the line plays, and is dropped as a whole
         // when it ends.

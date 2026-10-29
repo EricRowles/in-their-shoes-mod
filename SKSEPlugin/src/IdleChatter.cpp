@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "IdleChatter.h"
 #include "Forms.h"
+#include "GameUtil.h"
 #include "QuestConditions.h"
 #include "Session.h"
 
@@ -16,10 +17,6 @@ namespace InTheirShoes {
     namespace {
         // How often a line is looked for once the interval has passed
         constexpr float kEvalIntervalSeconds = 1.5f;
-
-        float SecondsSince(std::chrono::steady_clock::time_point a_time) {
-            return std::chrono::duration<float>(std::chrono::steady_clock::now() - a_time).count();
-        }
 
         // Only kIdle: other "misc" subtypes such as kPickpocketTopic played the wrong lines
         bool IsIdleTopic(const RE::TESTopic* a_topic) {

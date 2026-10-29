@@ -4,6 +4,7 @@
 #include "Session.h"
 #include "DialogueManager.h"
 #include "Forms.h"
+#include "GameUtil.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +26,8 @@ namespace InTheirShoes {
 
     // Game.SetPlayerAIDriven runs through the script VM, so the package is evaluated a moment later
     constexpr float kEvaluateAfterEngageSeconds = 0.25f;
+    // How often the donor's packages are synced to the player while idle AI runs
+    constexpr float kPackageSyncSeconds = 1.5f;
 
     // Updates aiControlledPackage synchronously so immediate EvaluatePackage calls see the new state,
     // and dispatches Game.SetPlayerAIDriven through the VM to switch the movement controller cleanly.
@@ -277,27 +280,22 @@ namespace InTheirShoes {
 
         if (!_aiActive || !Session::GetSingleton().IsActive()) return;
 
-        if (!_evaluatedAfterEngage && SecondsSinceEngage() >= kEvaluateAfterEngageSeconds) {
+        if (!_evaluatedAfterEngage && SecondsSince(_aiStartTime) >= kEvaluateAfterEngageSeconds) {
             _evaluatedAfterEngage = true;
             player->EvaluatePackage(true, true);
         }
 
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration<float>(now - _lastPackageSyncTime).count() >= 1.5f) {
-            _lastPackageSyncTime = now;
+        if (SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds) {
+            _lastPackageSyncTime = std::chrono::steady_clock::now();
             SyncDonorPackagesToPlayer();
         }
         LogRunningPackage();
         CheckForceGreetReachedPuppet();
     }
 
-    float IdleAIManager::SecondsSinceEngage() const {
-        return std::chrono::duration<float>(std::chrono::steady_clock::now() - _aiStartTime).count();
-    }
-
     void IdleAIManager::LogRunningPackage() {
         // Report the first package seen after engaging (or that there is none), then every change
-        if (SecondsSinceEngage() < 1.0f) return;
+        if (SecondsSince(_aiStartTime) < 1.0f) return;
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* pkg = player ? player->GetCurrentPackage() : nullptr;
         if (_runningPackageLogged && pkg == _loggedPackage) return;
@@ -415,8 +413,7 @@ namespace InTheirShoes {
             return;
         }
 
-        float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - _lastInputTime).count();
-        if (elapsed >= _idleTimeoutSeconds && !_aiActive) {
+        if (SecondsSince(_lastInputTime) >= _idleTimeoutSeconds && !_aiActive) {
             StartIdleAI();
         }
     }

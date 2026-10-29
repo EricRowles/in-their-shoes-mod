@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "AliasSwapManager.h"
 #include "Forms.h"
+#include "GameUtil.h"
 #include "Session.h"
 
 #include <unordered_map>

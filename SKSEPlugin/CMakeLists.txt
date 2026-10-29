@@ -20,6 +20,7 @@ add_library(${PROJECT_NAME} SHARED
     src/main.cpp
     src/Forms.h
     src/Forms.cpp
+    src/GameUtil.h
     src/Session.h
     src/Lifecycle.h
     src/Lifecycle.cpp

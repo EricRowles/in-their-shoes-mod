@@ -68,7 +68,6 @@ namespace InTheirShoes {
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
         void LogRunningPackage();
-        float SecondsSinceEngage() const;
 
         static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
         using ForceGreet_InitExecState_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
