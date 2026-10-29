@@ -26,6 +26,7 @@ endFunction
 ; Pushes every MCM setting to the native plugin. The settings are not saved natively, so this runs
 ; on first init, on version update and on every game load (via ITS_QuestScript.ITS_Maintenance).
 function PushConfig()
+	; Below the slider's minimum, from an old save
 	if IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	endif
@@ -49,30 +50,27 @@ function ApplyPuppetFollows()
 endFunction
 
 event OnVersionUpdate(int a_version)
-	ModName = "In Their Shoes"
-	Pages = None
-	PushConfig()
+	SetUpMenu()
 endEvent
 
 event OnConfigInit()
+	SetUpMenu()
+endEvent
+
+function SetUpMenu()
 	ModName = "In Their Shoes"
 	Pages = None
 	PushConfig()
-endEvent
+endFunction
 
 function RefreshConfig()
 	OnGameReload()
 endFunction
 
 event OnPageReset(string page)
-	if IdleChatterTime < 10.0
-		IdleChatterTime = 60.0
-	endif
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
 	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
-	AddTextOption("Status", "Config Active", OPTION_FLAG_DISABLED)
-	AddEmptyOption()
 
 	; Left Column: Autonomous AI & Gameplay Settings
 	SetCursorPosition(4)
