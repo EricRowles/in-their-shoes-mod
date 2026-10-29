@@ -63,12 +63,6 @@ Function SetUpMenu()
 	PushConfig()
 EndFunction
 
-; Called by ITS_PlayerScript on every load. SkyUI calls OnGameReload itself only from a
-; SKI_PlayerLoadGameAlias, which this mod's Player alias doesn't have.
-Function RefreshConfig()
-	OnGameReload()
-EndFunction
-
 Event OnPageReset(String page)
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
