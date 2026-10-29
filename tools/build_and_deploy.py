@@ -78,6 +78,12 @@ def build_cpp():
         print(res.stderr)
         sys.exit(res.returncode)
     print("C++ Plugin build successful!")
+    # Only rebuilt files report warnings, so a warning shows on the build that introduced it
+    warnings = sorted({line.strip() for line in res.stdout.splitlines() if ": warning C" in line})
+    for line in warnings:
+        print(line)
+    if warnings:
+        print(f"{len(warnings)} compiler warning(s)")
 
     os.makedirs(os.path.dirname(DLL_REPO_DEST), exist_ok=True)
     if os.path.exists(DLL_SRC):
