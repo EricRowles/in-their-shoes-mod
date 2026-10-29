@@ -1,73 +1,75 @@
-Scriptname ITS_MCMScript extends SKI_ConfigBase 
+Scriptname ITS_MCMScript extends SKI_ConfigBase
 
-ITS_QuestScript property ITS_Quest auto
+ITS_QuestScript Property ITS_Quest Auto
 GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the PlayerPuppet alias
 
 ; MCM Property Variables
-bool Property IdleAIEnabled = True Auto
+Bool Property IdleAIEnabled = True Auto
 Float Property IdleAITimeout = 10.0 Auto
 Float Property IdleChatterTime = 60.0 Auto
-bool Property NPCVoiceEnabled = True Auto
-bool Property PuppetFollowsPlayer = True Auto
+Bool Property NPCVoiceEnabled = True Auto
+Bool Property PuppetFollowsPlayer = True Auto
 
 ; Option IDs
-int _oid_idleAI
-int _oid_idleTimeout
-int _oid_idleChatterTime
-int _oid_npcVoice
-int _oid_puppetFollows
-int _oid_revert
-bool _pendingRevert = false
+Int _oid_idleAI
+Int _oid_idleTimeout
+Int _oid_idleChatterTime
+Int _oid_npcVoice
+Int _oid_puppetFollows
+Int _oid_revert
+Bool _pendingRevert = False
 
-int function GetVersion()
-	return 1
-endFunction
+Int Function GetVersion()
+	Return 1
+EndFunction
 
 ; Pushes every MCM setting to the native plugin. The settings are not saved natively, so this runs
 ; on first init, on version update and on every game load (via ITS_QuestScript.ITS_Maintenance).
-function PushConfig()
+Function PushConfig()
 	; Below the slider's minimum, from an old save
-	if IdleChatterTime < 10.0
+	If IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
-	endif
+	EndIf
 
 	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
 	ITS_NG.SetIdleAITimeout(IdleAITimeout)
 	ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
 	ApplyPuppetFollows()
-endFunction
+EndFunction
 
-function ApplyPuppetFollows()
-	if ITS_PuppetFollows
-		if PuppetFollowsPlayer
+Function ApplyPuppetFollows()
+	If ITS_PuppetFollows
+		If PuppetFollowsPlayer
 			ITS_PuppetFollows.SetValue(1.0)
-		else
+		Else
 			ITS_PuppetFollows.SetValue(0.0)
-		endif
-	endif
+		EndIf
+	EndIf
 	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
-endFunction
+EndFunction
 
-event OnVersionUpdate(int a_version)
+Event OnVersionUpdate(Int a_version)
 	SetUpMenu()
-endEvent
+EndEvent
 
-event OnConfigInit()
+Event OnConfigInit()
 	SetUpMenu()
-endEvent
+EndEvent
 
-function SetUpMenu()
+Function SetUpMenu()
 	ModName = "In Their Shoes"
 	Pages = None
 	PushConfig()
-endFunction
+EndFunction
 
-function RefreshConfig()
+; Called by ITS_PlayerScript on every load. SkyUI calls OnGameReload itself only from a
+; SKI_PlayerLoadGameAlias, which this mod's Player alias doesn't have.
+Function RefreshConfig()
 	OnGameReload()
-endFunction
+EndFunction
 
-event OnPageReset(string page)
+Event OnPageReset(String page)
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
 	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
@@ -93,84 +95,84 @@ event OnPageReset(string page)
 	Else
 		_oid_revert = AddTextOption("Return to Body", "Already in Body", OPTION_FLAG_DISABLED)
 	EndIf
-endEvent
+EndEvent
 
-event OnOptionSelect(int option)
-	if option == _oid_idleAI
+Event OnOptionSelect(Int option)
+	If option == _oid_idleAI
 		IdleAIEnabled = !IdleAIEnabled
 		SetToggleOptionValue(_oid_idleAI, IdleAIEnabled)
 		ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
-	elseif option == _oid_npcVoice
+	ElseIf option == _oid_npcVoice
 		NPCVoiceEnabled = !NPCVoiceEnabled
 		SetToggleOptionValue(_oid_npcVoice, NPCVoiceEnabled)
 		ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
-	elseif option == _oid_puppetFollows
+	ElseIf option == _oid_puppetFollows
 		PuppetFollowsPlayer = !PuppetFollowsPlayer
 		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
 		ApplyPuppetFollows()
-	elseif option == _oid_revert
-		if ITS_Quest.Alias_OriginalDonor.GetActorReference()
+	ElseIf option == _oid_revert
+		If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 			Debug.Notification("Close the menu to return to your body.")
-			_pendingRevert = true
+			_pendingRevert = True
 			SetTextOptionValue(_oid_revert, "Pending Menu Close...")
-		endif
-	endif
-endEvent
+		EndIf
+	EndIf
+EndEvent
 
-event OnConfigClose()
-	if _pendingRevert
-		_pendingRevert = false
+Event OnConfigClose()
+	If _pendingRevert
+		_pendingRevert = False
 		RegisterForSingleUpdate(0.1)
-	endif
-endEvent
+	EndIf
+EndEvent
 
-event OnUpdate()
-	if ITS_Quest.Alias_OriginalDonor.GetActorReference()
+Event OnUpdate()
+	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 		ITS_Quest.ITS_Revert()
-	endif
-endEvent
+	EndIf
+EndEvent
 
-event OnOptionKeyMapChange(int option, int keyCode, string conflictControl, string conflictName)
-endEvent
+Event OnOptionKeyMapChange(Int option, Int keyCode, String conflictControl, String conflictName)
+EndEvent
 
-event OnOptionSliderOpen(int option)
-	if option == _oid_idleTimeout
+Event OnOptionSliderOpen(Int option)
+	If option == _oid_idleTimeout
 		SetSliderDialogStartValue(IdleAITimeout)
 		SetSliderDialogDefaultValue(10.0)
 		SetSliderDialogRange(1.0, 120.0)
 		SetSliderDialogInterval(1.0)
-	elseif option == _oid_idleChatterTime
+	ElseIf option == _oid_idleChatterTime
 		SetSliderDialogStartValue(IdleChatterTime)
 		SetSliderDialogDefaultValue(60.0)
 		SetSliderDialogRange(10.0, 600.0)
 		SetSliderDialogInterval(10.0)
-	endif
-endEvent
+	EndIf
+EndEvent
 
-event OnOptionSliderAccept(int option, float value)
-	if option == _oid_idleTimeout
+Event OnOptionSliderAccept(Int option, Float value)
+	If option == _oid_idleTimeout
 		IdleAITimeout = value
 		SetSliderOptionValue(_oid_idleTimeout, IdleAITimeout, "{1} s")
 		ITS_NG.SetIdleAITimeout(IdleAITimeout)
-	elseif option == _oid_idleChatterTime
+	ElseIf option == _oid_idleChatterTime
 		IdleChatterTime = value
 		SetSliderOptionValue(_oid_idleChatterTime, IdleChatterTime, "{0} s")
 		ITS_NG.SetIdleChatterTime(IdleChatterTime)
-	endif
-endEvent
+	EndIf
+EndEvent
 
-event OnOptionHighlight(int option)
-	if option == _oid_idleAI
+Event OnOptionHighlight(Int option)
+	If option == _oid_idleAI
 		SetInfoText("Enables autonomous AI pathing on your player after a few seconds of inactivity.")
-	elseif option == _oid_idleTimeout
+	ElseIf option == _oid_idleTimeout
 		SetInfoText("Seconds of player inactivity before autonomous AI pathing begins.")
-	elseif option == _oid_npcVoice
+	ElseIf option == _oid_npcVoice
 		SetInfoText("Enables donor NPC voice comments and voice identity on the player while impersonating.")
-	elseif option == _oid_idleChatterTime
+	ElseIf option == _oid_idleChatterTime
 		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
-	elseif option == _oid_puppetFollows
+	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
-	elseif option == _oid_revert
+	ElseIf option == _oid_revert
 		SetInfoText("Immediately return control back to your original character.")
-	endif
-endEvent
+	EndIf
+EndEvent

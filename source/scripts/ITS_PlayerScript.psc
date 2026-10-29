@@ -1,4 +1,4 @@
-Scriptname ITS_PlayerScript extends ReferenceAlias  
+Scriptname ITS_PlayerScript extends ReferenceAlias
 
 ITS_QuestScript Property ITS_Quest Auto
 ITS_MCMScript Property ITS_MCM Auto
