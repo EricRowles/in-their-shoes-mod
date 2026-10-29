@@ -119,6 +119,10 @@ namespace InTheirShoes::Papyrus {
             return fmt::format("{}.{}.{}", ITS_VERSION_MAJOR, ITS_VERSION_MINOR, ITS_VERSION_PATCH);
         }
 
+        bool IsImpersonating(RE::StaticFunctionTag*) {
+            return Session::GetSingleton().IsActive();
+        }
+
         bool IsPlayerTransformed(RE::StaticFunctionTag*) {
             return ImpersonationManager::IsPlayerTransformed();
         }
@@ -207,6 +211,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
         a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);
         a_vm->RegisterFunction("GetPluginVersion", className, GetPluginVersion);
+        a_vm->RegisterFunction("IsImpersonating", className, IsImpersonating);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;

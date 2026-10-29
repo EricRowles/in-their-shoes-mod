@@ -132,7 +132,14 @@ Function ITS_Revert()
 
 		; Restore state first so the native donor leash is off before anyone moves
 		ITS_TempMarker.MoveTo(PlayerRef)
-		ITS_NG.Revert()
+		If !ITS_NG.Revert() && ITS_NG.IsImpersonating()
+			; The plugin refused and still holds the session: leave everyone where they are. (If the plugin has
+			; no session, e.g. after a lost co-save, carry on so the aliases and actors are put back.)
+			ITS_TempMarker.MoveTo(ITS_StorageMarker)
+			Game.FadeOutGame(False, True, 0.0, 0.4)
+			Debug.Notification("Couldn't return to your body.")
+			Return
+		EndIf
 
 		; The player returns to the puppet's spot and the donor takes the player's old spot
 		PlayerRef.MoveTo(puppet)

@@ -38,5 +38,8 @@ Int Function ValidateImpersonateTarget(Actor a_target) Global Native
 ; Impersonate and Revert refuse while it is true.
 Bool Function IsPlayerTransformed() Global Native
 
+; Whether the plugin has an impersonation session. It can differ from ITS_Quest's aliases if the co-save was lost.
+Bool Function IsImpersonating() Global Native
+
 ; The plugin's version, e.g. "0.5.0"
 String Function GetPluginVersion() Global Native
