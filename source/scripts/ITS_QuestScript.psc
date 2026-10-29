@@ -98,7 +98,8 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 
 	; On the first impersonation, the puppet takes the player's spot (in the loaded cell, so its 3D is attached
 	; before morphing). On a donor-to-donor switch the puppet stays where it is and the old donor takes the player's spot.
-	If !Alias_OriginalDonor.GetActorReference()
+	Bool firstImpersonation = !Alias_OriginalDonor.GetActorReference()
+	If firstImpersonation
 		puppet.MoveTo(PlayerRef)
 		Utility.Wait(0.1)
 	EndIf
@@ -111,6 +112,12 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 		UpdateRevertSpell()
 		Debug.Notification("Control Swapped")
 	Else
+		If firstImpersonation
+			; Nothing changed natively, so put the puppet away again
+			puppet.BlockActivation(False)
+			puppet.MoveTo(ITS_StorageMarker)
+			Alias_PlayerPuppet.Clear()
+		EndIf
 		Debug.Notification("Impersonation failed.")
 	EndIf
 	ITS_TempMarker.MoveTo(ITS_StorageMarker)
