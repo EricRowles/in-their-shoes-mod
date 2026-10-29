@@ -9,23 +9,6 @@
 
 namespace InTheirShoes {
 
-    // A package target redirected from the player to the puppet while autonomous AI is active
-    struct RetargetedPackageTarget {
-        RE::PackageTarget* target{ nullptr };
-        std::int8_t origType{ 0 };
-        RE::ObjectRefHandle origHandle;
-        RE::TESForm* origObject{ nullptr };
-    };
-
-    // A package location redirected from the player to the puppet while autonomous AI is active
-    struct RetargetedPackageLocation {
-        RE::PackageLocation* location{ nullptr };
-        std::uint8_t origType{ 0 };
-        RE::ObjectRefHandle origHandle;
-        RE::TESForm* origObject{ nullptr };
-        std::uint32_t origRad{ 0 };
-    };
-
     // Drives the player with the donor's AI packages after a period without input.
     // Runs entirely on the main thread (player update, input events, Papyrus natives).
     class IdleAIManager : public Singleton<IdleAIManager>,
@@ -88,6 +71,23 @@ namespace InTheirShoes {
         std::chrono::steady_clock::time_point _lastPackageSyncTime{ std::chrono::steady_clock::now() };
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };
         bool _savedUserRunning{ true };
+
+        // A package target redirected from the player to the puppet while autonomous AI is active
+        struct RetargetedPackageTarget {
+            RE::PackageTarget* target{ nullptr };
+            std::int8_t origType{ 0 };
+            RE::ObjectRefHandle origHandle;
+            RE::TESForm* origObject{ nullptr };
+        };
+
+        // A package location redirected from the player to the puppet while autonomous AI is active
+        struct RetargetedPackageLocation {
+            RE::PackageLocation* location{ nullptr };
+            std::uint8_t origType{ 0 };
+            RE::ObjectRefHandle origHandle;
+            RE::TESForm* origObject{ nullptr };
+            std::uint32_t origRad{ 0 };
+        };
 
         std::vector<RetargetedPackageTarget> _retargetedTargets;
         std::vector<RetargetedPackageLocation> _retargetedLocations;
