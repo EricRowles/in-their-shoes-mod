@@ -41,10 +41,8 @@ namespace InTheirShoes {
 
         void SetPuppetFollowsPlayer(bool a_follows);
 
-        // Hand changes made to the puppet in self-dialogue (it stands in for the donor) to the donor:
-        // factions go to the donor, and quest aliases go to the player, who holds the donor's aliases
+        // Faction changes made to the puppet in self-dialogue (it stands in for the donor) go to the donor
         void ForwardPuppetFactionsToDonor();
-        void AdoptPuppetAliases();
 
         // Serialization
         const std::optional<Baseline>& GetBaseline() const { return _baseline; }

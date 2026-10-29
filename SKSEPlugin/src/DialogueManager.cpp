@@ -1,6 +1,6 @@
 #include "PCH.h"
 #include "DialogueManager.h"
-#include "ImpersonationManager.h"
+#include "Lifecycle.h"
 #include "Forms.h"
 #include "GameUtil.h"
 #include "Session.h"
@@ -316,9 +316,7 @@ namespace InTheirShoes {
         if (Session::GetSingleton().IsInSelfDialogue()) {
             // Topic fragments (run by the VM, a frame or more after their line) change the speaker, the
             // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen.
-            auto& impMgr = ImpersonationManager::GetSingleton();
-            impMgr.ForwardPuppetFactionsToDonor();
-            impMgr.AdoptPuppetAliases();
+            Lifecycle::OnPuppetChangedInSelfDialogue();
         }
         if (!_line) {
             if (auto item = IdleChatter::GetSingleton().Poll()) {
@@ -488,9 +486,7 @@ namespace InTheirShoes {
         // What topic fragments did to the speaker (the puppet) belongs to the donor: factions go to the
         // donor, and quest aliases (e.g. a follower alias) go to the player standing in for the donor.
         // Update() forwards them every frame during self-dialogue; this catches the last frame's.
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        impMgr.ForwardPuppetFactionsToDonor();
-        impMgr.AdoptPuppetAliases();
+        Lifecycle::OnPuppetChangedInSelfDialogue();
     }
 
     bool DialogueManager::Hook_SetDialogueWithPlayer(RE::Actor* a_this, bool a_flag, bool a_forceGreet, RE::TESTopicInfo* a_topic) {

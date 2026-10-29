@@ -32,11 +32,6 @@ namespace InTheirShoes {
         extraFaction->factionChanges.clear();
     }
 
-    void ImpersonationManager::AdoptPuppetAliases() {
-        if (!IsActive()) return;
-        AliasSwapManager::GetSingleton().AdoptPuppetAliases(GetPuppet(), GetPlayer());
-    }
-
     void ImpersonationManager::Initialize() {
         if (Forms::storageMarker) {
             _storageMarker = Forms::storageMarker->GetHandle();

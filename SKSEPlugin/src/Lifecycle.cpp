@@ -60,6 +60,13 @@ namespace InTheirShoes::Lifecycle {
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
     }
 
+    void OnPuppetChangedInSelfDialogue() {
+        ImpersonationManager::GetSingleton().ForwardPuppetFactionsToDonor();
+        if (auto& session = Session::GetSingleton(); session.IsActive()) {
+            AliasSwapManager::GetSingleton().AdoptPuppetAliases(session.GetPuppet(), Session::GetPlayer());
+        }
+    }
+
     void OnSessionEnd() {
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
