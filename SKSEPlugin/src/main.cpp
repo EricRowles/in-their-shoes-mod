@@ -1,11 +1,8 @@
 #include "PCH.h"
 #include <spdlog/sinks/msvc_sink.h>
-#include "Forms.h"
+#include "Lifecycle.h"
 #include "Papyrus.h"
 #include "Serialization.h"
-#include "IdleAIManager.h"
-#include "DialogueManager.h"
-#include "ImpersonationManager.h"
 
 SKSEPluginInfo(
     .Version = { 1, 0, 0, 0 },
@@ -40,13 +37,11 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
     if (!a_msg) return;
 
     if (a_msg->type == SKSE::MessagingInterface::kInputLoaded) {
-        InTheirShoes::IdleAIManager::GetSingleton().Initialize();
+        InTheirShoes::Lifecycle::OnInputLoaded();
     } else if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-        InTheirShoes::Forms::Resolve();
-        InTheirShoes::DialogueManager::GetSingleton().Initialize();
-        InTheirShoes::ImpersonationManager::GetSingleton().Initialize();
+        InTheirShoes::Lifecycle::OnDataLoaded();
     } else if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame) {
-        InTheirShoes::ImpersonationManager::GetSingleton().OnPostLoadGame();
+        InTheirShoes::Lifecycle::OnPostLoadGame();
     }
 }
 

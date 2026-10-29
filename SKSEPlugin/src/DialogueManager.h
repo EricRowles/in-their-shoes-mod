@@ -14,7 +14,8 @@ namespace InTheirShoes {
     // is held "speaking" until the player's line ends, so the engine waits for the player.
     // The player's own lines (scenes on swapped aliases) and idle chatter are voiced the same way.
     //
-    // Hooks run on the main thread, except IsInSelfDialogue(), which condition hooks may call from AI threads.
+    // Hooks run on the main thread. Whether self-dialogue is on is published in Session, which condition hooks
+    // read from AI threads.
     class DialogueManager :
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>,
         public RE::BSTEventSink<RE::InputEvent*>,
@@ -40,7 +41,6 @@ namespace InTheirShoes {
 
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
-        bool IsInSelfDialogue() const { return _inSelfDialogue.load(std::memory_order_acquire); }
 
         // Idle chatter
         void SetIdleChatterTime(float a_seconds) { _idleChatterTimeSeconds = a_seconds < 10.0f ? 60.0f : a_seconds; }
@@ -95,7 +95,6 @@ namespace InTheirShoes {
         inline static REL::Relocation<SetDialogueWithPlayer_t> _origSetDialogueWithPlayer;
 
         bool _initialized{ false };
-        std::atomic<bool> _inSelfDialogue{ false };
         std::atomic<bool> _pendingSelfDialogue{ false };
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
         // Set when self-dialogue ends; the puppet is cleared as the engine's speaker shortly after the menu closes

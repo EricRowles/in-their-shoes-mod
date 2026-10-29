@@ -1,6 +1,8 @@
 #include "PCH.h"
 #include "DialogueManager.h"
 #include "ImpersonationManager.h"
+#include "Forms.h"
+#include "Session.h"
 #include "IdleAIManager.h"
 
 #include <random>
@@ -243,7 +245,7 @@ namespace InTheirShoes {
     void DialogueManager::Update() {
         if (_pendingSelfDialogue.exchange(false, std::memory_order_acq_rel)) {
             auto* topic = _pendingSelfDialogueTopic.exchange(nullptr, std::memory_order_acq_rel);
-            if (auto* puppet = ImpersonationManager::GetSingleton().GetPuppet()) {
+            if (auto* puppet = Session::GetSingleton().GetPuppet()) {
                 OpenSelfDialogueDirect(puppet, topic);
             }
         }
@@ -251,7 +253,7 @@ namespace InTheirShoes {
             TickPlayerLine();
         }
         UpdatePuppetSpeakerClear();
-        if (IsInSelfDialogue()) {
+        if (Session::GetSingleton().IsInSelfDialogue()) {
             // Topic fragments (run by the VM, a frame or more after their line) change the speaker, the
             // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen.
             auto& impMgr = ImpersonationManager::GetSingleton();
@@ -262,7 +264,7 @@ namespace InTheirShoes {
     }
 
     void DialogueManager::Clear() {
-        _inSelfDialogue.store(false, std::memory_order_release);
+        Session::GetSingleton().SetInSelfDialogue(false);
         _pendingSelfDialogue.store(false, std::memory_order_release);
         _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
         _puppetSpeakerClearPending.store(false, std::memory_order_release);
@@ -282,7 +284,7 @@ namespace InTheirShoes {
     RE::BSEventNotifyControl DialogueManager::ProcessEvent(
         const RE::MenuOpenCloseEvent* a_event,
         RE::BSTEventSource<RE::MenuOpenCloseEvent>* /*a_eventSource*/) {
-        if (a_event && !a_event->opening && a_event->menuName == RE::DialogueMenu::MENU_NAME && IsInSelfDialogue()) {
+        if (a_event && !a_event->opening && a_event->menuName == RE::DialogueMenu::MENU_NAME && Session::GetSingleton().IsInSelfDialogue()) {
             EndSelfDialogue();
         }
         return RE::BSEventNotifyControl::kContinue;
@@ -291,8 +293,8 @@ namespace InTheirShoes {
     RE::BSEventNotifyControl DialogueManager::ProcessEvent(
         const RE::TESTopicInfoEvent* a_event,
         RE::BSTEventSource<RE::TESTopicInfoEvent>* /*a_eventSource*/) {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        if (a_event && impMgr.IsActive() && a_event->speakerRef && a_event->speakerRef.get() == impMgr.GetPuppet()) {
+        auto& session = Session::GetSingleton();
+        if (a_event && session.IsActive() && a_event->speakerRef && a_event->speakerRef.get() == session.GetPuppet()) {
             bool ended = a_event->type == RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd;
             SKSE::log::info("Puppet topic info {:08X} {}", a_event->topicInfoFormID, ended ? "ended" : "began");
         }
@@ -343,7 +345,7 @@ namespace InTheirShoes {
     RE::BSEventNotifyControl DialogueManager::ProcessEvent(
         RE::InputEvent* const* a_event,
         RE::BSTEventSource<RE::InputEvent*>* /*a_eventSource*/) {
-        if (!a_event || !_playerLineActive || !_standIn || !IsInSelfDialogue() ||
+        if (!a_event || !_playerLineActive || !_standIn || !Session::GetSingleton().IsInSelfDialogue() ||
             SecondsSince(_playerLineStart) < kLineStartGraceSeconds) {
             return RE::BSEventNotifyControl::kContinue;
         }
@@ -369,7 +371,7 @@ namespace InTheirShoes {
     static void ClearPuppetAsSpeaker();
 
     bool DialogueManager::OpenSelfDialogue(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic) {
-        auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
+        auto* puppet = Session::GetSingleton().GetPuppet();
         if (!a_speaker) {
             a_speaker = puppet;
         }
@@ -432,7 +434,7 @@ namespace InTheirShoes {
         if (a_forceGreetTopic && a_forceGreetTopic->numTopicInfos > 0 && a_forceGreetTopic->topicInfos) {
             // Evaluate conditions with self-dialogue active so the puppet tests as the donor
             // and the player tests as the Dragonborn
-            _inSelfDialogue.store(true, std::memory_order_release);
+            Session::GetSingleton().SetInSelfDialogue(true);
             for (std::uint32_t i = 0; i < a_forceGreetTopic->numTopicInfos; ++i) {
                 auto* info = a_forceGreetTopic->topicInfos[i];
                 if (!info) continue;
@@ -454,7 +456,7 @@ namespace InTheirShoes {
         }
 
         SKSE::log::error("Failed to open dialogue with puppet {:08X}", a_speaker->GetFormID());
-        _inSelfDialogue.store(false, std::memory_order_release);
+        Session::GetSingleton().SetInSelfDialogue(false);
         return false;
     }
 
@@ -462,7 +464,7 @@ namespace InTheirShoes {
     // activating it again
     static void ClearPuppetAsSpeaker() {
         auto* topicMgr = RE::MenuTopicManager::GetSingleton();
-        auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
+        auto* puppet = Session::GetSingleton().GetPuppet();
         if (!topicMgr || !puppet) return;
         auto handle = puppet->GetHandle();
         if (topicMgr->speaker == handle) {
@@ -475,7 +477,7 @@ namespace InTheirShoes {
 
     void DialogueManager::EndSelfDialogue() {
         SKSE::log::info("Self-dialogue ended");
-        _inSelfDialogue.store(false, std::memory_order_release);
+        Session::GetSingleton().SetInSelfDialogue(false);
         // Leaving mid-line ends the line, so the engine sees the puppet finish speaking
         if (_playerLineActive) {
             FinishPlayerLine();
@@ -492,22 +494,22 @@ namespace InTheirShoes {
     }
 
     bool DialogueManager::Hook_SetDialogueWithPlayer(RE::Actor* a_this, bool a_flag, bool a_forceGreet, RE::TESTopicInfo* a_topic) {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        if (a_this && impMgr.IsActive()) {
+        auto& session = Session::GetSingleton();
+        if (a_this && session.IsActive()) {
             auto& self = DialogueManager::GetSingleton();
-            if (a_this == impMgr.GetPuppet()) {
+            if (a_this == session.GetPuppet()) {
                 SKSE::log::info("Hook_SetDialogueWithPlayer: puppet flag={} forceGreet={}", a_flag, a_forceGreet);
                 if (a_flag) {
-                    self._inSelfDialogue.store(true, std::memory_order_release);
-                } else if (self.IsInSelfDialogue()) {
+                    session.SetInSelfDialogue(true);
+                } else if (session.IsInSelfDialogue()) {
                     self.EndSelfDialogue();
                 }
             } else if (a_flag) {
-                self._inSelfDialogue.store(false, std::memory_order_release);
+                session.SetInSelfDialogue(false);
             }
         }
         bool ret = _origSetDialogueWithPlayer(a_this, a_flag, a_forceGreet, a_topic);
-        if (!a_flag && a_this && impMgr.IsActive() && a_this == impMgr.GetPuppet()) {
+        if (!a_flag && a_this && session.IsActive() && a_this == session.GetPuppet()) {
             GetSingleton()._puppetSpeakerClearPending.store(true, std::memory_order_release);
         }
         return ret;
@@ -552,7 +554,7 @@ namespace InTheirShoes {
         // the line itself (with lip sync) when the voice file is loaded. TickPlayerLine retries it while
         // the file loads, and falls back to playing the file without lip sync.
         auto* ui = RE::UI::GetSingleton();
-        _playerLineWaitsForMenu = IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
+        _playerLineWaitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
         if (!_playerLineWaitsForMenu) {
             _origCharUpdateInDialogue(player, a_response, a_unused);
             runtime.soundCallBackSet = 1;
@@ -712,15 +714,15 @@ namespace InTheirShoes {
     // --- Hooks ---
 
     static bool IsDonorStandIn(const RE::Actor* a_actor) {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        return a_actor && impMgr.IsActive() &&
-               ((a_actor == impMgr.GetPuppet() && DialogueManager::GetSingleton().IsInSelfDialogue()) ||
-                   a_actor == impMgr.GetDonor());
+        auto& session = Session::GetSingleton();
+        return a_actor && session.IsActive() &&
+               ((a_actor == session.GetPuppet() && session.IsInSelfDialogue()) ||
+                   a_actor == session.GetDonor());
     }
 
     bool DialogueManager::Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        if (!a_this || !impMgr.IsActive()) {
+        auto& session = Session::GetSingleton();
+        if (!a_this || !session.IsActive()) {
             return _origCharUpdateInDialogue(a_this, a_response, a_unused);
         }
         auto& self = DialogueManager::GetSingleton();
@@ -739,7 +741,7 @@ namespace InTheirShoes {
             // the hidden donor) still runs the engine's response object, silenced: the engine tracks which
             // response the speaker is on by that object, and only moves to the next one if it matches.
             // The response belongs to this one playing of the topic, so silencing it is safe.
-            if (a_this != impMgr.GetPuppet()) {
+            if (a_this != session.GetPuppet()) {
                 // The donor is out of sight, so its subtitle is shown for the player
                 QueueSubtitle(RE::PlayerCharacter::GetSingleton(), a_response);
             }
@@ -752,7 +754,7 @@ namespace InTheirShoes {
             return ret;
         }
 
-        if (a_this == impMgr.GetPuppet()) {
+        if (a_this == session.GetPuppet()) {
             // Outside self-dialogue the puppet is the silent Dragonborn
             SKSE::log::info("Suppressing puppet line outside self-dialogue: '{}'", a_response->text.c_str());
             return false;
@@ -770,8 +772,8 @@ namespace InTheirShoes {
     }
 
     bool DialogueManager::Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        if (a_this && a_response && impMgr.IsActive()) {
+        auto& session = Session::GetSingleton();
+        if (a_this && a_response && session.IsActive()) {
             // In a menu conversation the player's own lines are never voiced
             auto* ui = RE::UI::GetSingleton();
             if (ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
@@ -788,7 +790,7 @@ namespace InTheirShoes {
     }
 
     bool DialogueManager::Hook_Player_QSpeakingDone(const RE::Actor* a_this) {
-        if (a_this && ImpersonationManager::GetSingleton().IsActive()) {
+        if (a_this && Session::GetSingleton().IsActive()) {
             return !DialogueManager::GetSingleton()._playerLineActive;
         }
         return _origPlayerQSpeakingDone(a_this);
@@ -796,7 +798,7 @@ namespace InTheirShoes {
 
     void DialogueManager::Hook_Player_SetSpeakingDone(RE::Actor* a_this, bool a_set) {
         // While the player voices a line, only FinishPlayerLine decides when it's done
-        if (a_set && ImpersonationManager::GetSingleton().IsActive() && DialogueManager::GetSingleton()._playerLineActive) {
+        if (a_set && Session::GetSingleton().IsActive() && DialogueManager::GetSingleton()._playerLineActive) {
             return;
         }
         _origPlayerSetSpeakingDone(a_this, a_set);
@@ -845,7 +847,7 @@ namespace InTheirShoes {
 
         constexpr auto kMiscIndex = RE::DIALOGUE_TYPE::kMiscellaneous - RE::DIALOGUE_TYPE::kBranchedTotal;
         for (auto* quest : dataHandler->GetFormArray<RE::TESQuest>()) {
-            if (!quest || ImpersonationManager::IsModInternalQuest(quest)) continue;
+            if (!quest || Forms::IsModQuest(quest)) continue;
             for (auto* topic : quest->topics[kMiscIndex]) {
                 if (topic && topic->numTopicInfos > 0 && topic->topicInfos && IsIdleTopic(topic)) {
                     _idleTopics.push_back({ quest, topic });
@@ -862,7 +864,7 @@ namespace InTheirShoes {
 
         // Conditions run with the player as subject (condition hooks make it test as the donor)
         // and the puppet, standing in for the Dragonborn, as target
-        auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
+        auto* puppet = Session::GetSingleton().GetPuppet();
         auto* targetRef = puppet ? static_cast<RE::TESObjectREFR*>(puppet) : static_cast<RE::TESObjectREFR*>(a_player);
 
         struct Candidate {
@@ -904,19 +906,19 @@ namespace InTheirShoes {
     }
 
     void DialogueManager::UpdateIdleChatter() {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        if (!impMgr.IsActive() || !impMgr.IsNPCVoiceEnabled() || _playerLineActive) return;
+        auto& session = Session::GetSingleton();
+        if (!session.IsActive() || !session.IsNPCVoiceEnabled() || _playerLineActive) return;
         if (SecondsSince(_lastIdleChatterTime) < _idleChatterTimeSeconds || SecondsSince(_lastIdleEvalTime) < 1.5f) return;
         _lastIdleEvalTime = std::chrono::steady_clock::now();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* donor = impMgr.GetDonor();
+        auto* donor = session.GetDonor();
         if (!player || !donor) return;
 
         // MenuTopicManager's fields (speaker, menuOpen, isGreetingPlayer) stay set after a conversation
         // ends, so only the open menu counts as one
         const char* blockedBy = nullptr;
-        if (IsInSelfDialogue()) {
+        if (session.IsInSelfDialogue()) {
             blockedBy = "self-dialogue";
         } else if (player->IsInCombat()) {
             blockedBy = "combat";

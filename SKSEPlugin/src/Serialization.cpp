@@ -1,10 +1,11 @@
 #include "PCH.h"
 #include "Serialization.h"
+#include "AliasSwapManager.h"
 #include "FaceManager.h"
 #include "Forms.h"
-#include "IdleAIManager.h"
-#include "DialogueManager.h"
 #include "ImpersonationManager.h"
+#include "Lifecycle.h"
+#include "OutfitManager.h"
 
 namespace InTheirShoes::Serialization {
 
@@ -139,12 +140,12 @@ namespace InTheirShoes::Serialization {
             WriteBaseline(a_serde, *baseline);
         }
         mgr.SaveSession(a_serde);
-        if (const auto& donorFace = mgr.GetDonorFace(); donorFace && mgr.IsActive() &&
+        if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton().IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
         }
-        mgr.SaveOutfitDisabled(a_serde);
-        mgr.SaveDonorAliasFactions(a_serde);
+        OutfitManager::GetSingleton().Save(a_serde);
+        AliasSwapManager::GetSingleton().SaveDonorAliasFactions(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
@@ -281,12 +282,12 @@ namespace InTheirShoes::Serialization {
 
                 case kOutfitDisabledRecord:
                     if (!IsReadableVersion(type, version, kOutfitDisabledVersion)) break;
-                    ImpersonationManager::GetSingleton().LoadOutfitDisabled(a_serde);
+                    OutfitManager::GetSingleton().Load(a_serde);
                     break;
 
                 case kDonorAliasFactionsRecord:
                     if (!IsReadableVersion(type, version, kDonorAliasFactionsVersion)) break;
-                    ImpersonationManager::GetSingleton().LoadDonorAliasFactions(a_serde);
+                    AliasSwapManager::GetSingleton().LoadDonorAliasFactions(a_serde);
                     break;
 
                 case kDonorFaceRecord: {
@@ -309,10 +310,7 @@ namespace InTheirShoes::Serialization {
     }
 
     void RevertCallback(SKSE::SerializationInterface*) {
-        ImpersonationManager::GetSingleton().OnRevert();
-        IdleAIManager::GetSingleton().Clear();
-        DialogueManager::GetSingleton().Clear();
-        SKSE::log::info("Reverted all InTheirShoes saved manager states.");
+        Lifecycle::OnGameRevert();
     }
 
 }

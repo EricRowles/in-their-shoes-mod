@@ -1,7 +1,7 @@
 #include "PCH.h"
 #include "FaceManager.h"
 #include "Forms.h"
-#include "ImpersonationManager.h"
+#include "ActorHooks.h"
 #include "RE/B/BSFaceGenNiNode.h"
 #include "RE/B/BSVisit.h"
 #include "RE/B/BSGeometry.h"
@@ -157,7 +157,7 @@ namespace InTheirShoes {
                 a_outSnapshot.skinTintColor);
         }
 
-        a_outSnapshot.voiceType = ImpersonationManager::GetNPCVoiceType(npc);
+        a_outSnapshot.voiceType = ActorHooks::GetNPCVoiceType(npc);
 
         if (npc->headRelatedData) {
             a_outSnapshot.hairColor = npc->headRelatedData->hairColor;

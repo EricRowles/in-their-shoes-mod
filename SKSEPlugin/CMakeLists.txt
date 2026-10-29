@@ -20,6 +20,17 @@ add_library(${PROJECT_NAME} SHARED
     src/main.cpp
     src/Forms.h
     src/Forms.cpp
+    src/Session.h
+    src/Lifecycle.h
+    src/Lifecycle.cpp
+    src/ActorHooks.h
+    src/ActorHooks.cpp
+    src/ConditionHooks.h
+    src/ConditionHooks.cpp
+    src/OutfitManager.h
+    src/OutfitManager.cpp
+    src/AliasSwapManager.h
+    src/AliasSwapManager.cpp
     src/FaceManager.h
     src/FaceManager.cpp
     src/InventoryManager.h

@@ -3,6 +3,7 @@
 #include "IdleAIManager.h"
 #include "DialogueManager.h"
 #include "ImpersonationManager.h"
+#include "Session.h"
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
 
@@ -35,7 +36,7 @@ namespace InTheirShoes::Papyrus {
     }
 
     void SetNPCVoiceEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-        ImpersonationManager::GetSingleton().SetNPCVoiceEnabled(a_enabled);
+        Session::GetSingleton().SetNPCVoiceEnabled(a_enabled);
     }
 
     void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
@@ -124,7 +125,7 @@ namespace InTheirShoes::Papyrus {
     using VM = RE::BSScript::IVirtualMachine;
 
     static RE::TESObjectREFR* Spatial(RE::TESObjectREFR* a_ref) {
-        return ImpersonationManager::GetSingleton().ResolveSpatialRef(a_ref);
+        return Session::GetSingleton().ResolveSpatialRef(a_ref);
     }
 
     RE::TESObjectCELL* GetParentCell(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {

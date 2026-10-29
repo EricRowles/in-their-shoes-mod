@@ -26,4 +26,9 @@ namespace InTheirShoes::Forms {
 
     void Resolve();
 
+    // The mod's own quest, which is never swapped to the player or used for idle chatter
+    inline bool IsModQuest(const RE::TESQuest* a_quest) {
+        return a_quest && a_quest == itsQuest;
+    }
+
 }

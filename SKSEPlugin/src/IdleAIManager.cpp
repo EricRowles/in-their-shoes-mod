@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "IdleAIManager.h"
-#include "ImpersonationManager.h"
+#include "AliasSwapManager.h"
+#include "Session.h"
 #include "DialogueManager.h"
 #include "Forms.h"
 
@@ -209,10 +210,10 @@ namespace InTheirShoes {
 
     std::uint64_t IdleAIManager::Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
         auto ret = _origForceGreetInitExecState(a_this, a_execState);
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        if (impMgr.IsActive() && a_execState && a_execState->context &&
+        auto& session = Session::GetSingleton();
+        if (session.IsActive() && a_execState && a_execState->context &&
             a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState) {
-            if (auto* puppet = impMgr.GetPuppet()) {
+            if (auto* puppet = session.GetPuppet()) {
                 // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20)
                 // to the player's handle, which makes the player spin in a circle targeting itself.
                 *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + 0x20) = puppet->GetHandle();
@@ -223,11 +224,11 @@ namespace InTheirShoes {
     }
 
     std::uint64_t IdleAIManager::Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        bool isPlayerForceGreet = impMgr.IsActive() && a_execState && a_execState->context &&
+        auto& session = Session::GetSingleton();
+        bool isPlayerForceGreet = session.IsActive() && a_execState && a_execState->context &&
                                   a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
         if (isPlayerForceGreet) {
-            if (auto* puppet = impMgr.GetPuppet()) {
+            if (auto* puppet = session.GetPuppet()) {
                 *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + 0x20) = puppet->GetHandle();
                 IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
             }
@@ -255,7 +256,7 @@ namespace InTheirShoes {
             CheckIdleAI();
         }
 
-        if (!_aiActive || !ImpersonationManager::GetSingleton().IsActive()) return;
+        if (!_aiActive || !Session::GetSingleton().IsActive()) return;
 
         if (!_evaluatedAfterEngage && SecondsSinceEngage() >= kEvaluateAfterEngageSeconds) {
             _evaluatedAfterEngage = true;
@@ -298,7 +299,7 @@ namespace InTheirShoes {
         // Packages that only travel to or follow the puppet (e.g. a follower's Follow package on a swapped
         // alias) don't count: following stays in range, so they opened dialogue every time idle AI engaged.
         auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* puppet = ImpersonationManager::GetSingleton().GetPuppet();
+        auto* puppet = Session::GetSingleton().GetPuppet();
         auto* curPkg = player ? player->GetCurrentPackage() : nullptr;
         if (!puppet || !curPkg) {
             _forceGreetTriggered = false;
@@ -358,7 +359,7 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::CheckIdleAI() {
-        if (!_enabled || !ImpersonationManager::GetSingleton().IsActive()) {
+        if (!_enabled || !Session::GetSingleton().IsActive()) {
             if (_aiActive) {
                 StopIdleAI();
             }
@@ -402,7 +403,7 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::StartIdleAI() {
-        if (!ImpersonationManager::GetSingleton().IsActive() || !_enabled) return;
+        if (!Session::GetSingleton().IsActive() || !_enabled) return;
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || player->IsInCombat() || IsBlockingMenuOpen()) return;
@@ -508,16 +509,16 @@ namespace InTheirShoes {
         // Packages on the donor's swapped aliases apply to the player now. Any that target or locate
         // relative to the player (force-greets, "approach the Dragonborn") would make the player target
         // itself, so point their targets and locations at the puppet.
-        auto& impMgr = ImpersonationManager::GetSingleton();
+        auto& session = Session::GetSingleton();
         auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* puppet = impMgr.GetPuppet();
+        auto* puppet = session.GetPuppet();
         auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
         if (!puppet || !aliasArray) return;
 
         RE::BSReadLockGuard locker(aliasArray->lock);
         for (auto* inst : aliasArray->aliases) {
             if (!inst || !inst->quest || !inst->alias || !inst->instancedPackages) continue;
-            if (!impMgr.IsSwappedAlias(inst->quest->GetFormID(), inst->alias->aliasID)) continue;
+            if (!AliasSwapManager::GetSingleton().IsSwappedAlias(inst->quest->GetFormID(), inst->alias->aliasID)) continue;
 
             for (auto* pkg : *inst->instancedPackages) {
                 if (!pkg || pkg->GetFormType() != RE::FormType::Package) continue;
@@ -527,11 +528,11 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::SyncDonorPackagesToPlayer() {
-        auto& impMgr = ImpersonationManager::GetSingleton();
-        auto* donor = impMgr.GetDonor();
+        auto& session = Session::GetSingleton();
+        auto* donor = session.GetDonor();
         auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* puppet = impMgr.GetPuppet();
-        if (!impMgr.IsActive() || !donor || !player || !_aiActive) return;
+        auto* puppet = session.GetPuppet();
+        if (!session.IsActive() || !donor || !player || !_aiActive) return;
 
         auto* donorBase = donor->GetActorBase();
         auto* playerBase = skyrim_cast<RE::TESNPC*>(player->GetActorBase());

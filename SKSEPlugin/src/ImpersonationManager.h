@@ -1,14 +1,12 @@
 #pragma once
 
-#include <atomic>
-#include <mutex>
 #include <optional>
 #include <unordered_set>
-#include <vector>
 #include <cstdint>
 
 #include "FaceManager.h"
 #include "InventoryManager.h"
+#include "Session.h"
 #include "StatManager.h"
 
 namespace InTheirShoes {
@@ -20,8 +18,9 @@ namespace InTheirShoes {
         SpellSnapshot spells;
     };
 
-    // Owns the impersonation session. Everything here runs on the main thread except the
-    // condition/voice hooks, which may run on AI worker threads and only read the atomic fields.
+    // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the
+    // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
+    // Main thread only.
     class ImpersonationManager {
     public:
         static ImpersonationManager& GetSingleton() {
@@ -43,48 +42,12 @@ namespace InTheirShoes {
         // Impersonate and Revert refuse while it is true.
         static bool IsPlayerTransformed();
 
-        bool IsActive() const { return _active.load(std::memory_order_acquire); }
-        RE::Actor* GetDonor() const { return _donorActor.load(std::memory_order_acquire); }
-        RE::Actor* GetPuppet() const { return _puppetActor.load(std::memory_order_acquire); }
-        RE::Actor* GetPlayer() const { return RE::PlayerCharacter::GetSingleton(); }
-
-        // Where a reference counts as being for spatial checks (conditions and Papyrus natives): the parked
-        // donor is where the player is, and so is the puppet during self-dialogue. May run on any thread.
-        RE::TESObjectREFR* ResolveSpatialRef(RE::TESObjectREFR* a_ref) const;
-
-        RE::BGSVoiceType* GetOrigPlayerVoiceType() const { return _origVoiceType.load(std::memory_order_acquire); }
-        RE::BGSVoiceType* GetDonorVoiceType() const { return _donorVoiceType.load(std::memory_order_acquire); }
-
-        void SetNPCVoiceEnabled(bool a_enabled) { _npcVoiceEnabled.store(a_enabled, std::memory_order_release); }
-        bool IsNPCVoiceEnabled() const { return _npcVoiceEnabled.load(std::memory_order_acquire); }
         void SetPuppetFollowsPlayer(bool a_follows);
 
+        // Hand changes made to the puppet in self-dialogue (it stands in for the donor) to the donor:
+        // factions go to the donor, and quest aliases go to the player, who holds the donor's aliases
         void ForwardPuppetFactionsToDonor();
-
-        // Moves any outside quest alias the puppet was forced into (e.g. by a recruitment fragment that
-        // calls ForceRefTo(speaker) during self-dialogue) to the player, tracked as a swapped alias so
-        // the donor gets it on revert
         void AdoptPuppetAliases();
-
-        // Actors that have been impersonated never get their outfit added again by the engine: the outfit's
-        // items left with the player, and re-adding the outfit duplicated what they were given back
-        bool IsOutfitDisabled(const RE::Actor* a_actor) const;
-        void SaveOutfitDisabled(SKSE::SerializationInterface* a_serde) const;
-        void LoadOutfitDisabled(SKSE::SerializationInterface* a_serde);
-
-        // Factions the donor's swapped aliases gave it (alias factions, e.g. a follower alias's
-        // CurrentFollowerFaction). Swapping the aliases moves them to the player, so the donor's faction
-        // conditions also count these. May be read from any thread.
-        std::optional<std::int8_t> GetDonorAliasFactionRank(const RE::TESFaction* a_faction) const;
-        void SaveDonorAliasFactions(SKSE::SerializationInterface* a_serde) const;
-        void LoadDonorAliasFactions(SKSE::SerializationInterface* a_serde);
-
-        bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
-            for (const auto& entry : _swappedAliases) {
-                if (entry.questFormID == a_questFormID && entry.aliasID == a_aliasID) return true;
-            }
-            return false;
-        }
 
         // Serialization
         const std::optional<Baseline>& GetBaseline() const { return _baseline; }
@@ -97,44 +60,16 @@ namespace InTheirShoes {
         void OnRevert();
         void OnPostLoadGame();
 
-        static RE::BGSVoiceType* GetNPCVoiceType(const RE::TESNPC* a_npc);
-        static bool IsModInternalQuest(RE::TESQuest* a_quest);
-
     private:
         ImpersonationManager() = default;
         ~ImpersonationManager() = default;
         ImpersonationManager(const ImpersonationManager&) = delete;
         ImpersonationManager& operator=(const ImpersonationManager&) = delete;
 
-        struct SwappedAlias {
-            RE::FormID questFormID{ 0 };
-            std::uint32_t aliasID{ 0 };
-        };
-
-        void InstallHooks();
-        void InstallOutfitHook();
-        static void Hook_AddWornOutfit(RE::Actor* a_this, RE::BGSOutfit* a_outfit, bool a_forceUpdate);
-        inline static REL::Relocation<decltype(Hook_AddWornOutfit)> _origAddWornOutfit;
-
-        static RE::BGSVoiceType* Hook_GetObjectVoiceType(const RE::TESNPC* a_this);
-        inline static REL::Relocation<decltype(Hook_GetObjectVoiceType)> _origGetObjectVoiceType;
-
-        using Update_t = void(RE::Actor*, float);
-        static void Hook_Player_Update(RE::Actor* a_this, float a_delta);
-        inline static REL::Relocation<Update_t> _origPlayerUpdate;
-
-        static RE::BGSLocation* Hook_Player_GetEditorLocation1(const RE::TESObjectREFR* a_this);
-        using GetEditorLocation1_t = RE::BGSLocation*(const RE::TESObjectREFR*);
-        inline static REL::Relocation<GetEditorLocation1_t> _origPlayerGetEditorLocation1;
-
-        static bool Hook_Player_GetEditorLocation2(
-            RE::TESObjectREFR* a_this,
-            RE::NiPoint3& a_outPos,
-            RE::NiPoint3& a_outRot,
-            RE::TESForm*& a_outWorldOrCell,
-            RE::TESObjectCELL* a_fallback);
-        using GetEditorLocation2_t = bool(RE::TESObjectREFR*, RE::NiPoint3&, RE::NiPoint3&, RE::TESForm*&, RE::TESObjectCELL*);
-        inline static REL::Relocation<GetEditorLocation2_t> _origPlayerGetEditorLocation2;
+        static bool IsActive() { return Session::GetSingleton().IsActive(); }
+        static RE::Actor* GetDonor() { return Session::GetSingleton().GetDonor(); }
+        static RE::Actor* GetPuppet() { return Session::GetSingleton().GetPuppet(); }
+        static RE::Actor* GetPlayer() { return Session::GetPlayer(); }
 
         void CaptureBaseline(RE::Actor* a_player);
         void BeginSession(RE::Actor* a_donor);
@@ -149,37 +84,15 @@ namespace InTheirShoes {
         void ApplyPuppetFollowState(RE::Actor* a_puppet);
         void RefreshPuppetAppearanceWhenLoaded();
 
-        void SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
-        void RestoreSwappedAliases(RE::Actor* a_donor);
-
-        // Read by condition/voice hooks
-        std::atomic<bool> _active{ false };
-        std::atomic<RE::Actor*> _donorActor{ nullptr };
-        std::atomic<RE::BGSVoiceType*> _donorVoiceType{ nullptr };
-        std::atomic<RE::Actor*> _puppetActor{ nullptr };
-        std::atomic<RE::BGSVoiceType*> _origVoiceType{ nullptr };
-        std::atomic<bool> _npcVoiceEnabled{ true };
-
-        // Main thread only
         RE::NiPointer<RE::Actor> _donorKeepAlive;
         RE::NiPointer<RE::Actor> _puppetKeepAlive;
         bool _puppetFollows{ true };
         bool _leashQueued{ false };
         bool _puppetRefreshPending{ false };
-        bool _hooksInstalled{ false };
         RE::ObjectRefHandle _storageMarker;
         std::optional<Baseline> _baseline;
         std::optional<FaceSnapshot> _donorFace;
-        std::vector<SwappedAlias> _swappedAliases;
         std::unordered_set<RE::FormID> _donorQuestItems;
-
-        // Read by the outfit hook, which may run on loading threads
-        mutable std::mutex _outfitDisabledLock;
-        std::unordered_set<RE::FormID> _outfitDisabled;
-
-        // Read by the faction condition hooks, which may run on AI threads
-        mutable std::mutex _donorAliasFactionsLock;
-        std::vector<std::pair<RE::TESFaction*, std::int8_t>> _donorAliasFactions;
     };
 
 }
