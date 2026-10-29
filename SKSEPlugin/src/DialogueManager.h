@@ -3,7 +3,6 @@
 #include <atomic>
 #include <chrono>
 #include <optional>
-#include <vector>
 #include "RE/D/DialogueItem.h"
 
 namespace InTheirShoes {
@@ -13,7 +12,8 @@ namespace InTheirShoes {
     // Every line is voiced once, by the player. When the engine's speaker is a stand-in for the donor
     // (the puppet in self-dialogue, or the hidden donor itself), that speaker runs the line silenced and
     // is held "speaking" until the player's line ends, so the engine waits for the player.
-    // The player's own lines (scenes on swapped aliases) and idle chatter are voiced the same way.
+    // The player's own lines (scenes on swapped aliases) and idle chatter (picked by IdleChatter) are voiced
+    // the same way.
     //
     // Hooks run on the main thread. Whether self-dialogue is on is published in Session, which condition hooks
     // read from AI threads.
@@ -43,9 +43,6 @@ namespace InTheirShoes {
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
 
-        // Idle chatter
-        void SetIdleChatterTime(float a_seconds) { _idleChatterTimeSeconds = a_seconds < 10.0f ? 60.0f : a_seconds; }
-        void InvalidateIdleQuestCache() { _idleTopicsCached = false; }
 
     private:
         DialogueManager() = default;
@@ -67,11 +64,6 @@ namespace InTheirShoes {
         // Stand-in speakers (the puppet in self-dialogue, the hidden donor)
         void HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response);
         static void ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response);
-
-        // Idle chatter
-        void RebuildIdleTopicCache();
-        void UpdateIdleChatter();
-        RE::BSTSmartPointer<RE::DialogueItem> PickIdleLine(RE::Actor* a_player, RE::Actor* a_donor);
 
         static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
         using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
@@ -125,19 +117,6 @@ namespace InTheirShoes {
         // The player's copy of a stand-in's line (the stand-in's own response is silenced). Kept outside
         // PlayerLine: the line being voiced points at it, and replacing a line must not free it.
         RE::DialogueResponse _standInLine;
-
-        // Idle chatter
-        struct IdleTopic {
-            RE::TESQuest* quest{ nullptr };
-            RE::TESTopic* topic{ nullptr };
-        };
-        bool _idleTopicsCached{ false };
-        std::vector<IdleTopic> _idleTopics;
-        float _idleChatterTimeSeconds{ 60.0f };
-        const char* _idleChatterBlockedBy{ nullptr };
-        bool _idleChatterFoundNothing{ false };
-        std::chrono::steady_clock::time_point _lastIdleChatterTime{ std::chrono::steady_clock::now() };
-        std::chrono::steady_clock::time_point _lastIdleEvalTime{};
     };
 
 }

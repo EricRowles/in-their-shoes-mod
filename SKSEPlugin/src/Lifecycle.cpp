@@ -6,6 +6,7 @@
 #include "DialogueManager.h"
 #include "Forms.h"
 #include "IdleAIManager.h"
+#include "IdleChatter.h"
 #include "ImpersonationManager.h"
 #include "OutfitManager.h"
 #include "Session.h"
@@ -43,6 +44,7 @@ namespace InTheirShoes::Lifecycle {
         OutfitManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
+        IdleChatter::GetSingleton().Clear();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
@@ -54,12 +56,12 @@ namespace InTheirShoes::Lifecycle {
 
     void OnSessionBegin() {
         IdleAIManager::GetSingleton().ClearPlayerPackages();
-        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
+        IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
     }
 
     void OnSessionEnd() {
-        DialogueManager::GetSingleton().InvalidateIdleQuestCache();
+        IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
     }
 

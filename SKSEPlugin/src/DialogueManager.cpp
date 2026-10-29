@@ -4,12 +4,12 @@
 #include "Forms.h"
 #include "Session.h"
 #include "IdleAIManager.h"
+#include "IdleChatter.h"
+#include "QuestConditions.h"
 
-#include <random>
 #include <algorithm>
 #include <span>
 
-#include "RE/T/TESDataHandler.h"
 #include "RE/T/TESQuest.h"
 #include "RE/T/TESTopic.h"
 #include "RE/T/TESTopicInfo.h"
@@ -260,7 +260,12 @@ namespace InTheirShoes {
             impMgr.ForwardPuppetFactionsToDonor();
             impMgr.AdoptPuppetAliases();
         }
-        UpdateIdleChatter();
+        if (!_line) {
+            if (auto item = IdleChatter::GetSingleton().Poll()) {
+                SpeakAsPlayer(item->responses.front(), false, true);
+                _line->item = std::move(item);  // the response must outlive the line
+            }
+        }
     }
 
     void DialogueManager::Clear() {
@@ -270,10 +275,6 @@ namespace InTheirShoes {
         _puppetSpeakerClearPending.store(false, std::memory_order_release);
         _puppetSpeakerClearAt = {};
         _line.reset();
-        _idleTopicsCached = false;
-        _idleTopics.clear();
-        _lastIdleEvalTime = {};
-        _lastIdleChatterTime = std::chrono::steady_clock::now();
     }
 
     // --- Self-dialogue ---
@@ -363,8 +364,6 @@ namespace InTheirShoes {
         return RE::BSEventNotifyControl::kContinue;
     }
 
-    static bool EvaluateInQuest(const RE::TESCondition& a_conditions, RE::TESQuest* a_quest,
-        RE::TESObjectREFR* a_subject, RE::TESObjectREFR* a_target);
     static void ClearPuppetAsSpeaker();
 
     bool DialogueManager::OpenSelfDialogue(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic) {
@@ -436,7 +435,7 @@ namespace InTheirShoes {
                 auto* info = a_forceGreetTopic->topicInfos[i];
                 if (!info) continue;
                 if (info->saidOnce && info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kSayOnce)) continue;
-                if (EvaluateInQuest(info->objConditions, a_forceGreetTopic->ownerQuest, a_speaker, player)) {
+                if (QuestConditions::Evaluate(info->objConditions, a_forceGreetTopic->ownerQuest, a_speaker, player)) {
                     forceGreetInfo = info;
                     SKSE::log::info("OpenSelfDialogueDirect: resolved ForceGreet topic {:08X} -> info {:08X}",
                         a_forceGreetTopic->GetFormID(), info->GetFormID());
@@ -664,7 +663,7 @@ namespace InTheirShoes {
         ResetFace(player);
 
         if (line.isIdleChatter) {
-            _lastIdleChatterTime = std::chrono::steady_clock::now();
+            IdleChatter::GetSingleton().OnLineFinished();
         }
     }
 
@@ -804,151 +803,6 @@ namespace InTheirShoes {
             return;
         }
         _origPlayerSetSpeakingDone(a_this, a_set);
-    }
-
-    // --- Idle chatter ---
-
-    // Only kIdle: other "misc" subtypes such as kPickpocketTopic played the wrong lines
-    static bool IsIdleTopic(const RE::TESTopic* a_topic) {
-        return a_topic->data.subtype.get() == RE::DIALOGUE_DATA::Subtype::kIdle;
-    }
-
-    // Evaluates a condition list in the context of its quest, so conditions whose parameters or
-    // run-on target are quest aliases resolve. (TESCondition::IsTrue(action, target) passes no quest,
-    // and the engine then hands the raw alias index to the condition function as a pointer.)
-    // Skyrim groups OR'd items first: A AND B OR C AND D == A AND (B OR C) AND D.
-    static bool EvaluateInQuest(const RE::TESCondition& a_conditions, RE::TESQuest* a_quest,
-        RE::TESObjectREFR* a_subject, RE::TESObjectREFR* a_target)
-    {
-        RE::ConditionCheckParams params(a_subject, a_target);
-        params.quest = a_quest;
-
-        bool groupResult = false;
-        bool groupOpen = false;
-        for (auto* item = a_conditions.head; item; item = item->next) {
-            if (item->data.flags.usePackData) {
-                return false;  // needs a running package's data; can't be evaluated here
-            }
-            if (!groupResult) {
-                groupResult = item->IsTrue(params);
-            }
-            groupOpen = item->data.flags.isOR;
-            if (!groupOpen) {
-                if (!groupResult) return false;
-                groupResult = false;
-            }
-        }
-        // A trailing OR item closes its group at the end of the list
-        return !groupOpen || groupResult;
-    }
-
-    void DialogueManager::RebuildIdleTopicCache() {
-        _idleTopicsCached = true;
-        _idleTopics.clear();
-        auto* dataHandler = RE::TESDataHandler::GetSingleton();
-        if (!dataHandler) return;
-
-        constexpr auto kMiscIndex = RE::DIALOGUE_TYPE::kMiscellaneous - RE::DIALOGUE_TYPE::kBranchedTotal;
-        for (auto* quest : dataHandler->GetFormArray<RE::TESQuest>()) {
-            if (!quest || Forms::IsModQuest(quest)) continue;
-            for (auto* topic : quest->topics[kMiscIndex]) {
-                if (topic && topic->numTopicInfos > 0 && topic->topicInfos && IsIdleTopic(topic)) {
-                    _idleTopics.push_back({ quest, topic });
-                }
-            }
-        }
-        SKSE::log::info("Cached {} idle dialogue topics.", _idleTopics.size());
-    }
-
-    RE::BSTSmartPointer<RE::DialogueItem> DialogueManager::PickIdleLine(RE::Actor* a_player, RE::Actor* a_donor) {
-        if (!_idleTopicsCached) {
-            RebuildIdleTopicCache();
-        }
-
-        // Conditions run with the player as subject (condition hooks make it test as the donor)
-        // and the puppet, standing in for the Dragonborn, as target
-        auto* puppet = Session::GetSingleton().GetPuppet();
-        auto* targetRef = puppet ? static_cast<RE::TESObjectREFR*>(puppet) : static_cast<RE::TESObjectREFR*>(a_player);
-
-        struct Candidate {
-            RE::TESQuest* quest;
-            RE::TESTopic* topic;
-            RE::TESTopicInfo* info;
-        };
-        std::vector<Candidate> candidates;
-
-        for (const auto& [quest, topic] : _idleTopics) {
-            if (!IsQuestRunning(quest)) continue;
-            if (!EvaluateInQuest(quest->objConditions, quest, a_player, targetRef)) continue;
-
-            for (std::uint32_t i = 0; i < topic->numTopicInfos; ++i) {
-                auto* info = topic->topicInfos[i];
-                if (!info) continue;
-                if (info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kRequiresPlayerActivation)) continue;
-                if (info->saidOnce && info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kSayOnce)) continue;
-                if (!EvaluateInQuest(info->objConditions, quest, a_player, targetRef)) continue;
-                candidates.push_back({ quest, topic, info });
-            }
-        }
-
-        if (candidates.empty()) return nullptr;
-
-        static std::mt19937 rng(std::random_device{}());
-        std::uniform_int_distribution<std::size_t> dist(0, candidates.size() - 1);
-        const auto& chosen = candidates[dist(rng)];
-
-        // Build the line as the donor would say it, so the voice path resolves to the donor's voice type
-        auto item = RE::make_smart<RE::DialogueItem>(chosen.quest, chosen.topic, chosen.info, a_donor);
-        if (!item || item->responses.empty() || !item->responses.front()) return nullptr;
-
-        SKSE::log::info("Idle chatter: picked topic {:08X}, info {:08X}", chosen.topic->GetFormID(), chosen.info->GetFormID());
-        if (chosen.info->data.flags.any(RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS::kSayOnce)) {
-            chosen.info->saidOnce = true;
-        }
-        return item;
-    }
-
-    void DialogueManager::UpdateIdleChatter() {
-        auto& session = Session::GetSingleton();
-        if (!session.IsActive() || !session.IsNPCVoiceEnabled() || _line) return;
-        if (SecondsSince(_lastIdleChatterTime) < _idleChatterTimeSeconds || SecondsSince(_lastIdleEvalTime) < 1.5f) return;
-        _lastIdleEvalTime = std::chrono::steady_clock::now();
-
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* donor = session.GetDonor();
-        if (!player || !donor) return;
-
-        // MenuTopicManager's fields (speaker, menuOpen, isGreetingPlayer) stay set after a conversation
-        // ends, so only the open menu counts as one
-        const char* blockedBy = nullptr;
-        if (session.IsInSelfDialogue()) {
-            blockedBy = "self-dialogue";
-        } else if (player->IsInCombat()) {
-            blockedBy = "combat";
-        } else if (IsBlockingMenuOpen()) {
-            blockedBy = "menu";
-        }
-        if (blockedBy != _idleChatterBlockedBy) {
-            if (blockedBy) {
-                SKSE::log::info("Idle chatter waiting: {}", blockedBy);
-            }
-            _idleChatterBlockedBy = blockedBy;
-        }
-        if (blockedBy) return;
-
-        auto item = PickIdleLine(player, donor);
-        if (!item) {
-            if (!_idleChatterFoundNothing) {
-                SKSE::log::info("Idle chatter waiting: no idle line's conditions pass");
-                _idleChatterFoundNothing = true;
-            }
-            return;
-        }
-        _idleChatterFoundNothing = false;
-
-        SpeakAsPlayer(item->responses.front(), false, true);
-        _line->item = std::move(item);  // the response must outlive the line
-        _lastIdleChatterTime = std::chrono::steady_clock::now();
     }
 
 }

@@ -41,6 +41,10 @@ add_library(${PROJECT_NAME} SHARED
     src/IdleAIManager.cpp
     src/DialogueManager.h
     src/DialogueManager.cpp
+    src/IdleChatter.h
+    src/IdleChatter.cpp
+    src/QuestConditions.h
+    src/QuestConditions.cpp
     src/Papyrus.h
     src/Papyrus.cpp
     src/Serialization.h

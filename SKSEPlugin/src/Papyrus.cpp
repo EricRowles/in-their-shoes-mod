@@ -2,6 +2,7 @@
 #include "Papyrus.h"
 #include "IdleAIManager.h"
 #include "DialogueManager.h"
+#include "IdleChatter.h"
 #include "ImpersonationManager.h"
 #include "Session.h"
 #include <RE/C/ControlMap.h>
@@ -26,7 +27,7 @@ namespace InTheirShoes::Papyrus {
     }
 
     void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
-        DialogueManager::GetSingleton().SetIdleChatterTime(a_seconds);
+        IdleChatter::GetSingleton().SetInterval(a_seconds);
     }
 
     bool OpenSelfDialogue(RE::StaticFunctionTag*, RE::Actor* a_speaker) {
