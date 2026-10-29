@@ -39,6 +39,25 @@ namespace InTheirShoes {
                ui->IsMenuOpen("MagicMenu"sv) || ui->IsMenuOpen("TweenMenu"sv) || ui->IsMenuOpen("Book Menu"sv);
     }
 
+    // Why the player can't be given something to do right now (idle AI, idle chatter)
+    enum class PlayerBusy {
+        kNo,
+        kCombat,
+        kMenu,
+        kScene,
+        kSelfDialogue,
+    };
+
+    constexpr std::string_view ToString(PlayerBusy a_busy) {
+        switch (a_busy) {
+            case PlayerBusy::kCombat: return "combat"sv;
+            case PlayerBusy::kMenu: return "menu"sv;
+            case PlayerBusy::kScene: return "scene"sv;
+            case PlayerBusy::kSelfDialogue: return "self-dialogue"sv;
+            default: return "not busy"sv;
+        }
+    }
+
     // Real time, which keeps running while the game is paused
     inline float SecondsSince(std::chrono::steady_clock::time_point a_time) {
         return std::chrono::duration<float>(std::chrono::steady_clock::now() - a_time).count();

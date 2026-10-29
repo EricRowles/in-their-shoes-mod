@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GameUtil.h"
 #include "Singleton.h"
 #include <chrono>
 #include <vector>
@@ -38,7 +39,7 @@ namespace InTheirShoes {
         bool _topicsCached{ false };
         std::vector<IdleTopic> _topics;
         float _intervalSeconds{ 60.0f };
-        const char* _blockedBy{ nullptr };
+        PlayerBusy _blockedBy{ PlayerBusy::kNo };
         bool _foundNothing{ false };
         std::chrono::steady_clock::time_point _lastLineTime{ std::chrono::steady_clock::now() };
         std::chrono::steady_clock::time_point _lastEvalTime{};

@@ -386,28 +386,26 @@ namespace InTheirShoes {
         }
 
         auto* player = RE::PlayerCharacter::GetSingleton();
-        const char* blockedBy = nullptr;
+        auto blockedBy = PlayerBusy::kNo;
         // While AI-driven, the engine treats the player like an NPC in scenes and waits for the player's AI to
         // run the scene's package, which idle AI never does: the player's scene lines stalled until pathing ended
         auto* scene = player ? player->GetCurrentScene() : nullptr;
-        bool inScene = false;
         if (!player || player->IsInCombat()) {
-            blockedBy = "combat";
+            blockedBy = PlayerBusy::kCombat;
         } else if (IsBlockingMenuOpen()) {
-            blockedBy = "menu";
+            blockedBy = PlayerBusy::kMenu;
         } else if (scene && scene->isPlaying) {
-            blockedBy = "scene";
-            inScene = true;
+            blockedBy = PlayerBusy::kScene;
         }
         if (blockedBy != _blockedBy) {
-            if (inScene) {
+            if (blockedBy == PlayerBusy::kScene) {
                 SKSE::log::info("Idle AI waiting: scene {:08X} '{}'", scene->GetFormID(), scene->GetFormEditorID());
-            } else if (blockedBy) {
-                SKSE::log::info("Idle AI waiting: {}", blockedBy);
+            } else if (blockedBy != PlayerBusy::kNo) {
+                SKSE::log::info("Idle AI waiting: {}", ToString(blockedBy));
             }
             _blockedBy = blockedBy;
         }
-        if (blockedBy) {
+        if (blockedBy != PlayerBusy::kNo) {
             _lastInputTime = std::chrono::steady_clock::now();
             if (_aiActive) {
                 StopIdleAI();

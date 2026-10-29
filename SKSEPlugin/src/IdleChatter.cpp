@@ -109,21 +109,21 @@ namespace InTheirShoes {
 
         // MenuTopicManager's fields (speaker, menuOpen, isGreetingPlayer) stay set after a conversation
         // ends, so only the open menu counts as one
-        const char* blockedBy = nullptr;
+        auto blockedBy = PlayerBusy::kNo;
         if (session.IsInSelfDialogue()) {
-            blockedBy = "self-dialogue";
+            blockedBy = PlayerBusy::kSelfDialogue;
         } else if (player->IsInCombat()) {
-            blockedBy = "combat";
+            blockedBy = PlayerBusy::kCombat;
         } else if (IsBlockingMenuOpen()) {
-            blockedBy = "menu";
+            blockedBy = PlayerBusy::kMenu;
         }
         if (blockedBy != _blockedBy) {
-            if (blockedBy) {
-                SKSE::log::info("Idle chatter waiting: {}", blockedBy);
+            if (blockedBy != PlayerBusy::kNo) {
+                SKSE::log::info("Idle chatter waiting: {}", ToString(blockedBy));
             }
             _blockedBy = blockedBy;
         }
-        if (blockedBy) return nullptr;
+        if (blockedBy != PlayerBusy::kNo) return nullptr;
 
         auto item = PickLine(player, donor);
         if (!item) {

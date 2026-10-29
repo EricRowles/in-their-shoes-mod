@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GameUtil.h"
 #include "Singleton.h"
 #include <chrono>
 #include <vector>
@@ -79,7 +80,7 @@ namespace InTheirShoes {
         bool _forceGreetTriggered{ false };
         bool _forceGreetProcedureActive{ false };
         float _idleTimeoutSeconds{ 10.0f };
-        const char* _blockedBy{ nullptr };
+        PlayerBusy _blockedBy{ PlayerBusy::kNo };
         RE::TESPackage* _loggedPackage{ nullptr };
         bool _runningPackageLogged{ false };
         bool _evaluatedAfterEngage{ false };
