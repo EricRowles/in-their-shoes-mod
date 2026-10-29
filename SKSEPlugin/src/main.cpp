@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include <spdlog/sinks/msvc_sink.h>
+#include "Forms.h"
 #include "Papyrus.h"
 #include "Serialization.h"
 #include "IdleAIManager.h"
@@ -9,7 +10,7 @@
 SKSEPluginInfo(
     .Version = { 1, 0, 0, 0 },
     .Name = "InTheirShoes",
-    .Author = "Antigravity",
+    .Author = "ParanoidKing",
     .SupportEmail = "",
     .StructCompatibility = SKSE::StructCompatibility::Independent,
     .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary
@@ -41,6 +42,7 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
     if (a_msg->type == SKSE::MessagingInterface::kInputLoaded) {
         InTheirShoes::IdleAIManager::GetSingleton().Initialize();
     } else if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
+        InTheirShoes::Forms::Resolve();
         InTheirShoes::DialogueManager::GetSingleton().Initialize();
         InTheirShoes::ImpersonationManager::GetSingleton().Initialize();
     } else if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame) {

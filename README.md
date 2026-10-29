@@ -33,5 +33,4 @@ Swap back at any time using the "End Impersonation" spell or the MCM menu.
 
 ## License & Credits
 * Inspired by iceburg's [*Alternate Actors*](https://www.nexusmods.com/skyrim/mods/36047) mod
-* Modernized Native Implementation: Antigravity
 * Built using [CommonLibSSE-NG](https://github.com/CharmedBaryon/CommonLibSSE-NG) and [SKSE64](https://skse.silverlock.org/).

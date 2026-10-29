@@ -15,13 +15,7 @@ namespace InTheirShoes {
 
     // Stateless helpers for moving items and spells between the three actors.
     // Session state (stashed spells, donor quest items) is owned by ImpersonationManager.
-    class InventoryManager {
-    public:
-        static InventoryManager& GetSingleton() {
-            static InventoryManager instance;
-            return instance;
-        }
-
+    namespace InventoryManager {
         // Moves every item from a_fromActor to a_toActor, replacing a_toActor's non-quest items.
         // a_donorQuestItems tracks donor quest items carried by the player so they can go back to the donor.
         bool TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor, bool a_forceEquip,
@@ -37,12 +31,6 @@ namespace InTheirShoes {
         // Removes every castable added spell from the player, handing back to the donor any that
         // the donor doesn't already get from its base record
         void ReturnSpellsToDonor(RE::Actor* a_player, RE::Actor* a_donor);
-
-    private:
-        InventoryManager() = default;
-        ~InventoryManager() = default;
-        InventoryManager(const InventoryManager&) = delete;
-        InventoryManager& operator=(const InventoryManager&) = delete;
-    };
+    }
 
 }

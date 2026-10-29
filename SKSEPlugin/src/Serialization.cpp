@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "Serialization.h"
 #include "FaceManager.h"
+#include "Forms.h"
 #include "IdleAIManager.h"
 #include "DialogueManager.h"
 #include "ImpersonationManager.h"
@@ -26,18 +27,27 @@ namespace InTheirShoes::Serialization {
         a_serde->WriteRecordData(&id, sizeof(id));
     }
 
+    // Readers return false only when the record ends early. A form that no longer exists (or was saved as
+    // none) reads as nullptr.
     template <class T>
-    static T* ReadForm(SKSE::SerializationInterface* a_serde) {
-        RE::FormID id = 0;
-        if (!a_serde->ReadRecordData(&id, sizeof(id)) || id == 0 || !a_serde->ResolveFormID(id, id)) {
-            return nullptr;
-        }
-        return RE::TESForm::LookupByID<T>(id);
+    static bool Read(SKSE::SerializationInterface* a_serde, T& a_out) {
+        return a_serde->ReadRecordData(&a_out, sizeof(T)) == sizeof(T);
     }
+
+    template <class T>
+    static bool ReadForm(SKSE::SerializationInterface* a_serde, T*& a_out) {
+        RE::FormID id = 0;
+        if (!Read(a_serde, id)) return false;
+        a_out = (id != 0 && a_serde->ResolveFormID(id, id)) ? RE::TESForm::LookupByID<T>(id) : nullptr;
+        return true;
+    }
+
+    // Guards against allocating from a corrupt length
+    constexpr std::uint32_t kMaxNameLength = 1024;
 
     static void WriteFaceSnapshot(SKSE::SerializationInterface* a_serde, const FaceSnapshot& a_face) {
         RE::FormID raceID = a_face.race ? a_face.race->GetFormID() : 0;
-        RE::FormID faceNPCID = (a_face.faceNPC && a_face.faceNPC->GetFormID() != 0x07) ? a_face.faceNPC->GetFormID() : 0;
+        RE::FormID faceNPCID = (a_face.faceNPC && a_face.faceNPC->GetFormID() != Forms::kPlayerBaseID) ? a_face.faceNPC->GetFormID() : 0;
         RE::FormID hairColorID = a_face.hairColor ? a_face.hairColor->GetFormID() : 0;
         RE::FormID voiceTypeID = a_face.voiceType ? a_face.voiceType->GetFormID() : 0;
 
@@ -97,7 +107,7 @@ namespace InTheirShoes::Serialization {
     }
 
     static void WriteBaseline(SKSE::SerializationInterface* a_serde, const Baseline& a_baseline) {
-        if (!a_serde->OpenRecord(kBaselineRecord, kSerializationVersion)) {
+        if (!a_serde->OpenRecord(kBaselineRecord, kBaselineVersion)) {
             return;
         }
 
@@ -130,7 +140,7 @@ namespace InTheirShoes::Serialization {
         }
         mgr.SaveSession(a_serde);
         if (const auto& donorFace = mgr.GetDonorFace(); donorFace && mgr.IsActive() &&
-            a_serde->OpenRecord(kDonorFaceRecord, kSerializationVersion)) {
+            a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
         }
         mgr.SaveOutfitDisabled(a_serde);
@@ -139,95 +149,71 @@ namespace InTheirShoes::Serialization {
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
 
+    // Fails if the record ends early, so a damaged snapshot is never applied in part
     static bool ReadFaceSnapshot(SKSE::SerializationInterface* a_serde, FaceSnapshot& a_outFace) {
-        RE::FormID raceID = 0, faceNPCID = 0, hairColorID = 0, voiceTypeID = 0;
-
-        if (!a_serde->ReadRecordData(&raceID, sizeof(raceID))) return false;
-        a_serde->ReadRecordData(&faceNPCID, sizeof(faceNPCID));
-        a_serde->ReadRecordData(&hairColorID, sizeof(hairColorID));
-        a_serde->ReadRecordData(&voiceTypeID, sizeof(voiceTypeID));
-        a_serde->ReadRecordData(&a_outFace.bodyTintColor, sizeof(a_outFace.bodyTintColor));
-        a_serde->ReadRecordData(&a_outFace.height, sizeof(a_outFace.height));
-        a_serde->ReadRecordData(&a_outFace.scale, sizeof(a_outFace.scale));
-        a_serde->ReadRecordData(&a_outFace.weight, sizeof(a_outFace.weight));
-
         std::uint8_t sexVal = 0;
-        a_serde->ReadRecordData(&sexVal, sizeof(sexVal));
+        if (!ReadForm(a_serde, a_outFace.race) ||
+            !ReadForm(a_serde, a_outFace.faceNPC) ||
+            !ReadForm(a_serde, a_outFace.hairColor) ||
+            !ReadForm(a_serde, a_outFace.voiceType) ||
+            !Read(a_serde, a_outFace.bodyTintColor) ||
+            !Read(a_serde, a_outFace.height) ||
+            !Read(a_serde, a_outFace.scale) ||
+            !Read(a_serde, a_outFace.weight) ||
+            !Read(a_serde, sexVal) ||
+            !Read(a_serde, a_outFace.morphs) ||
+            !Read(a_serde, a_outFace.parts)) {
+            return false;
+        }
         a_outFace.sex = static_cast<RE::SEX>(sexVal);
-
-        a_serde->ReadRecordData(a_outFace.morphs, sizeof(a_outFace.morphs));
-        a_serde->ReadRecordData(a_outFace.parts, sizeof(a_outFace.parts));
+        // The player's own base record is saved as none (see WriteFaceSnapshot)
+        if (a_outFace.faceNPC && a_outFace.faceNPC->GetFormID() == Forms::kPlayerBaseID) {
+            a_outFace.faceNPC = nullptr;
+        }
 
         std::uint32_t hpCount = 0;
-        if (a_serde->ReadRecordData(&hpCount, sizeof(hpCount))) {
-            for (std::uint32_t i = 0; i < hpCount; ++i) {
-                RE::FormID hpID = 0;
-                a_serde->ReadRecordData(&hpID, sizeof(hpID));
-                if (a_serde->ResolveFormID(hpID, hpID)) {
-                    auto* hp = RE::TESForm::LookupByID<RE::BGSHeadPart>(hpID);
-                    if (hp) a_outFace.headParts.push_back(hp);
-                }
-            }
+        if (!Read(a_serde, hpCount)) return false;
+        for (std::uint32_t i = 0; i < hpCount; ++i) {
+            RE::BGSHeadPart* hp = nullptr;
+            if (!ReadForm(a_serde, hp)) return false;
+            if (hp) a_outFace.headParts.push_back(hp);
         }
 
-        a_serde->ReadRecordData(&a_outFace.hasHairTintColor, sizeof(a_outFace.hasHairTintColor));
-        a_serde->ReadRecordData(&a_outFace.hairTintColor.red, sizeof(a_outFace.hairTintColor.red));
-        a_serde->ReadRecordData(&a_outFace.hairTintColor.green, sizeof(a_outFace.hairTintColor.green));
-        a_serde->ReadRecordData(&a_outFace.hairTintColor.blue, sizeof(a_outFace.hairTintColor.blue));
-
-        if (a_serde->ResolveFormID(raceID, raceID)) {
-            a_outFace.race = RE::TESForm::LookupByID<RE::TESRace>(raceID);
-        }
-        if (a_serde->ResolveFormID(faceNPCID, faceNPCID)) {
-            if (faceNPCID != 0x07) {
-                a_outFace.faceNPC = RE::TESForm::LookupByID<RE::TESNPC>(faceNPCID);
-            } else {
-                a_outFace.faceNPC = nullptr;
-            }
-        }
-        if (a_serde->ResolveFormID(hairColorID, hairColorID)) {
-            a_outFace.hairColor = RE::TESForm::LookupByID<RE::BGSColorForm>(hairColorID);
-        }
-        if (a_serde->ResolveFormID(voiceTypeID, voiceTypeID)) {
-            a_outFace.voiceType = RE::TESForm::LookupByID<RE::BGSVoiceType>(voiceTypeID);
+        if (!Read(a_serde, a_outFace.hasHairTintColor) ||
+            !Read(a_serde, a_outFace.hairTintColor.red) ||
+            !Read(a_serde, a_outFace.hairTintColor.green) ||
+            !Read(a_serde, a_outFace.hairTintColor.blue)) {
+            return false;
         }
 
         // Tint layers
         std::uint32_t tintCount = 0;
-        if (a_serde->ReadRecordData(&tintCount, sizeof(tintCount))) {
-            for (std::uint32_t i = 0; i < tintCount; ++i) {
-                RE::TESNPC::Layer layer{};
-                if (a_serde->ReadRecordData(&layer, sizeof(RE::TESNPC::Layer))) {
-                    a_outFace.tintLayers.push_back(layer);
-                }
-            }
+        if (!Read(a_serde, tintCount)) return false;
+        for (std::uint32_t i = 0; i < tintCount; ++i) {
+            RE::TESNPC::Layer layer{};
+            if (!Read(a_serde, layer)) return false;
+            a_outFace.tintLayers.push_back(layer);
         }
 
         // Skin tint color
-        if (a_serde->ReadRecordData(&a_outFace.hasSkinTintColor, sizeof(a_outFace.hasSkinTintColor))) {
-            a_serde->ReadRecordData(&a_outFace.skinTintColor.red, sizeof(a_outFace.skinTintColor.red));
-            a_serde->ReadRecordData(&a_outFace.skinTintColor.green, sizeof(a_outFace.skinTintColor.green));
-            a_serde->ReadRecordData(&a_outFace.skinTintColor.blue, sizeof(a_outFace.skinTintColor.blue));
+        if (!Read(a_serde, a_outFace.hasSkinTintColor) ||
+            !Read(a_serde, a_outFace.skinTintColor.red) ||
+            !Read(a_serde, a_outFace.skinTintColor.green) ||
+            !Read(a_serde, a_outFace.skinTintColor.blue)) {
+            return false;
         }
 
         std::uint32_t nameLen = 0;
-        if (a_serde->ReadRecordData(&nameLen, sizeof(nameLen)) && nameLen > 0) {
+        if (!Read(a_serde, nameLen) || nameLen > kMaxNameLength) return false;
+        if (nameLen > 0) {
             std::string nameStr(nameLen, '\0');
-            if (a_serde->ReadRecordData(nameStr.data(), nameLen)) {
-                a_outFace.fullName = nameStr.c_str();
-            }
+            if (a_serde->ReadRecordData(nameStr.data(), nameLen) != nameLen) return false;
+            a_outFace.fullName = nameStr.c_str();
         }
 
-        RE::FormID faceDetailsID = 0;
-        if (a_serde->ReadRecordData(&faceDetailsID, sizeof(faceDetailsID))) {
-            if (faceDetailsID != 0 && a_serde->ResolveFormID(faceDetailsID, faceDetailsID)) {
-                a_outFace.faceDetails = RE::TESForm::LookupByID<RE::BGSTextureSet>(faceDetailsID);
-            }
-        }
-        a_outFace.skin = ReadForm<RE::TESObjectARMO>(a_serde);
-        a_outFace.farSkin = ReadForm<RE::TESObjectARMO>(a_serde);
-
-        return true;
+        return ReadForm(a_serde, a_outFace.faceDetails) &&
+               ReadForm(a_serde, a_outFace.skin) &&
+               ReadForm(a_serde, a_outFace.farSkin);
     }
 
     static bool ReadBaseline(SKSE::SerializationInterface* a_serde, Baseline& a_out) {
@@ -251,10 +237,18 @@ namespace InTheirShoes::Serialization {
                 a_out.spells.addedSpells.push_back(id);
             }
         }
-        a_out.spells.leftSpell = ReadForm<RE::SpellItem>(a_serde);
-        a_out.spells.rightSpell = ReadForm<RE::SpellItem>(a_serde);
-        a_out.spells.shout = ReadForm<RE::TESShout>(a_serde);
-        return true;
+        return ReadForm(a_serde, a_out.spells.leftSpell) &&
+               ReadForm(a_serde, a_out.spells.rightSpell) &&
+               ReadForm(a_serde, a_out.spells.shout);
+    }
+
+    // Whether this build can read a record saved at a_version (it reads a_current and every older
+    // version back to kMinSupportedVersion)
+    static bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current) {
+        if (a_version >= kMinSupportedVersion && a_version <= a_current) return true;
+        SKSE::log::warn("Skipping record {:08X}: saved at version {}, this build reads versions {} to {}.",
+            a_type, a_version, kMinSupportedVersion, a_current);
+        return false;
     }
 
     void LoadCallback(SKSE::SerializationInterface* a_serde) {
@@ -267,13 +261,9 @@ namespace InTheirShoes::Serialization {
         std::uint32_t length;
 
         while (a_serde->GetNextRecordInfo(type, version, length)) {
-            if (version != kSerializationVersion) {
-                SKSE::log::warn("Skipping record {:08X} with unsupported version {}", type, version);
-                continue;
-            }
-
             switch (type) {
                 case kBaselineRecord: {
+                    if (!IsReadableVersion(type, version, kBaselineVersion)) break;
                     Baseline baseline;
                     if (ReadBaseline(a_serde, baseline)) {
                         ImpersonationManager::GetSingleton().SetBaseline(std::move(baseline));
@@ -285,18 +275,22 @@ namespace InTheirShoes::Serialization {
                 }
 
                 case kSessionRecord:
+                    if (!IsReadableVersion(type, version, kSessionVersion)) break;
                     ImpersonationManager::GetSingleton().LoadSession(a_serde);
                     break;
 
                 case kOutfitDisabledRecord:
+                    if (!IsReadableVersion(type, version, kOutfitDisabledVersion)) break;
                     ImpersonationManager::GetSingleton().LoadOutfitDisabled(a_serde);
                     break;
 
                 case kDonorAliasFactionsRecord:
+                    if (!IsReadableVersion(type, version, kDonorAliasFactionsVersion)) break;
                     ImpersonationManager::GetSingleton().LoadDonorAliasFactions(a_serde);
                     break;
 
                 case kDonorFaceRecord: {
+                    if (!IsReadableVersion(type, version, kDonorFaceVersion)) break;
                     FaceSnapshot donorFace;
                     if (ReadFaceSnapshot(a_serde, donorFace)) {
                         ImpersonationManager::GetSingleton().SetDonorFace(std::move(donorFace));

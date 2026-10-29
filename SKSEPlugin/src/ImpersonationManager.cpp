@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "ImpersonationManager.h"
 #include "FaceManager.h"
+#include "Forms.h"
 #include "Serialization.h"
 #include "IdleAIManager.h"
 #include "DialogueManager.h"
@@ -16,9 +17,6 @@
 #include <RE/T/TESDataHandler.h>
 
 namespace InTheirShoes {
-
-    constexpr RE::FormID kPlayerBaseID = 0x07;
-    constexpr RE::FormID kPlayerRefID = 0x14;
 
     enum class IdentityCondition : std::uint8_t {
         kGetInFaction = 0,
@@ -178,7 +176,7 @@ namespace InTheirShoes {
             if constexpr (Cond == IdentityCondition::kGetIsID) {
                 auto* targetForm = static_cast<RE::TESForm*>(a_p1);
                 if (targetForm && (targetForm == player || targetForm == player->GetActorBase() ||
-                    targetForm->GetFormID() == kPlayerBaseID || targetForm->GetFormID() == kPlayerRefID)) {
+                    targetForm->GetFormID() == Forms::kPlayerBaseID || targetForm->GetFormID() == Forms::kPlayerRefID)) {
                     a_result = 1.0;
                     return true;
                 }
@@ -274,15 +272,7 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::IsModInternalQuest(RE::TESQuest* a_quest) {
-        if (!a_quest) return false;
-
-        static RE::TESQuest* s_modQuest = nullptr;
-        if (!s_modQuest) {
-            if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
-                s_modQuest = dataHandler->LookupForm<RE::TESQuest>(0x00000D92, "InTheirShoes.esp"sv);
-            }
-        }
-        return a_quest == s_modQuest;
+        return a_quest && a_quest == Forms::itsQuest;
     }
 
     RE::BGSVoiceType* ImpersonationManager::GetNPCVoiceType(const RE::TESNPC* a_npc) {
@@ -341,11 +331,9 @@ namespace InTheirShoes {
             SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to donor {:08X}.",
                 fRank.faction->GetFormID(), fRank.rank, donor->GetFormID());
 
-            if (fRank.rank >= 0) {
-                auto fid = fRank.faction->GetFormID();
-                if (fid == 0x0005C84E /*CurrentFollowerFaction*/ || fid == 0x000BD738 /*PlayerFollowerFaction*/) {
-                    donor->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
-                }
+            if (fRank.rank >= 0 &&
+                (fRank.faction == Forms::currentFollowerFaction || fRank.faction == Forms::playerFollowerFaction)) {
+                donor->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
             }
         }
         extraFaction->factionChanges.clear();
@@ -451,7 +439,14 @@ namespace InTheirShoes {
         if (hookSpatialEntry(SpatialCondition::kGetHeadingAngle, "GetHeadingAngle"sv, &SpatialConditionThunk<SpatialCondition::kGetHeadingAngle>)) hookedCount++;
         if (hookSpatialEntry(SpatialCondition::kGetAngle, "GetAngle"sv, &SpatialConditionThunk<SpatialCondition::kGetAngle>)) hookedCount++;
 
-        SKSE::log::info("Successfully installed {} script condition hooks via CommonLibSSE-NG.", hookedCount);
+        constexpr auto kExpectedHooks = static_cast<std::size_t>(IdentityCondition::kTotal) + static_cast<std::size_t>(SpatialCondition::kTotal);
+        if (hookedCount == kExpectedHooks) {
+            SKSE::log::info("Installed all {} script condition hooks.", hookedCount);
+        } else {
+            // A missing hook leaves the donor's conditions answered for the wrong actor; the errors above name it
+            SKSE::log::error("Installed only {} of {} script condition hooks; impersonation conditions will be wrong.",
+                hookedCount, kExpectedHooks);
+        }
 
         InstallOutfitHook();
 
@@ -501,7 +496,7 @@ namespace InTheirShoes {
     void ImpersonationManager::SaveOutfitDisabled(SKSE::SerializationInterface* a_serde) const {
         std::scoped_lock lock(_outfitDisabledLock);
         if (_outfitDisabled.empty()) return;
-        if (!a_serde->OpenRecord(Serialization::kOutfitDisabledRecord, Serialization::kSerializationVersion)) return;
+        if (!a_serde->OpenRecord(Serialization::kOutfitDisabledRecord, Serialization::kOutfitDisabledVersion)) return;
         const auto count = static_cast<std::uint32_t>(_outfitDisabled.size());
         a_serde->WriteRecordData(&count, sizeof(count));
         for (auto id : _outfitDisabled) {
@@ -526,15 +521,8 @@ namespace InTheirShoes {
     void ImpersonationManager::Initialize() {
         InstallHooks();
 
-        auto* dataHandler = RE::TESDataHandler::GetSingleton();
-        if (dataHandler) {
-            auto* marker = dataHandler->LookupForm<RE::TESObjectREFR>(0x00000807, "InTheirShoes.esp"sv);
-            if (marker) {
-                _storageMarker = marker->GetHandle();
-                SKSE::log::info("Resolved storage marker: {:08X}", marker->GetFormID());
-            } else {
-                SKSE::log::warn("Failed to resolve storage marker 0x00000807 from InTheirShoes.esp!");
-            }
+        if (Forms::storageMarker) {
+            _storageMarker = Forms::storageMarker->GetHandle();
         }
     }
 
@@ -564,8 +552,8 @@ namespace InTheirShoes {
     void ImpersonationManager::CaptureBaseline(RE::Actor* a_player) {
         Baseline baseline;
         FaceManager::GetSingleton().CaptureSnapshot(a_player, baseline.face);
-        StatManager::GetSingleton().CaptureSnapshot(a_player, baseline.stats);
-        InventoryManager::GetSingleton().StashPlayerSpells(a_player, baseline.spells);
+        StatManager::CaptureSnapshot(a_player, baseline.stats);
+        InventoryManager::StashPlayerSpells(a_player, baseline.spells);
         SetBaseline(std::move(baseline));
         SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
     }
@@ -574,12 +562,7 @@ namespace InTheirShoes {
         // The Werewolf and Vampire Lord quests run for the whole transformation, including the moments
         // around the race swap, and restore the race they saved when it began. (Confirmed for Vampire Lord: the
         // quest runs from the start of the transformation until ~2s after changing back.)
-        constexpr RE::FormID kPlayerWerewolfQuest = 0x0002BA16;       // Skyrim.esm
-        constexpr RE::FormID kDLC1PlayerVampireQuest = 0x000071D0;    // Dawnguard.esm
-        auto* dataHandler = RE::TESDataHandler::GetSingleton();
-        auto* werewolfQuest = RE::TESForm::LookupByID<RE::TESQuest>(kPlayerWerewolfQuest);
-        auto* vampireLordQuest = dataHandler ? dataHandler->LookupForm<RE::TESQuest>(kDLC1PlayerVampireQuest, "Dawnguard.esm"sv) : nullptr;
-        return IsQuestRunning(werewolfQuest) || IsQuestRunning(vampireLordQuest);
+        return IsQuestRunning(Forms::playerWerewolfQuest) || IsQuestRunning(Forms::dlc1PlayerVampireQuest);
     }
 
     bool ImpersonationManager::Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet) {
@@ -595,8 +578,6 @@ namespace InTheirShoes {
         }
 
         auto& faces = FaceManager::GetSingleton();
-        auto& stats = StatManager::GetSingleton();
-        auto& inventory = InventoryManager::GetSingleton();
 
         if (IsActive()) {
             // Donor-to-donor switch: hand the current state back to the old donor, who takes the player's place
@@ -615,8 +596,8 @@ namespace InTheirShoes {
             CaptureBaseline(player);
             AttachPuppet(a_puppet);
             ConfigurePuppet(a_puppet);
-            stats.CopyStats(player, a_puppet);
-            inventory.TransferAllItems(player, a_puppet, true, _donorQuestItems);
+            StatManager::CopyStats(player, a_puppet);
+            InventoryManager::TransferAllItems(player, a_puppet, true, _donorQuestItems);
         }
 
         // Kept for the session: the donor's rendered skin and hair tints can only be read while its 3D is
@@ -629,9 +610,9 @@ namespace InTheirShoes {
             SKSE::log::error("Failed to capture the appearance of donor {:08X}.", a_donor->GetFormID());
             _donorFace.reset();
         }
-        stats.CopyStats(a_donor, player);
-        inventory.CopyDonorSpells(a_donor, player);
-        inventory.TransferAllItems(a_donor, player, false, _donorQuestItems);
+        StatManager::CopyStats(a_donor, player);
+        InventoryManager::CopyDonorSpells(a_donor, player);
+        InventoryManager::TransferAllItems(a_donor, player, false, _donorQuestItems);
 
         if (auto marker = _storageMarker.get()) {
             a_donor->MoveTo(marker.get());
@@ -659,13 +640,13 @@ namespace InTheirShoes {
 
         if (_baseline) {
             FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face);
-            StatManager::GetSingleton().ApplySnapshot(player, _baseline->stats);
+            StatManager::ApplySnapshot(player, _baseline->stats);
         }
         if (puppet) {
-            InventoryManager::GetSingleton().TransferAllItems(puppet, player, false, _donorQuestItems);
+            InventoryManager::TransferAllItems(puppet, player, false, _donorQuestItems);
         }
         if (_baseline) {
-            InventoryManager::GetSingleton().RestorePlayerSpells(player, _baseline->spells);
+            InventoryManager::RestorePlayerSpells(player, _baseline->spells);
         }
 
         ReleasePuppet();
@@ -679,9 +660,9 @@ namespace InTheirShoes {
 
     void ImpersonationManager::ReturnStateToDonor(RE::Actor* a_donor) {
         auto* player = RE::PlayerCharacter::GetSingleton();
-        StatManager::GetSingleton().CopyStats(player, a_donor);
-        InventoryManager::GetSingleton().TransferAllItems(player, a_donor, true, _donorQuestItems);
-        InventoryManager::GetSingleton().ReturnSpellsToDonor(player, a_donor);
+        StatManager::CopyStats(player, a_donor);
+        InventoryManager::TransferAllItems(player, a_donor, true, _donorQuestItems);
+        InventoryManager::ReturnSpellsToDonor(player, a_donor);
         _donorQuestItems.clear();
     }
 
@@ -889,7 +870,7 @@ namespace InTheirShoes {
     void ImpersonationManager::SaveDonorAliasFactions(SKSE::SerializationInterface* a_serde) const {
         std::scoped_lock lock(_donorAliasFactionsLock);
         if (!IsActive() || _donorAliasFactions.empty()) return;
-        if (!a_serde->OpenRecord(Serialization::kDonorAliasFactionsRecord, Serialization::kSerializationVersion)) return;
+        if (!a_serde->OpenRecord(Serialization::kDonorAliasFactionsRecord, Serialization::kDonorAliasFactionsVersion)) return;
         const auto count = static_cast<std::uint32_t>(_donorAliasFactions.size());
         a_serde->WriteRecordData(&count, sizeof(count));
         for (const auto& [faction, rank] : _donorAliasFactions) {
@@ -989,7 +970,7 @@ namespace InTheirShoes {
         auto* donor = GetDonor();
         auto* puppet = GetPuppet();
         if (!IsActive() || !donor) return;
-        if (!a_serde->OpenRecord(Serialization::kSessionRecord, Serialization::kSerializationVersion)) return;
+        if (!a_serde->OpenRecord(Serialization::kSessionRecord, Serialization::kSessionVersion)) return;
 
         const RE::FormID donorID = donor->GetFormID();
         const RE::FormID puppetID = puppet ? puppet->GetFormID() : 0;
@@ -1058,11 +1039,6 @@ namespace InTheirShoes {
         }
 
         AttachDonor(donor);
-        {
-            // Saves from before outfits were disabled have no OUTF record
-            std::scoped_lock lock(_outfitDisabledLock);
-            _outfitDisabled.insert(donor->GetFormID());
-        }
         _swappedAliases = std::move(aliases);
         _active.store(true, std::memory_order_release);
         SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", donorID, _swappedAliases.size());
@@ -1103,7 +1079,7 @@ namespace InTheirShoes {
         if (auto* donor = GetDonor()) {
             // The player's record may have reloaded with stale appearance data; reapply the donor's look as
             // captured when impersonation began. Re-capturing now would miss the donor's rendered skin and hair
-            // tints, since the parked donor has no 3D. (Saves from before the snapshot was saved re-capture.)
+            // tints, since the parked donor has no 3D. (If the snapshot couldn't be captured, re-capture anyway.)
             if (_donorFace) {
                 SKSE::GetTaskInterface()->AddTask([face = *_donorFace]() {
                     FaceManager::GetSingleton().ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);

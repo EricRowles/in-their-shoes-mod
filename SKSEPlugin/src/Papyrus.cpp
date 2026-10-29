@@ -42,12 +42,26 @@ namespace InTheirShoes::Papyrus {
         ImpersonationManager::GetSingleton().SetPuppetFollowsPlayer(a_follows);
     }
 
-    std::int32_t ValidateImpersonateTarget(RE::StaticFunctionTag*, RE::Actor* a_target) {
+    // ValidateImpersonateTarget's result. The values are part of the Papyrus API (documented in ITS_NG.psc,
+    // checked in ITS_QuestScript.psc), so never renumber them.
+    enum class TargetValidation : std::int32_t {
+        kValid = 0,
+        kInvalid = 1,
+        kPlayer = 2,
+        kDead = 3,
+        kChild = 4,
+        kNotHumanoid = 5,
+        kMounted = 6,
+        kGhost = 7,
+        kPlayerTransformed = 8,
+    };
+
+    static TargetValidation ValidateTarget(RE::Actor* a_target) {
         if (!a_target) {
-            return 1;
+            return TargetValidation::kInvalid;
         }
         if (a_target->IsPlayerRef()) {
-            return 2;
+            return TargetValidation::kPlayer;
         }
         auto* actorState = a_target->AsActorState();
         if (actorState) {
@@ -56,40 +70,44 @@ namespace InTheirShoes::Papyrus {
                 lifeState == RE::ACTOR_LIFE_STATE::kDying ||
                 lifeState == RE::ACTOR_LIFE_STATE::kBleedout ||
                 lifeState == RE::ACTOR_LIFE_STATE::kEssentialDown) {
-                return 3;
+                return TargetValidation::kDead;
             }
         }
         if (a_target->IsDead() || a_target->IsInKillMove()) {
-            return 3;
+            return TargetValidation::kDead;
         }
         if (a_target->IsGhost()) {
-            return 7;
+            return TargetValidation::kGhost;
         }
         auto* base = a_target->GetActorBase();
         if (!base) {
-            return 1;
+            return TargetValidation::kInvalid;
         }
         auto* npc = skyrim_cast<RE::TESNPC*>(base);
         if (!npc) {
-            return 5;
+            return TargetValidation::kNotHumanoid;
         }
         auto* race = npc->GetRace();
         if (!race) {
             race = a_target->GetRace();
         }
         if (!race || !race->data.flags.all(RE::RACE_DATA::Flag::kFaceGenHead)) {
-            return 5;
+            return TargetValidation::kNotHumanoid;
         }
         if (race->IsChildRace() || race->data.flags.all(RE::RACE_DATA::Flag::kChild)) {
-            return 4;
+            return TargetValidation::kChild;
         }
         if (a_target->IsOnMount()) {
-            return 6;
+            return TargetValidation::kMounted;
         }
         if (ImpersonationManager::IsPlayerTransformed()) {
-            return 8;
+            return TargetValidation::kPlayerTransformed;
         }
-        return 0;
+        return TargetValidation::kValid;
+    }
+
+    std::int32_t ValidateImpersonateTarget(RE::StaticFunctionTag*, RE::Actor* a_target) {
+        return std::to_underlying(ValidateTarget(a_target));
     }
 
     bool IsPlayerTransformed(RE::StaticFunctionTag*) {

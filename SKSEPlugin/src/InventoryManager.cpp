@@ -1,28 +1,13 @@
 #include "PCH.h"
 #include "InventoryManager.h"
+#include "Forms.h"
 #include <algorithm>
 #include <unordered_set>
 
 namespace InTheirShoes {
 
     static bool IsModSystemSpell(RE::SpellItem* a_spell) {
-        if (!a_spell) return false;
-
-        static RE::SpellItem* s_impersonateSpell = nullptr;
-        static RE::SpellItem* s_revertSpell = nullptr;
-
-        if (!s_impersonateSpell || !s_revertSpell) {
-            if (auto* dataHandler = RE::TESDataHandler::GetSingleton()) {
-                if (!s_impersonateSpell) {
-                    s_impersonateSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000D69, "InTheirShoes.esp"sv);
-                }
-                if (!s_revertSpell) {
-                    s_revertSpell = dataHandler->LookupForm<RE::SpellItem>(0x00000802, "InTheirShoes.esp"sv);
-                }
-            }
-        }
-
-        return (a_spell == s_impersonateSpell || a_spell == s_revertSpell);
+        return a_spell && (a_spell == Forms::impersonateSpell || a_spell == Forms::revertSpell);
     }
 
     static bool IsCastableSpell(RE::SpellItem* a_spell) {

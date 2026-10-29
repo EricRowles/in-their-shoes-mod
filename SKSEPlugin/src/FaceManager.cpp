@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "FaceManager.h"
+#include "Forms.h"
 #include "ImpersonationManager.h"
 #include "RE/B/BSFaceGenNiNode.h"
 #include "RE/B/BSVisit.h"
@@ -114,7 +115,7 @@ namespace InTheirShoes {
         a_outSnapshot.race = npc->GetRace();
         a_outSnapshot.skin = npc->skin;
         a_outSnapshot.farSkin = npc->farSkin;
-        if (npc->GetFormID() == 0x07) {
+        if (npc->GetFormID() == Forms::kPlayerBaseID) {
             a_outSnapshot.faceNPC = nullptr;
         } else {
             a_outSnapshot.faceNPC = (npc->faceNPC && npc->faceNPC != npc) ? npc->faceNPC : npc;

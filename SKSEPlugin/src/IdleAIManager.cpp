@@ -2,6 +2,7 @@
 #include "IdleAIManager.h"
 #include "ImpersonationManager.h"
 #include "DialogueManager.h"
+#include "Forms.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,8 +22,6 @@
 
 namespace InTheirShoes {
 
-    // DefaultSandboxCurrentLocation1024, the fallback when nothing else applies
-    constexpr RE::FormID kDefaultSandboxPackage = 0x000BFB6B;
     // Game.SetPlayerAIDriven runs through the script VM, so the package is evaluated a moment later
     constexpr float kEvaluateAfterEngageSeconds = 0.25f;
 
@@ -556,7 +555,8 @@ namespace InTheirShoes {
                 donorPkgs.push_back(pkg);
             }
         }
-        if (auto* defaultSandbox = RE::TESForm::LookupByID<RE::TESPackage>(kDefaultSandboxPackage)) {
+        // The fallback when nothing else applies
+        if (auto* defaultSandbox = Forms::defaultSandboxPackage) {
             if (std::find(donorPkgs.begin(), donorPkgs.end(), defaultSandbox) == donorPkgs.end()) {
                 donorPkgs.push_back(defaultSandbox);
             }

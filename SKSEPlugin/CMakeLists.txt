@@ -18,6 +18,8 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../extern/CommonLibSSE-NG" "${CMAK
 add_library(${PROJECT_NAME} SHARED
     src/PCH.h
     src/main.cpp
+    src/Forms.h
+    src/Forms.cpp
     src/FaceManager.h
     src/FaceManager.cpp
     src/InventoryManager.h
