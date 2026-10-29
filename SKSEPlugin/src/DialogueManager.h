@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <atomic>
 #include <chrono>
 #include <optional>
@@ -18,15 +19,11 @@ namespace InTheirShoes {
     // Hooks run on the main thread. Whether self-dialogue is on is published in Session, which condition hooks
     // read from AI threads.
     class DialogueManager :
+        public Singleton<DialogueManager>,
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>,
         public RE::BSTEventSink<RE::InputEvent*>,
         public RE::BSTEventSink<RE::TESTopicInfoEvent> {
     public:
-        static DialogueManager& GetSingleton() {
-            static DialogueManager instance;
-            return instance;
-        }
-
         void Initialize();
         void Update();
         void Clear();
@@ -45,10 +42,9 @@ namespace InTheirShoes {
 
 
     private:
+        friend Singleton<DialogueManager>;
         DialogueManager() = default;
         ~DialogueManager() override = default;
-        DialogueManager(const DialogueManager&) = delete;
-        DialogueManager& operator=(const DialogueManager&) = delete;
 
         void InstallHooks();
         bool OpenSelfDialogueDirect(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic = nullptr);

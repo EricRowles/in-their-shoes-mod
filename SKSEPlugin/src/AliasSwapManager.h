@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -11,13 +12,8 @@ namespace InTheirShoes {
     // actions when the actor filling it is loaded, and the parked donor isn't.
     // Don't hook TESQuest::ForceRefIntoAlias: a 5-byte context hook split a prologue instruction and froze the game.
     // Main thread only, except GetDonorAliasFactionRank, which faction condition hooks call from AI threads.
-    class AliasSwapManager {
+    class AliasSwapManager : public Singleton<AliasSwapManager> {
     public:
-        static AliasSwapManager& GetSingleton() {
-            static AliasSwapManager instance;
-            return instance;
-        }
-
         struct SwappedAlias {
             RE::FormID questFormID{ 0 };
             std::uint32_t aliasID{ 0 };
@@ -52,10 +48,9 @@ namespace InTheirShoes {
         void SetDonorAliasFactions(std::vector<FactionRank> a_factions);
 
     private:
+        friend Singleton<AliasSwapManager>;
         AliasSwapManager() = default;
         ~AliasSwapManager() = default;
-        AliasSwapManager(const AliasSwapManager&) = delete;
-        AliasSwapManager& operator=(const AliasSwapManager&) = delete;
 
         std::vector<SwappedAlias> _swappedAliases;
 

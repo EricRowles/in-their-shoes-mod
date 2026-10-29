@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <chrono>
 #include <vector>
 #include "RE/D/DialogueItem.h"
@@ -8,13 +9,8 @@ namespace InTheirShoes {
 
     // Picks idle lines for the impersonating player to say as the donor, and decides when.
     // DialogueManager voices them. Main thread only.
-    class IdleChatter {
+    class IdleChatter : public Singleton<IdleChatter> {
     public:
-        static IdleChatter& GetSingleton() {
-            static IdleChatter instance;
-            return instance;
-        }
-
         // Seconds between lines (MCM)
         void SetInterval(float a_seconds) { _intervalSeconds = a_seconds < 10.0f ? 60.0f : a_seconds; }
         // The idle topic list is rebuilt the next time a line is picked
@@ -28,10 +24,9 @@ namespace InTheirShoes {
         void OnLineFinished() { _lastLineTime = std::chrono::steady_clock::now(); }
 
     private:
+        friend Singleton<IdleChatter>;
         IdleChatter() = default;
         ~IdleChatter() = default;
-        IdleChatter(const IdleChatter&) = delete;
-        IdleChatter& operator=(const IdleChatter&) = delete;
 
         void RebuildTopicCache();
         RE::BSTSmartPointer<RE::DialogueItem> PickLine(RE::Actor* a_player, RE::Actor* a_donor);

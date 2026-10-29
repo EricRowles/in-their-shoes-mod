@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -43,15 +44,10 @@ namespace InTheirShoes {
         bool hasSkinTintColor{ false };
     };
 
-    // Stateless appearance capture/apply. The Dragonborn's saved appearance lives in
-    // ImpersonationManager's Baseline.
-    class FaceManager {
+    // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline;
+    // the only state here is which head part arrays this plugin allocated (#11).
+    class FaceManager : public Singleton<FaceManager> {
     public:
-        static FaceManager& GetSingleton() {
-            static FaceManager instance;
-            return instance;
-        }
-
         // Empty if the actor has no NPC base record
         std::optional<FaceSnapshot> CaptureSnapshot(RE::Actor* a_actor);
 
@@ -62,10 +58,9 @@ namespace InTheirShoes {
         bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
     private:
+        friend Singleton<FaceManager>;
         FaceManager() = default;
         ~FaceManager() = default;
-        FaceManager(const FaceManager&) = delete;
-        FaceManager& operator=(const FaceManager&) = delete;
 
         // Head part arrays we allocated, so we never free one the engine owns
         std::unordered_set<void*> _allocatedHeadPartBuffers;

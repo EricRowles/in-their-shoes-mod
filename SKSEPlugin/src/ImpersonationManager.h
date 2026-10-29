@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <optional>
 #include <unordered_set>
 #include <cstdint>
@@ -22,13 +23,8 @@ namespace InTheirShoes {
     // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the
     // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
     // Main thread only.
-    class ImpersonationManager {
+    class ImpersonationManager : public Singleton<ImpersonationManager> {
     public:
-        static ImpersonationManager& GetSingleton() {
-            static ImpersonationManager instance;
-            return instance;
-        }
-
         void Initialize();
         void Tick();
 
@@ -65,10 +61,9 @@ namespace InTheirShoes {
         void OnPostLoadGame();
 
     private:
+        friend Singleton<ImpersonationManager>;
         ImpersonationManager() = default;
         ~ImpersonationManager() = default;
-        ImpersonationManager(const ImpersonationManager&) = delete;
-        ImpersonationManager& operator=(const ImpersonationManager&) = delete;
 
         static bool IsActive() { return Session::GetSingleton().IsActive(); }
         static RE::Actor* GetDonor() { return Session::GetSingleton().GetDonor(); }

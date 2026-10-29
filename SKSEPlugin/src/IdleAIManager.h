@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Singleton.h"
 #include <chrono>
 #include <vector>
 #include <cstdint>
@@ -26,13 +27,9 @@ namespace InTheirShoes {
 
     // Drives the player with the donor's AI packages after a period without input.
     // Runs entirely on the main thread (player update, input events, Papyrus natives).
-    class IdleAIManager : public RE::BSTEventSink<RE::InputEvent*> {
+    class IdleAIManager : public Singleton<IdleAIManager>,
+        public RE::BSTEventSink<RE::InputEvent*> {
     public:
-        static IdleAIManager& GetSingleton() {
-            static IdleAIManager instance;
-            return instance;
-        }
-
         void Initialize();
         void Update();
 
@@ -55,10 +52,9 @@ namespace InTheirShoes {
         }
 
     private:
+        friend Singleton<IdleAIManager>;
         IdleAIManager() = default;
         ~IdleAIManager() override = default;
-        IdleAIManager(const IdleAIManager&) = delete;
-        IdleAIManager& operator=(const IdleAIManager&) = delete;
 
         void InstallHooks();
         void OnUserInput();
