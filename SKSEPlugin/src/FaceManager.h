@@ -46,6 +46,9 @@ namespace InTheirShoes {
     // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline.
     class FaceManager : public Singleton<FaceManager> {
     public:
+        // Keeps RaceMenu (the RaceSex Menu) from opening while impersonating
+        void InstallHook();
+
         // Empty if the actor has no NPC base record
         std::optional<FaceSnapshot> CaptureSnapshot(RE::Actor* a_actor);
 
@@ -62,6 +65,9 @@ namespace InTheirShoes {
         friend Singleton<FaceManager>;
         FaceManager() = default;
         ~FaceManager() = default;
+
+        static RE::UI_MESSAGE_RESULTS Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message);
+        inline static REL::Relocation<decltype(Hook_RaceSexMenu_ProcessMessage)> _origRaceSexMenuProcessMessage;
     };
 
 }

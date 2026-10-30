@@ -19,6 +19,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
   - The player answers the donor's conditions and holds its quest aliases, so the donor's quests, scenes and idle lines play through the player.
   - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue.
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
+  - RaceMenu won't open.
 - **Saving:** the session is stored in the SKSE co-save and restored on load.
 
 ## Code map (`SKSEPlugin/src/`)
