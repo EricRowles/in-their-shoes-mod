@@ -134,6 +134,47 @@ namespace InTheirShoes {
             subMgr->subtitles.push_back(info);
         }
 
+        // In self-dialogue the subtitle stayed on the conversation's first line (#25). Not diagnosed: this logs
+        // the puppet's subtitles after the engine has run each line, and replaces any left over from an
+        // earlier line with the current one.
+        void RefreshPuppetSubtitle(RE::Actor* a_puppet, const RE::DialogueResponse* a_response) {
+            auto* subMgr = RE::SubtitleManager::GetSingleton();
+            if (!subMgr || a_response->text.empty()) return;
+
+            std::string_view text = a_response->text.c_str();
+            auto handle = a_puppet->GetHandle();
+            RE::BSSpinLockGuard locker(subMgr->lock);
+            bool current = false;
+            std::uint32_t stale = 0;
+            for (std::uint32_t i = 0; i < subMgr->subtitles.size();) {
+                auto& entry = subMgr->subtitles[i];
+                if (entry.speaker != handle) {
+                    ++i;
+                    continue;
+                }
+                std::string_view shown = entry.subtitle.c_str() ? entry.subtitle.c_str() : "";
+                if (shown == text) {
+                    current = true;
+                    ++i;
+                    continue;
+                }
+                SKSE::log::info("Removing the puppet's stale subtitle '{}'", shown);
+                subMgr->subtitles.erase(subMgr->subtitles.begin() + i);
+                ++stale;
+            }
+            if (!current) {
+                RE::SubtitleInfo info;
+                info.speaker = handle;
+                info.subtitle = a_response->text;
+                info.targetDistance = 0.0f;
+                info.forceDisplay = true;
+                subMgr->subtitles.push_back(info);
+            }
+            SKSE::log::info("Puppet subtitle for '{}': engine queued it={}, removed {} stale, {} subtitles, "
+                            "current speaker is puppet={}",
+                text, current, stale, subMgr->subtitles.size(), subMgr->currentSpeaker == handle);
+        }
+
         // Plays the response's voice file on the actor, for when the engine didn't start it
         // (see SpeakAsPlayer). It has no lip sync.
         bool StartVoiceSound(RE::Actor* a_actor, const RE::DialogueResponse* a_response) {
@@ -758,6 +799,9 @@ namespace InTheirShoes {
             CopyResponse(a_response, self._standInLine);
             Silence(a_response);
             bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
+            if (a_this == session.GetPuppet()) {
+                RefreshPuppetSubtitle(a_this, a_response);
+            }
             self.SpeakAsPlayer(&self._standInLine, a_unused, false);
             self.HoldStandIn(a_this, a_response);
             return ret;
