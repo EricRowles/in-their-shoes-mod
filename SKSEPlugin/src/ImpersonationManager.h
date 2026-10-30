@@ -23,10 +23,16 @@ namespace InTheirShoes {
     // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the
     // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
     // Main thread only.
-    class ImpersonationManager : public Singleton<ImpersonationManager> {
+    class ImpersonationManager :
+        public Singleton<ImpersonationManager>,
+        public RE::BSTEventSink<SKSE::NiNodeUpdateEvent> {
     public:
         void Initialize();
         void Tick();
+
+        // BSTEventSink<SKSE::NiNodeUpdateEvent>: puts the donor's skin and hair back after the player's 3D is
+        // rebuilt (#14)
+        RE::BSEventNotifyControl ProcessEvent(const SKSE::NiNodeUpdateEvent* a_event, RE::BSTEventSource<SKSE::NiNodeUpdateEvent>* a_eventSource) override;
 
         // Starts impersonating a_donor, or switches to it if already impersonating someone else.
         // Moves the donor to the storage marker; the caller positions the puppet beforehand.
