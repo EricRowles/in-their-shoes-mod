@@ -4,7 +4,6 @@
 #include <array>
 #include <optional>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include "RE/N/NiColor.h"
 
@@ -44,10 +43,12 @@ namespace InTheirShoes {
         bool hasSkinTintColor{ false };
     };
 
-    // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline;
-    // the only state here is which head part arrays this plugin allocated (#11).
+    // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline.
     class FaceManager : public Singleton<FaceManager> {
     public:
+        // Keeps RaceMenu (the RaceSex Menu) from opening while impersonating
+        void InstallHook();
+
         // Empty if the actor has no NPC base record
         std::optional<FaceSnapshot> CaptureSnapshot(RE::Actor* a_actor);
 
@@ -65,8 +66,8 @@ namespace InTheirShoes {
         FaceManager() = default;
         ~FaceManager() = default;
 
-        // Head part arrays we allocated, so we never free one the engine owns
-        std::unordered_set<void*> _allocatedHeadPartBuffers;
+        static RE::UI_MESSAGE_RESULTS Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message);
+        inline static REL::Relocation<decltype(Hook_RaceSexMenu_ProcessMessage)> _origRaceSexMenuProcessMessage;
     };
 
 }

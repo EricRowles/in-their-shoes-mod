@@ -4,6 +4,7 @@
 #include "AliasSwapManager.h"
 #include "ConditionHooks.h"
 #include "DialogueManager.h"
+#include "FaceManager.h"
 #include "Forms.h"
 #include "GameUtil.h"
 #include "IdleAIManager.h"
@@ -31,6 +32,7 @@ namespace InTheirShoes::Lifecycle {
         ActorHooks::Install();
         ConditionHooks::Install();
         OutfitManager::GetSingleton().InstallHook();
+        FaceManager::GetSingleton().InstallHook();
         ImpersonationManager::GetSingleton().Initialize();
     }
 

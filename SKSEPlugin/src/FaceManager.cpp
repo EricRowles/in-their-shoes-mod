@@ -2,6 +2,7 @@
 #include "FaceManager.h"
 #include "Forms.h"
 #include "ActorHooks.h"
+#include "Session.h"
 
 #include <algorithm>
 #include "RE/B/BSFaceGenNiNode.h"
@@ -155,6 +156,28 @@ namespace InTheirShoes {
             }
             a_npc->tintLayers->clear();
         }
+    }
+
+    void FaceManager::InstallHook() {
+        REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_RaceSexMenu[0] };
+        _origRaceSexMenuProcessMessage = vtbl.write_vfunc(0x4, &Hook_RaceSexMenu_ProcessMessage);
+        SKSE::log::info("Hooked RaceSexMenu::ProcessMessage (0x4)");
+    }
+
+    RE::UI_MESSAGE_RESULTS FaceManager::Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message) {
+        // RaceSexMenu's show handler builds its tint sliders from the current race's tint assets and reads the
+        // player's own tint mask at each asset's index (ID 52412, called from ProcessMessage 52345 via 52409).
+        // PlayerCharacter's tint masks were built for the Dragonborn's race and aren't swapped with the record,
+        // so with a donor of another race the index runs past them and the menu crashes on a null mask.
+        // Returning kIgnore to kShow is the UI's own refusal path (UI message processing, ID 82082): the menu
+        // is dropped before it joins the menu stack, so no open/close event is sent and RaceMenu's script
+        // doesn't save the donor's tints as the Dragonborn's.
+        if (a_message.type == RE::UI_MESSAGE_TYPE::kShow && Session::GetSingleton().IsActive() && !a_this->AlwaysOpen()) {
+            SKSE::log::info("Refused to open RaceMenu while impersonating");
+            RE::SendHUDMessage::ShowHUDMessage("You can't change your appearance while impersonating.");
+            return RE::UI_MESSAGE_RESULTS::kIgnore;
+        }
+        return _origRaceSexMenuProcessMessage(a_this, a_message);
     }
 
     std::optional<FaceSnapshot> FaceManager::CaptureSnapshot(RE::Actor* a_actor) {
@@ -329,11 +352,9 @@ namespace InTheirShoes {
             std::ranges::copy(a_snapshot.parts, targetNPC->faceData->parts);
         }
 
-        // 6. Headparts Replacement: only free buffers that were dynamically allocated by us
+        // 6. Headparts Replacement
         if (targetNPC->headParts) {
-            if (_allocatedHeadPartBuffers.erase(targetNPC->headParts) > 0) {
-                RE::free(targetNPC->headParts);
-            }
+            RE::free(targetNPC->headParts);
             targetNPC->headParts = nullptr;
             targetNPC->numHeadParts = 0;
         }
@@ -345,7 +366,6 @@ namespace InTheirShoes {
                     for (std::int8_t i = 0; i < count; ++i) {
                         newParts[i] = a_snapshot.headParts[i];
                     }
-                    _allocatedHeadPartBuffers.insert(newParts);
                     targetNPC->headParts = newParts;
                     targetNPC->numHeadParts = count;
                 }
