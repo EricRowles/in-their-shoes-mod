@@ -49,6 +49,8 @@ namespace InTheirShoes {
 
         // Faction changes made to the puppet in self-dialogue (it stands in for the donor) go to the donor
         void ForwardPuppetFactionsToDonor();
+        // Gives the puppet the Dragonborn's name back if a quest alias renamed it
+        void RestorePuppetName();
 
         // Serialization
         const std::optional<Baseline>& GetBaseline() const { return _baseline; }

@@ -47,6 +47,27 @@ namespace InTheirShoes {
         extraFaction->factionChanges.clear();
     }
 
+    void ImpersonationManager::RestorePuppetName() {
+        auto* puppet = GetPuppet();
+        if (!puppet || !_baseline || _baseline->face.fullName.empty()) return;
+        const char* shown = puppet->GetDisplayFullName();
+        if (shown && _baseline->face.fullName == shown) return;
+
+        // An alias that names its holder (e.g. Remi's follower alias) leaves the puppet nameless when it's moved
+        // to the player, and a nameless actor has no activation prompt (#23). The alias's message outranks a
+        // custom name, so it is cleared first.
+        auto* textData = puppet->extraList.GetByType<RE::ExtraTextDisplayData>();
+        if (!textData) {
+            puppet->extraList.Add(new RE::ExtraTextDisplayData(_baseline->face.fullName.c_str()));
+        } else {
+            textData->displayNameText = nullptr;
+            textData->ownerQuest = nullptr;
+            textData->ownerInstance = RE::ExtraTextDisplayData::DisplayDataType::kCustomName;
+            textData->SetName(_baseline->face.fullName.c_str());
+        }
+        SKSE::log::info("Restored the puppet's name (was '{}')", shown ? shown : "");
+    }
+
     void ImpersonationManager::Initialize() {
         if (Forms::storageMarker) {
             _storageMarker = Forms::storageMarker->GetHandle();

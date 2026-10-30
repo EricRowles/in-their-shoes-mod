@@ -50,6 +50,10 @@ namespace InTheirShoes::Lifecycle {
     void OnFrame() {
         IdleAIManager::GetSingleton().Update();
         DialogueManager::GetSingleton().Update();
+        // After DialogueManager, which adopts aliases a fragment just gave the puppet
+        if (Session::GetSingleton().IsActive()) {
+            AliasSwapManager::GetSingleton().DropReleasedAliases();
+        }
         ImpersonationManager::GetSingleton().Tick();
     }
 
@@ -63,6 +67,7 @@ namespace InTheirShoes::Lifecycle {
         ImpersonationManager::GetSingleton().ForwardPuppetFactionsToDonor();
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
             AliasSwapManager::GetSingleton().AdoptPuppetAliases(session.GetPuppet(), Session::GetPlayer());
+            ImpersonationManager::GetSingleton().RestorePuppetName();
         }
     }
 
