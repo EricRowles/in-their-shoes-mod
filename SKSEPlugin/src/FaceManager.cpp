@@ -102,6 +102,50 @@ namespace InTheirShoes {
             }
         }
 
+        // The player's face and body are tinted from PlayerCharacter's own skin tone tint mask as well as the
+        // base record's bodyTintColor, so the two have to agree. Sets the mask in both of the player's tint lists
+        // (base and overlay), as SKSE's Game.SetNthTintMaskColor does. CommonLib's GetTintList() returns only
+        // one of them, and isn't available in builds that also target VR, whose layout isn't known.
+        void SetPlayerSkinTone(RE::PlayerCharacter* a_player, const RE::Color& a_color) {
+            if (!a_player || REL::Module::IsVR()) return;
+            auto* base = &REL::RelocateMemberIfNewer<RE::BSTArray<RE::TintMask*>>(SKSE::RUNTIME_SSE_1_6_629, a_player, 0xB10, 0xB18);
+            auto* overlay = REL::RelocateMemberIfNewer<RE::BSTArray<RE::TintMask*>*>(SKSE::RUNTIME_SSE_1_6_629, a_player, 0xB28, 0xB30);
+            for (auto* list : { base, overlay }) {
+                if (!list) continue;
+                for (auto* mask : *list) {
+                    if (mask && mask->type == RE::TintMask::Type::kSkinTone) {
+                        SetRGB(mask->color, a_color);
+                    }
+                }
+            }
+        }
+
+        // The skin tint to apply: the rendered one if captured, else the body tint, else the race's skin tone layer
+        std::optional<RE::NiColor> ResolveSkinTint(const FaceSnapshot& a_snapshot) {
+            if (a_snapshot.hasSkinTintColor) {
+                return a_snapshot.skinTintColor;
+            }
+            if (!IsBlack(a_snapshot.bodyTintColor)) {
+                return ToNiColor(a_snapshot.bodyTintColor);
+            }
+            if (auto tone = FindRaceSkinTone(a_snapshot.race, a_snapshot.sex, a_snapshot.tintLayers)) {
+                return ToNiColor(*tone);
+            }
+            return std::nullopt;
+        }
+
+        // Sets the record's skin and hair colors (and the player's skin tone mask, which must match them)
+        void ApplyTintColors(RE::Actor* a_actor, RE::TESNPC* a_npc, const FaceSnapshot& a_snapshot, const std::optional<RE::NiColor>& a_skinTint) {
+            a_npc->bodyTintColor = a_snapshot.bodyTintColor;
+            if (a_skinTint) {
+                SetRGB(a_npc->bodyTintColor, *a_skinTint);
+            }
+            a_npc->SetHairColor(a_snapshot.hairColor);
+            if (a_actor->IsPlayerRef()) {
+                SetPlayerSkinTone(RE::PlayerCharacter::GetSingleton(), a_npc->bodyTintColor);
+            }
+        }
+
         void FreeTintLayers(RE::TESNPC* a_npc) {
             if (!a_npc->tintLayers) return;
             for (auto* layer : *a_npc->tintLayers) {
@@ -269,10 +313,8 @@ namespace InTheirShoes {
             a_targetActor->SetScale(a_snapshot.scale);
         }
         targetNPC->weight = a_snapshot.weight;
-        targetNPC->bodyTintColor = a_snapshot.bodyTintColor;
 
-        // 4. Hair & Face details
-        targetNPC->SetHairColor(a_snapshot.hairColor);
+        // 4. Face details (the skin and hair colors are set after the tint layers)
         targetNPC->SetFaceTexture(a_snapshot.faceDetails);
 
         // 5. Face morphs & parts
@@ -326,18 +368,9 @@ namespace InTheirShoes {
             }
         }
 
-        // The skin tint: the rendered one if captured, else the body tint, else the race's skin tone layer
-        std::optional<RE::NiColor> skinTint;
-        if (a_snapshot.hasSkinTintColor) {
-            skinTint = a_snapshot.skinTintColor;
-        } else if (!IsBlack(a_snapshot.bodyTintColor)) {
-            skinTint = ToNiColor(a_snapshot.bodyTintColor);
-        } else if (auto tone = FindRaceSkinTone(a_snapshot.race, a_snapshot.sex, a_snapshot.tintLayers)) {
-            skinTint = ToNiColor(*tone);
-        }
-        if (skinTint) {
-            SetRGB(targetNPC->bodyTintColor, *skinTint);
-        }
+        // 7. Skin & hair colors
+        const auto skinTint = ResolveSkinTint(a_snapshot);
+        ApplyTintColors(a_targetActor, targetNPC, a_snapshot, skinTint);
 
         if (a_update3D) {
             a_targetActor->DoReset3D(true);
@@ -374,6 +407,17 @@ namespace InTheirShoes {
         }
 
         return ApplySnapshot(a_target, *donorSnapshot);
+    }
+
+    void FaceManager::ReapplyTints(RE::Actor* a_actor, const FaceSnapshot& a_snapshot) {
+        auto* npc = a_actor ? skyrim_cast<RE::TESNPC*>(a_actor->GetActorBase()) : nullptr;
+        if (!npc) return;
+
+        const auto skinTint = ResolveSkinTint(a_snapshot);
+        ApplyTintColors(a_actor, npc, a_snapshot, skinTint);
+        a_actor->UpdateHairColor();
+        a_actor->UpdateSkinColor();
+        Apply3DShaderTints(a_actor, a_snapshot.hasHairTintColor ? std::optional{ a_snapshot.hairTintColor } : std::nullopt, skinTint);
     }
 
 }

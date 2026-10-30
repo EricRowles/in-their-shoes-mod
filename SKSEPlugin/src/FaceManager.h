@@ -57,6 +57,9 @@ namespace InTheirShoes {
         // Copies the donor's current appearance onto the target
         bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
 
+        // Puts back only the snapshot's skin and hair colors, on the actor's current 3D
+        void ReapplyTints(RE::Actor* a_actor, const FaceSnapshot& a_snapshot);
+
     private:
         friend Singleton<FaceManager>;
         FaceManager() = default;

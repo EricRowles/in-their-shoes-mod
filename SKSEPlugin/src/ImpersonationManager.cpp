@@ -36,6 +36,29 @@ namespace InTheirShoes {
         if (Forms::storageMarker) {
             _storageMarker = Forms::storageMarker->GetHandle();
         }
+        if (auto* niNodeUpdates = SKSE::GetNiNodeUpdateEventSource()) {
+            niNodeUpdates->AddEventSink(this);
+        }
+    }
+
+    RE::BSEventNotifyControl ImpersonationManager::ProcessEvent(const SKSE::NiNodeUpdateEvent* a_event, RE::BSTEventSource<SKSE::NiNodeUpdateEvent>*) {
+        // RaceMenu keeps its own copy of the Dragonborn's tint colors (and custom hair color) in its script. On
+        // every game load and every load of the player's 3D, its OnGameReload / On3DLoaded writes them back with
+        // Game.SetNthTintMaskColor and SetHairColor, which also set the base record's bodyTintColor, and then
+        // calls QueueNiNodeUpdate. That replaced the donor's skin with the Dragonborn's about 3s after a load (#14).
+        // SKSE sends this event once that update has rebuilt the 3D, so put the donor's colors back then. The
+        // event isn't guaranteed to arrive on the main thread, so only Session is read here.
+        if (!a_event || a_event->reference != GetPlayer() || !IsActive()) {
+            return RE::BSEventNotifyControl::kContinue;
+        }
+        SKSE::GetTaskInterface()->AddTask([]() {
+            auto& self = GetSingleton();
+            if (IsActive() && self._donorFace) {
+                FaceManager::GetSingleton().ReapplyTints(GetPlayer(), *self._donorFace);
+                SKSE::log::info("Reapplied the donor's skin and hair colors after the player's 3D was updated");
+            }
+        });
+        return RE::BSEventNotifyControl::kContinue;
     }
 
     void ImpersonationManager::AttachDonor(RE::Actor* a_donor) {
