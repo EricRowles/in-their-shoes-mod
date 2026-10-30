@@ -396,8 +396,7 @@ namespace InTheirShoes {
             return false;
         }
 
-        // Queue for DialogueManager::Update() on the main thread rather than SKSE's task interface,
-        // which dispatches on worker threads concurrently with the main loop.
+        // Opened from Update(), at a fixed point in the frame
         _pendingSelfDialogueTopic.store(a_forceGreetTopic, std::memory_order_release);
         _pendingSelfDialogue.store(true, std::memory_order_release);
         return true;

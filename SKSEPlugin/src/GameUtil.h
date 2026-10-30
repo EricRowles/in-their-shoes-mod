@@ -2,24 +2,17 @@
 
 #include <atomic>
 #include <chrono>
-#include <source_location>
 
 namespace InTheirShoes {
 
     // Set once, when the plugin loads (which runs on the game's main thread)
     inline std::atomic<std::uint32_t> g_mainThreadId{ 0 };
+
+    // Guards the per-frame hook. Other entry points run on synchronized job threads, which is fine (#15).
     inline bool IsMainThread() {
         auto tid = g_mainThreadId.load(std::memory_order_relaxed);
         if (tid == 0) return true;
         return REX::W32::GetCurrentThreadId() == tid;
-    }
-
-    // Engine and Papyrus VM calls must run on the main thread (AGENTS.md). Called at entry points: logs the
-    // caller when it isn't, without changing what it does.
-    inline bool CheckMainThread(std::source_location a_caller = std::source_location::current()) {
-        if (IsMainThread()) return true;
-        SKSE::log::error("{} ran off the main thread (thread {})", a_caller.function_name(), REX::W32::GetCurrentThreadId());
-        return false;
     }
 
     // Whether a quest is running in the Papyrus sense. CommonLib's TESQuest::IsRunning() only checks that no

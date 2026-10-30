@@ -118,7 +118,6 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet) {
-        CheckMainThread();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !a_donor || !a_puppet || a_donor == player || a_donor == a_puppet) {
             SKSE::log::warn("Impersonate called with invalid actors.");
@@ -175,7 +174,6 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::Revert() {
-        CheckMainThread();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !IsActive()) return false;
         // Restoring the baseline race mid-transformation would be undone (to the donor's race) when it ends
@@ -284,7 +282,6 @@ namespace InTheirShoes {
     }
 
     void ImpersonationManager::SetPuppetFollowsPlayer(bool a_follows) {
-        CheckMainThread();
         _puppetFollows = a_follows;
         auto* puppet = GetPuppet();
         if (!puppet || !IsActive()) return;

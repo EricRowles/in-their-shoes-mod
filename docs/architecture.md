@@ -42,7 +42,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `Papyrus` | `ITS_NG` natives, and location natives that answer for the parked donor |
 
 Rules the code relies on:
-- Engine and Papyrus calls run on the main thread. Hooks that run on other threads read only `Session` and lock-protected lists.
+- Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session` and locked state.
 - Managers don't call each other for lifecycle work; that goes through `Lifecycle`.
 - Base records aren't changed permanently; per-actor runtime state and hooks are used instead. (One exception: unique donors' outfits, see `ImpersonationManager.cpp`.)
 

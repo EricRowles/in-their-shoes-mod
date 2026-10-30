@@ -22,7 +22,7 @@ namespace InTheirShoes {
 
     // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the
     // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
-    // Main thread only.
+    // Not thread-safe.
     class ImpersonationManager :
         public Singleton<ImpersonationManager>,
         public RE::BSTEventSink<SKSE::NiNodeUpdateEvent> {

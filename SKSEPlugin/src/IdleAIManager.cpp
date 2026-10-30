@@ -419,7 +419,6 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::StartIdleAI() {
-        CheckMainThread();
         if (!Session::GetSingleton().IsActive() || !_enabled) return;
 
         auto* player = RE::PlayerCharacter::GetSingleton();
@@ -444,7 +443,6 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::StopIdleAI() {
-        CheckMainThread();
         if (!_aiActive) return;
         _aiActive = false;
         _forceGreetProcedureActive = false;
