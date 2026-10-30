@@ -560,7 +560,11 @@ namespace InTheirShoes {
         auto* ui = RE::UI::GetSingleton();
         line.waitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
         if (!line.waitsForMenu) {
-            _origCharUpdateInDialogue(player, a_response, a_unused);
+            // Voiced from the frame when called elsewhere: voices started from the Dialogue Menu's job threads
+            // never played (#3)
+            if (IsMainThread()) {
+                _origCharUpdateInDialogue(player, a_response, a_unused);
+            }
             runtime.soundCallBackSet = 1;
         }
 

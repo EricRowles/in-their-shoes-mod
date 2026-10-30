@@ -32,11 +32,9 @@ namespace InTheirShoes::ActorHooks {
                     }
 
                     auto* puppet = session.GetPuppet();
+                    // Also for lines that end the conversation (forceGoodbye): without a voice type they had no
+                    // voice file for the player to voice (#3)
                     if (puppet && a_this == puppet->GetActorBase()) {
-                        auto* topicMgr = RE::MenuTopicManager::GetSingleton();
-                        if (topicMgr && topicMgr->forceGoodbye) {
-                            return nullptr;
-                        }
                         return donorVoice;
                     }
                     if (a_this->voiceType) {
