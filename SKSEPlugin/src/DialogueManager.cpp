@@ -42,6 +42,9 @@ namespace InTheirShoes {
     constexpr float kVoiceRetryIntervalSeconds = 0.1f;
     // A voiced line is done this long after its sound's duration has played
     constexpr float kSoundTailSeconds = 0.25f;
+    // A gap between line ticks longer than this counts as paused, not played: ticks stop while the game is
+    // paused, and so does the voice
+    constexpr float kMaxSoundTickSeconds = 0.25f;
     // The puppet stays the engine's speaker this long after self-dialogue's menu closes (see EndSelfDialogue)
     constexpr float kPuppetSpeakerClearSeconds = 1.0f;
 
@@ -564,7 +567,7 @@ namespace InTheirShoes {
 
         line.start = std::chrono::steady_clock::now();
         line.hadSound = IsSoundActive(player);
-        line.soundStart = line.start;
+        line.lastSoundTick = line.start;
         line.pendingVoice = (!line.hadSound && HasVoice(a_response)) ? a_response : nullptr;
         if (line.hadSound) {
             AttachSoundsToHead(player);
@@ -609,7 +612,7 @@ namespace InTheirShoes {
         AttachSoundsToHead(player);
         line.pendingVoice = nullptr;
         line.hadSound = true;
-        line.soundStart = std::chrono::steady_clock::now();
+        line.lastSoundTick = std::chrono::steady_clock::now();
     }
 
     void DialogueManager::TickPlayerLine() {
@@ -627,24 +630,32 @@ namespace InTheirShoes {
         }
 
         if (line.hadSound) {
-            // Timed from the sound's duration: an engine-started sound keeps reporting "playing" while the
-            // Dialogue Menu is open, so its state can't be relied on
+            // Timed from the sound's duration.
+            // Timer is started once its file has loaded, and is paused while the game is paused
+            auto now = std::chrono::steady_clock::now();
+            float delta = std::chrono::duration<float>(now - line.lastSoundTick).count();
+            line.lastSoundTick = now;
+            bool paused = ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
+            float heard = paused ? 0.0f : std::min(delta, kMaxSoundTickSeconds);
+            line.soundPaused += delta - heard;
+            line.soundActive += heard;
             if (line.soundSeconds <= 0.0f) {
                 line.soundSeconds = GetSoundSeconds(player);
+            } else {
+                line.soundPlayed += heard;
             }
-            float playing = SecondsSince(line.soundStart);
-            bool done = line.soundSeconds > 0.0f ? playing >= line.soundSeconds + kSoundTailSeconds
-                                                 : playing >= kLineStartGraceSeconds && !IsSoundActive(player);
+            bool done = line.soundSeconds > 0.0f ? line.soundPlayed >= line.soundSeconds + kSoundTailSeconds
+                                                 : line.soundActive >= kLineStartGraceSeconds && !IsSoundActive(player);
             if (!done) {
-                if (playing < kMaxLineSeconds) return;
-                SKSE::log::warn("Player line still playing after {:.0f}s; finishing it", playing);
+                if (line.soundActive < kMaxLineSeconds) return;
+                SKSE::log::warn("Player line still playing after {:.0f}s; finishing it", line.soundActive);
             }
         } else if (line.pendingVoice || SecondsSince(line.start) < line.unvoicedDuration) {
             return;
         }
 
-        SKSE::log::info("Player line finished after {:.2f}s (voiced={}, sound length {:.2f}s)",
-            SecondsSince(line.start), line.hadSound, line.soundSeconds);
+        SKSE::log::info("Player line finished after {:.2f}s (voiced={}, sound length {:.2f}s, played {:.2f}s, paused {:.2f}s)",
+            SecondsSince(line.start), line.hadSound, line.soundSeconds, line.soundPlayed, line.soundPaused);
         FinishPlayerLine();
     }
 

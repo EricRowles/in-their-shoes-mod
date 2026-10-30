@@ -106,8 +106,13 @@ namespace InTheirShoes {
             bool waitsForMenu{ false };
             float unvoicedDuration{ 0.0f };
             float soundSeconds{ 0.0f };
+            // Time the sound could be heard since it started, and since its length became known (see TickPlayerLine)
+            float soundActive{ 0.0f };
+            float soundPlayed{ 0.0f };
+            // Time between ticks not counted as playback (game paused, loading screens, long frames)
+            float soundPaused{ 0.0f };
             std::chrono::steady_clock::time_point start{};
-            std::chrono::steady_clock::time_point soundStart{};
+            std::chrono::steady_clock::time_point lastSoundTick{};
             std::chrono::steady_clock::time_point lastVoiceRetry{};
         };
         std::optional<PlayerLine> _line;
