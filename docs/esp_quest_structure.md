@@ -18,4 +18,5 @@ The ESP holds the few records the plugin and scripts need. It is ESL-flagged, so
 | `ITS_StorageCell` | `D6D` | Holding cell |
 | `ITS_StorageMarker` | `807` | Where the donor is parked |
 | `ITS_TempMarker` | `D97` | Holds a spot while actors swap places |
+| `ITS_PlayerStorageChest` | `87D` | Persistent chest that holds the Dragonborn's unworn items while impersonating |
 | `ITS_EmptyOutfit` | `87C` | Outfit with no items, given to unique donors |

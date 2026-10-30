@@ -1,7 +1,6 @@
 #include "PCH.h"
 #include "InventoryManager.h"
 #include "Forms.h"
-#include <algorithm>
 #include <unordered_set>
 
 namespace InTheirShoes {
@@ -46,15 +45,6 @@ namespace InTheirShoes {
             return result;
         }
 
-        // Skins (non-playable body armor) stay with their actor. The player gets the donor's skin through the
-        // appearance copy, and an actor's skin items are managed for it: the engine gives an actor its skin again
-        // on load, and mods swap skin items in and out (e.g. Lyra's damage stages). Handing them over made copies
-        // that piled up on the donor.
-        bool IsSkinItem(const RE::TESBoundObject* a_object) {
-            const auto* armor = a_object ? a_object->As<RE::TESObjectARMO>() : nullptr;
-            return armor && !armor->GetPlayable() && armor->HasPartOf(RE::BGSBipedObjectForm::BipedObjectSlot::kBody);
-        }
-
         RE::BGSEquipSlot* GetEquipSlot(RE::BGSDefaultObjectManager::DefaultObject a_slot) {
             auto* defaultObjMgr = RE::BGSDefaultObjectManager::GetSingleton();
             return defaultObjMgr ? defaultObjMgr->GetObject<RE::BGSEquipSlot>(a_slot) : nullptr;
@@ -95,15 +85,15 @@ namespace InTheirShoes {
             std::int32_t count{ 0 };
         };
 
-        // Removes everything from a_actor except quest items and its skin. Collected first: removing items
-        // while walking the inventory would invalidate it.
+        // Removes everything from a_actor except quest items. Skins (non-playable body armor) go too: they move
+        // with the rest of the items, and a non-unique donor may have been given its outfit's skin again while
+        // parked. Collected first: removing items while walking the inventory would invalidate it.
         void ClearInventory(RE::Actor* a_actor) {
             std::vector<ItemStack> toRemove;
             for (const auto& [object, entry] : a_actor->GetInventory()) {
                 const auto& [count, data] = entry;
                 if (!object || count <= 0) continue;
                 if (data && data->IsQuestObject()) continue;
-                if (IsSkinItem(object)) continue;
                 toRemove.push_back({ object, count });
             }
             for (const auto& stack : toRemove) {
@@ -144,9 +134,9 @@ namespace InTheirShoes {
         }
 
         // The stacks to move from a_from to a_to, updating which donor quest items the player carries.
-        // Skins stay with their actor, and the player keeps their own quest items.
+        // The player keeps their own quest items.
         std::vector<ItemStack> GetItemsToMove(RE::Actor* a_from, RE::Actor* a_to, const RE::TESObjectREFR::InventoryItemMap& a_inventory,
-            std::unordered_set<RE::FormID>& a_donorQuestItems, std::int32_t& a_skinsKept) {
+            std::unordered_set<RE::FormID>& a_donorQuestItems) {
             const bool toDonor = a_from->IsPlayerRef() && !a_to->IsPlayerRef();
             const bool toPlayer = !a_from->IsPlayerRef() && a_to->IsPlayerRef();
 
@@ -154,10 +144,6 @@ namespace InTheirShoes {
             for (const auto& [object, entry] : a_inventory) {
                 const auto& [count, data] = entry;
                 if (!object || count <= 0) continue;
-                if (IsSkinItem(object)) {
-                    a_skinsKept++;
-                    continue;
-                }
 
                 if (data && data->IsQuestObject()) {
                     if (toDonor) {
@@ -212,22 +198,20 @@ namespace InTheirShoes {
                 }
                 const RE::BGSEquipSlot* slot = worn.isLeft ? leftSlot : nullptr;
                 std::uint32_t equipCount = worn.object->Is(RE::FormType::Ammo) ? static_cast<std::uint32_t>(it->second.first) : 1;
-                // Non-playable items require forceEquip on the player
-                bool forceEquip = a_forceEquip || !worn.object->GetPlayable();
-                equipMgr->EquipObject(a_actor, worn.object, xList, equipCount, slot, false, forceEquip, false, true);
+                // Not forced on the player, non-playable items included: a forced skin that also fills the body
+                // slot kept the player from wearing armor. Unforced, armor in the same slot replaces it.
+                equipMgr->EquipObject(a_actor, worn.object, xList, equipCount, slot, false, a_forceEquip, false, true);
             }
         }
 
         // Unequips what an NPC put on by itself when the items arrived (AddObjectToContainer auto-equips),
-        // keeping a_keep and its skin
+        // keeping a_keep
         void UnequipAutoEquipped(RE::Actor* a_actor, const std::unordered_set<RE::TESBoundObject*>& a_keep) {
             auto* equipMgr = RE::ActorEquipManager::GetSingleton();
             if (!equipMgr) return;
             for (const auto& [object, entry] : a_actor->GetInventory()) {
                 const auto& data = entry.second;
-                // The skin stays worn: unequipping it left the donor without one, and the engine added its skin
-                // and outfit items again
-                if (object && data && data->IsWorn() && !IsSkinItem(object) && !a_keep.contains(object)) {
+                if (object && data && data->IsWorn() && !a_keep.contains(object)) {
                     equipMgr->UnequipObject(a_actor, object, nullptr, 1, nullptr, false, true, false, true);
                 }
             }
@@ -303,8 +287,8 @@ namespace InTheirShoes {
         SKSE::log::info("Returned {} spells to donor.", returnedCount);
     }
 
-    bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor, bool a_forceEquip,
-        std::unordered_set<RE::FormID>& a_donorQuestItems) {
+    bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor,
+        std::unordered_set<RE::FormID>& a_donorQuestItems, RE::TESObjectREFR* a_unwornTo) {
         if (!a_fromActor || !a_toActor) {
             SKSE::log::warn("TransferAllItems called with null actor pointer.");
             return false;
@@ -316,30 +300,52 @@ namespace InTheirShoes {
         const auto magic = GetEquippedMagic(a_fromActor);
         const auto fromInventory = a_fromActor->GetInventory();
         const auto worn = GetWornItems(fromInventory);
-
-        std::int32_t skinsKept = 0;
-        const auto toMove = GetItemsToMove(a_fromActor, a_toActor, fromInventory, a_donorQuestItems, skinsKept);
-        for (const auto& stack : toMove) {
-            ClearOutfitTags(fromInventory.at(stack.object).second.get());
-            a_fromActor->RemoveItem(stack.object, stack.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
+        std::unordered_set<RE::TESBoundObject*> wornObjects;
+        for (const auto& item : worn) {
+            wornObjects.insert(item.object);
         }
 
-        EquipWornItems(a_toActor, worn, a_forceEquip);
+        // A stack that is partly worn goes whole to a_toActor
+        const auto toMove = GetItemsToMove(a_fromActor, a_toActor, fromInventory, a_donorQuestItems);
+        std::int32_t unwornStacks = 0;
+        for (const auto& stack : toMove) {
+            ClearOutfitTags(fromInventory.at(stack.object).second.get());
+            RE::TESObjectREFR* destination = a_toActor;
+            if (a_unwornTo && !wornObjects.contains(stack.object)) {
+                destination = a_unwornTo;
+                unwornStacks++;
+            }
+            a_fromActor->RemoveItem(stack.object, stack.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, destination);
+        }
+
+        EquipWornItems(a_toActor, worn, !a_toActor->IsPlayerRef());
         if (a_toActor->IsPlayerRef()) {
             EquipMagic(a_toActor, magic);
         } else {
-            std::unordered_set<RE::TESBoundObject*> wornObjects;
-            for (const auto& item : worn) {
-                wornObjects.insert(item.object);
-            }
             UnequipAutoEquipped(a_toActor, wornObjects);
         }
 
-        SKSE::log::info("Transferred {} item stacks from {:08X} to {:08X} ({} skin stacks kept).",
-            toMove.size(), a_fromActor->GetFormID(), a_toActor->GetFormID(), skinsKept);
+        SKSE::log::info("Transferred {} item stacks from {:08X} to {:08X} ({} unworn stacks to {:08X}).",
+            toMove.size(), a_fromActor->GetFormID(), a_toActor->GetFormID(), unwornStacks,
+            a_unwornTo ? a_unwornTo->GetFormID() : 0u);
 
         a_toActor->Update3DModel();
         return true;
+    }
+
+    void InventoryManager::TakeAllItems(RE::TESObjectREFR* a_container, RE::Actor* a_toActor) {
+        if (!a_container || !a_toActor) return;
+        // Collected first: removing items while walking the inventory would invalidate it
+        std::vector<ItemStack> toMove;
+        for (const auto& [object, entry] : a_container->GetInventory()) {
+            if (object && entry.first > 0) {
+                toMove.push_back({ object, entry.first });
+            }
+        }
+        for (const auto& stack : toMove) {
+            a_container->RemoveItem(stack.object, stack.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
+        }
+        SKSE::log::info("Took {} item stacks from {:08X} to {:08X}.", toMove.size(), a_container->GetFormID(), a_toActor->GetFormID());
     }
 
 }

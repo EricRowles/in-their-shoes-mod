@@ -145,12 +145,13 @@ namespace InTheirShoes {
                 oldDonor->EvaluatePackage(false, false);
             }
         } else {
-            // First impersonation: the puppet takes on the Dragonborn's look, stats and gear
+            // First impersonation: the puppet takes on the Dragonborn's look, stats and worn gear. The rest of the
+            // Dragonborn's items wait in a chest in the holding cell.
             CaptureBaseline(player);
             AttachPuppet(a_puppet);
             ConfigurePuppet(a_puppet);
             StatManager::CopyStats(player, a_puppet);
-            InventoryManager::TransferAllItems(player, a_puppet, true, _donorQuestItems);
+            InventoryManager::TransferAllItems(player, a_puppet, _donorQuestItems, Forms::playerStorageChest);
         }
 
         // Kept for the session: the donor's rendered skin and hair tints can only be read while its 3D is
@@ -163,7 +164,7 @@ namespace InTheirShoes {
         }
         StatManager::CopyStats(a_donor, player);
         InventoryManager::CopyDonorSpells(a_donor, player);
-        InventoryManager::TransferAllItems(a_donor, player, false, _donorQuestItems);
+        InventoryManager::TransferAllItems(a_donor, player, _donorQuestItems);
 
         if (auto marker = _storageMarker.get()) {
             a_donor->MoveTo(marker.get());
@@ -195,8 +196,10 @@ namespace InTheirShoes {
             StatManager::ApplySnapshot(player, _baseline->stats);
         }
         if (puppet) {
-            InventoryManager::TransferAllItems(puppet, player, false, _donorQuestItems);
+            InventoryManager::TransferAllItems(puppet, player, _donorQuestItems);
         }
+        // After the puppet's items: that transfer first clears the player's inventory
+        InventoryManager::TakeAllItems(Forms::playerStorageChest, player);
         if (_baseline) {
             InventoryManager::RestorePlayerSpells(player, _baseline->spells);
         }
@@ -210,7 +213,7 @@ namespace InTheirShoes {
     void ImpersonationManager::ReturnStateToDonor(RE::Actor* a_donor) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StatManager::CopyStats(player, a_donor);
-        InventoryManager::TransferAllItems(player, a_donor, true, _donorQuestItems);
+        InventoryManager::TransferAllItems(player, a_donor, _donorQuestItems);
         InventoryManager::ReturnSpellsToDonor(player, a_donor);
         _donorQuestItems.clear();
     }

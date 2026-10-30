@@ -12,9 +12,9 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 
 ## What happens
 
-- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and gear, the player gets the donor's, and the donor is parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
+- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and worn gear, the rest of the Dragonborn's items go into a chest in the holding cell, the player gets the donor's look and items, and the donor is parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
 - **Switch donor:** the first donor gets the player's current state back and takes the player's place, then the new donor is applied. The puppet is unchanged.
-- **Revert:** the donor gets the player's current items, spells and stats. The player gets the Dragonborn back.
+- **Revert:** the donor gets the player's current items, spells and stats. The player gets the Dragonborn back, with the puppet's items and the chest's.
 - **While impersonating:**
   - The player answers the donor's conditions and holds its quest aliases, so the donor's quests, scenes and idle lines play through the player.
   - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue.

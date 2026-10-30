@@ -12,6 +12,7 @@ namespace InTheirShoes::Forms {
     // InTheirShoes.esp
     inline RE::TESQuest* itsQuest{ nullptr };              // ITS_Quest
     inline RE::TESObjectREFR* storageMarker{ nullptr };    // ITS_StorageMarker, where the donor is parked
+    inline RE::TESObjectREFR* playerStorageChest{ nullptr };  // ITS_PlayerStorageChest, the Dragonborn's unworn items
     inline RE::SpellItem* impersonateSpell{ nullptr };     // ITS_ImpersonateSpell
     inline RE::SpellItem* revertSpell{ nullptr };          // ITS_RevertSpell
     inline RE::BGSOutfit* emptyOutfit{ nullptr };          // ITS_EmptyOutfit, given to unique donors
