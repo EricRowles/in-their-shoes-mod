@@ -329,11 +329,9 @@ namespace InTheirShoes {
             std::ranges::copy(a_snapshot.parts, targetNPC->faceData->parts);
         }
 
-        // 6. Headparts Replacement: only free buffers that were dynamically allocated by us
+        // 6. Headparts Replacement
         if (targetNPC->headParts) {
-            if (_allocatedHeadPartBuffers.erase(targetNPC->headParts) > 0) {
-                RE::free(targetNPC->headParts);
-            }
+            RE::free(targetNPC->headParts);
             targetNPC->headParts = nullptr;
             targetNPC->numHeadParts = 0;
         }
@@ -345,7 +343,6 @@ namespace InTheirShoes {
                     for (std::int8_t i = 0; i < count; ++i) {
                         newParts[i] = a_snapshot.headParts[i];
                     }
-                    _allocatedHeadPartBuffers.insert(newParts);
                     targetNPC->headParts = newParts;
                     targetNPC->numHeadParts = count;
                 }

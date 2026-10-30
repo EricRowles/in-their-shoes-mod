@@ -4,7 +4,6 @@
 #include <array>
 #include <optional>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include "RE/N/NiColor.h"
 
@@ -44,8 +43,7 @@ namespace InTheirShoes {
         bool hasSkinTintColor{ false };
     };
 
-    // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline;
-    // the only state here is which head part arrays this plugin allocated (#11).
+    // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline.
     class FaceManager : public Singleton<FaceManager> {
     public:
         // Empty if the actor has no NPC base record
@@ -64,9 +62,6 @@ namespace InTheirShoes {
         friend Singleton<FaceManager>;
         FaceManager() = default;
         ~FaceManager() = default;
-
-        // Head part arrays we allocated, so we never free one the engine owns
-        std::unordered_set<void*> _allocatedHeadPartBuffers;
     };
 
 }
