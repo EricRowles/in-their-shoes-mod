@@ -260,10 +260,13 @@ namespace InTheirShoes {
 
     void ImpersonationManager::ConfigurePuppet(RE::Actor* a_puppet) {
         if (_baseline) {
-            FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
             // The puppet has usually just been moved in, and its 3D may still be loading from the old
             // base data; a 3D reset before it attaches is lost. Reapply once the 3D is in place.
-            _puppetRefreshPending = true;
+            // A 3D reset also keeps the skeleton and animations loaded for the puppet's own race and sex (#22).
+            auto* base = a_puppet->GetActorBase();
+            bool bodyChanges = base && (base->GetSex() != _baseline->face.sex || a_puppet->GetRace() != _baseline->face.race);
+            _puppetRefresh = bodyChanges ? PuppetRefresh::kReloadThenReapply : PuppetRefresh::kReapply;
+            FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
         }
         ApplyPuppetFollowState(a_puppet);
         a_puppet->AllowPCDialogue(true);
@@ -300,18 +303,31 @@ namespace InTheirShoes {
     void ImpersonationManager::RefreshPuppetAppearanceWhenLoaded() {
         auto* puppet = GetPuppet();
         if (!puppet || !_baseline) {
-            _puppetRefreshPending = false;
+            _puppetRefresh = PuppetRefresh::kNone;
+            return;
+        }
+        // Reloaded over several frames: enabling in the frame it was disabled left it disabled
+        if (_puppetRefresh == PuppetRefresh::kEnableThenReapply) {
+            if (puppet->Is3DLoaded()) return;
+            _puppetRefresh = PuppetRefresh::kReapply;
+            puppet->Enable(false);
+            SKSE::log::info("Reloaded puppet {:08X}'s 3D for the Dragonborn's race and sex.", puppet->GetFormID());
             return;
         }
         if (!puppet->Is3DLoaded()) return;
 
-        _puppetRefreshPending = false;
+        if (_puppetRefresh == PuppetRefresh::kReloadThenReapply) {
+            _puppetRefresh = PuppetRefresh::kEnableThenReapply;
+            puppet->Disable();
+            return;
+        }
+        _puppetRefresh = PuppetRefresh::kNone;
         FaceManager::GetSingleton().ApplySnapshot(puppet, _baseline->face, true, true);
         SKSE::log::info("Reapplied Dragonborn appearance to puppet {:08X} after its 3D loaded.", puppet->GetFormID());
     }
 
     void ImpersonationManager::Tick() {
-        if (_puppetRefreshPending) {
+        if (_puppetRefresh != PuppetRefresh::kNone) {
             RefreshPuppetAppearanceWhenLoaded();
         }
 
@@ -382,7 +398,7 @@ namespace InTheirShoes {
         Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
         _donorQuestItems.clear();
         _leashQueued = false;
-        _puppetRefreshPending = false;
+        _puppetRefresh = PuppetRefresh::kNone;
     }
 
     void ImpersonationManager::OnPostLoadGame() {

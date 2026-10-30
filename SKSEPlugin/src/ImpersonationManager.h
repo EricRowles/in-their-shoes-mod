@@ -93,7 +93,9 @@ namespace InTheirShoes {
         RE::NiPointer<RE::Actor> _puppetKeepAlive;
         bool _puppetFollows{ true };
         bool _leashQueued{ false };
-        bool _puppetRefreshPending{ false };
+        // What the puppet still needs once its 3D is loaded (see ConfigurePuppet)
+        enum class PuppetRefresh { kNone, kReapply, kReloadThenReapply, kEnableThenReapply };
+        PuppetRefresh _puppetRefresh{ PuppetRefresh::kNone };
         RE::ObjectRefHandle _storageMarker;
         std::optional<Baseline> _baseline;
         std::optional<FaceSnapshot> _donorFace;
