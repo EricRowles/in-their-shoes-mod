@@ -3,7 +3,7 @@
 namespace InTheirShoes::Lifecycle {
 
     // The one place that tells the managers about plugin, game and session events, in a fixed order.
-    // Managers call these instead of calling each other for lifecycle work. All run on the main thread.
+    // Managers call these instead of calling each other for lifecycle work. Not thread-safe.
 
     // SKSE messages
     void OnInputLoaded();

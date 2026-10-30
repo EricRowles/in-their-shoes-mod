@@ -22,7 +22,7 @@ namespace InTheirShoes {
 
     // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the
     // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
-    // Main thread only.
+    // Not thread-safe.
     class ImpersonationManager :
         public Singleton<ImpersonationManager>,
         public RE::BSTEventSink<SKSE::NiNodeUpdateEvent> {
@@ -49,6 +49,8 @@ namespace InTheirShoes {
 
         // Faction changes made to the puppet in self-dialogue (it stands in for the donor) go to the donor
         void ForwardPuppetFactionsToDonor();
+        // Gives the puppet the Dragonborn's name back if a quest alias renamed it
+        void RestorePuppetName();
 
         // Serialization
         const std::optional<Baseline>& GetBaseline() const { return _baseline; }
@@ -93,7 +95,9 @@ namespace InTheirShoes {
         RE::NiPointer<RE::Actor> _puppetKeepAlive;
         bool _puppetFollows{ true };
         bool _leashQueued{ false };
-        bool _puppetRefreshPending{ false };
+        // What the puppet still needs once its 3D is loaded (see ConfigurePuppet)
+        enum class PuppetRefresh { kNone, kReapply, kReloadThenReapply, kEnableThenReapply };
+        PuppetRefresh _puppetRefresh{ PuppetRefresh::kNone };
         RE::ObjectRefHandle _storageMarker;
         std::optional<Baseline> _baseline;
         std::optional<FaceSnapshot> _donorFace;

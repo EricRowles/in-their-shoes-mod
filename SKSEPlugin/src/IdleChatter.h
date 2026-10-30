@@ -9,7 +9,7 @@
 namespace InTheirShoes {
 
     // Picks idle lines for the impersonating player to say as the donor, and decides when.
-    // DialogueManager voices them. Main thread only.
+    // DialogueManager voices them. Not thread-safe.
     class IdleChatter : public Singleton<IdleChatter> {
     public:
         // Seconds between lines (MCM)

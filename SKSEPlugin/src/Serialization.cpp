@@ -208,6 +208,23 @@ namespace InTheirShoes::Serialization {
 
         // --- 'SESS': donor, puppet, swapped aliases and donor quest items carried by the player ---
 
+        void WriteFactionRanks(Serde* a_serde, const std::vector<AliasSwapManager::FactionRank>& a_factions) {
+            WriteList(a_serde, a_factions, [&](const AliasSwapManager::FactionRank& a_entry) {
+                WriteFormID(a_serde, a_entry.first);
+                Write(a_serde, a_entry.second);
+            });
+        }
+
+        bool ReadFactionRanks(Serde* a_serde, std::vector<AliasSwapManager::FactionRank>& a_out) {
+            return ReadList(a_serde, [&] {
+                RE::TESFaction* faction = nullptr;
+                std::int8_t rank = 0;
+                if (!ReadForm(a_serde, faction) || !Read(a_serde, rank)) return false;
+                if (faction) a_out.emplace_back(faction, rank);
+                return true;
+            });
+        }
+
         void WriteSession(Serde* a_serde) {
             auto& session = Session::GetSingleton();
             auto* donor = session.GetDonor();
@@ -220,6 +237,7 @@ namespace InTheirShoes::Serialization {
             WriteList(a_serde, aliases, [&](const AliasSwapManager::SwappedAlias& a_alias) {
                 Write(a_serde, a_alias.questFormID);
                 Write(a_serde, a_alias.aliasID);
+                WriteFactionRanks(a_serde, a_alias.factions);
             });
             const auto& questItems = ImpersonationManager::GetSingleton().GetDonorQuestItems();
             WriteList(a_serde, questItems, [&](RE::FormID a_id) { Write(a_serde, a_id); });
@@ -237,7 +255,10 @@ namespace InTheirShoes::Serialization {
                 ReadForm(a_serde, puppet) &&
                 ReadList(a_serde, [&] {
                     AliasSwapManager::SwappedAlias alias;
-                    if (!ReadFormID(a_serde, alias.questFormID) || !Read(a_serde, alias.aliasID)) return false;
+                    if (!ReadFormID(a_serde, alias.questFormID) || !Read(a_serde, alias.aliasID) ||
+                        !ReadFactionRanks(a_serde, alias.factions)) {
+                        return false;
+                    }
                     if (alias.questFormID != 0) aliases.push_back(alias);
                     return true;
                 }) &&
@@ -256,41 +277,13 @@ namespace InTheirShoes::Serialization {
             ImpersonationManager::GetSingleton().RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
         }
 
-        // --- 'AFAC': factions the donor's swapped aliases gave it ---
-
-        void WriteDonorAliasFactions(Serde* a_serde) {
-            const auto factions = AliasSwapManager::GetSingleton().GetDonorAliasFactions();
-            if (!Session::GetSingleton().IsActive() || factions.empty()) return;
-            if (!a_serde->OpenRecord(kDonorAliasFactionsRecord, kDonorAliasFactionsVersion)) return;
-            WriteList(a_serde, factions, [&](const AliasSwapManager::FactionRank& a_entry) {
-                WriteFormID(a_serde, a_entry.first);
-                Write(a_serde, a_entry.second);
-            });
-        }
-
-        void ReadDonorAliasFactions(Serde* a_serde) {
-            std::vector<AliasSwapManager::FactionRank> factions;
-            const bool ok = ReadList(a_serde, [&] {
-                RE::TESFaction* faction = nullptr;
-                std::int8_t rank = 0;
-                if (!ReadForm(a_serde, faction) || !Read(a_serde, rank)) return false;
-                if (faction) factions.emplace_back(faction, rank);
-                return true;
-            });
-            if (!ok) {
-                SKSE::log::warn("Donor alias faction record is truncated; ignoring it.");
-                return;
-            }
-            SKSE::log::info("Loaded {} donor alias factions.", factions.size());
-            AliasSwapManager::GetSingleton().SetDonorAliasFactions(std::move(factions));
-        }
-
         // Whether this build can read a record saved at a_version (it reads a_current and every older
-        // version back to kMinSupportedVersion)
-        bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current) {
-            if (a_version >= kMinSupportedVersion && a_version <= a_current) return true;
+        // version back to a_min)
+        bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current,
+            std::uint32_t a_min = kMinSupportedVersion) {
+            if (a_version >= a_min && a_version <= a_current) return true;
             SKSE::log::warn("Skipping record {:08X}: saved at version {}, this build reads versions {} to {}.",
-                a_type, a_version, kMinSupportedVersion, a_current);
+                a_type, a_version, a_min, a_current);
             return false;
         }
     }
@@ -321,7 +314,6 @@ namespace InTheirShoes::Serialization {
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
         }
-        WriteDonorAliasFactions(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
     }
@@ -350,13 +342,8 @@ namespace InTheirShoes::Serialization {
                 }
 
                 case kSessionRecord:
-                    if (!IsReadableVersion(type, version, kSessionVersion)) break;
+                    if (!IsReadableVersion(type, version, kSessionVersion, kSessionMinVersion)) break;
                     ReadSession(a_serde);
-                    break;
-
-                case kDonorAliasFactionsRecord:
-                    if (!IsReadableVersion(type, version, kDonorAliasFactionsVersion)) break;
-                    ReadDonorAliasFactions(a_serde);
                     break;
 
                 case kDonorFaceRecord: {

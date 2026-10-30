@@ -47,6 +47,27 @@ namespace InTheirShoes {
         extraFaction->factionChanges.clear();
     }
 
+    void ImpersonationManager::RestorePuppetName() {
+        auto* puppet = GetPuppet();
+        if (!puppet || !_baseline || _baseline->face.fullName.empty()) return;
+        const char* shown = puppet->GetDisplayFullName();
+        if (shown && _baseline->face.fullName == shown) return;
+
+        // An alias that names its holder (e.g. Remi's follower alias) leaves the puppet nameless when it's moved
+        // to the player, and a nameless actor has no activation prompt (#23). The alias's message outranks a
+        // custom name, so it is cleared first.
+        auto* textData = puppet->extraList.GetByType<RE::ExtraTextDisplayData>();
+        if (!textData) {
+            puppet->extraList.Add(new RE::ExtraTextDisplayData(_baseline->face.fullName.c_str()));
+        } else {
+            textData->displayNameText = nullptr;
+            textData->ownerQuest = nullptr;
+            textData->ownerInstance = RE::ExtraTextDisplayData::DisplayDataType::kCustomName;
+            textData->SetName(_baseline->face.fullName.c_str());
+        }
+        SKSE::log::info("Restored the puppet's name (was '{}')", shown ? shown : "");
+    }
+
     void ImpersonationManager::Initialize() {
         if (Forms::storageMarker) {
             _storageMarker = Forms::storageMarker->GetHandle();
@@ -118,7 +139,6 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet) {
-        CheckMainThread();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !a_donor || !a_puppet || a_donor == player || a_donor == a_puppet) {
             SKSE::log::warn("Impersonate called with invalid actors.");
@@ -175,7 +195,6 @@ namespace InTheirShoes {
     }
 
     bool ImpersonationManager::Revert() {
-        CheckMainThread();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !IsActive()) return false;
         // Restoring the baseline race mid-transformation would be undone (to the donor's race) when it ends
@@ -262,10 +281,13 @@ namespace InTheirShoes {
 
     void ImpersonationManager::ConfigurePuppet(RE::Actor* a_puppet) {
         if (_baseline) {
-            FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
             // The puppet has usually just been moved in, and its 3D may still be loading from the old
             // base data; a 3D reset before it attaches is lost. Reapply once the 3D is in place.
-            _puppetRefreshPending = true;
+            // A 3D reset also keeps the skeleton and animations loaded for the puppet's own race and sex (#22).
+            auto* base = a_puppet->GetActorBase();
+            bool bodyChanges = base && (base->GetSex() != _baseline->face.sex || a_puppet->GetRace() != _baseline->face.race);
+            _puppetRefresh = bodyChanges ? PuppetRefresh::kReloadThenReapply : PuppetRefresh::kReapply;
+            FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
         }
         ApplyPuppetFollowState(a_puppet);
         a_puppet->AllowPCDialogue(true);
@@ -284,7 +306,6 @@ namespace InTheirShoes {
     }
 
     void ImpersonationManager::SetPuppetFollowsPlayer(bool a_follows) {
-        CheckMainThread();
         _puppetFollows = a_follows;
         auto* puppet = GetPuppet();
         if (!puppet || !IsActive()) return;
@@ -303,18 +324,31 @@ namespace InTheirShoes {
     void ImpersonationManager::RefreshPuppetAppearanceWhenLoaded() {
         auto* puppet = GetPuppet();
         if (!puppet || !_baseline) {
-            _puppetRefreshPending = false;
+            _puppetRefresh = PuppetRefresh::kNone;
+            return;
+        }
+        // Reloaded over several frames: enabling in the frame it was disabled left it disabled
+        if (_puppetRefresh == PuppetRefresh::kEnableThenReapply) {
+            if (puppet->Is3DLoaded()) return;
+            _puppetRefresh = PuppetRefresh::kReapply;
+            puppet->Enable(false);
+            SKSE::log::info("Reloaded puppet {:08X}'s 3D for the Dragonborn's race and sex.", puppet->GetFormID());
             return;
         }
         if (!puppet->Is3DLoaded()) return;
 
-        _puppetRefreshPending = false;
+        if (_puppetRefresh == PuppetRefresh::kReloadThenReapply) {
+            _puppetRefresh = PuppetRefresh::kEnableThenReapply;
+            puppet->Disable();
+            return;
+        }
+        _puppetRefresh = PuppetRefresh::kNone;
         FaceManager::GetSingleton().ApplySnapshot(puppet, _baseline->face, true, true);
         SKSE::log::info("Reapplied Dragonborn appearance to puppet {:08X} after its 3D loaded.", puppet->GetFormID());
     }
 
     void ImpersonationManager::Tick() {
-        if (_puppetRefreshPending) {
+        if (_puppetRefresh != PuppetRefresh::kNone) {
             RefreshPuppetAppearanceWhenLoaded();
         }
 
@@ -385,7 +419,7 @@ namespace InTheirShoes {
         Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
         _donorQuestItems.clear();
         _leashQueued = false;
-        _puppetRefreshPending = false;
+        _puppetRefresh = PuppetRefresh::kNone;
     }
 
     void ImpersonationManager::OnPostLoadGame() {

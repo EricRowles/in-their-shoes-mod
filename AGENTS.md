@@ -37,7 +37,8 @@ python tools/package_mod.py        # build and package a release zip
 Run the build through `build_and_deploy.py`; it sets up the MSVC environment that a bare `cmake --build` needs.
 
 ## Rules
-- Engine and Papyrus VM calls run on the main thread. Use `SKSE::GetTaskInterface()->AddTask` from other threads. Hooks that run off the main thread read only `Session` and lock-protected state. Entry points call `CheckMainThread()` (`GameUtil.h`), which logs a caller that breaks this.
+- Papyrus natives, SKSE messages/tasks, event sinks and the player update may call the engine, whatever thread they're on (#15).
+- Condition, voice type, AI procedure and animation hooks run in parallel: they read only `Session`, atomics and locked state.
 - Lifecycle work (game load/revert, frame, session begin/end) goes through `Lifecycle`, not calls between managers.
 - Look up forms by ID only in `Forms`.
 - Don't permanently change base records; use runtime state, hooks and alias swaps.

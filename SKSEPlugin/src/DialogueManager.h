@@ -16,8 +16,7 @@ namespace InTheirShoes {
     // The player's own lines (scenes on swapped aliases) and idle chatter (picked by IdleChatter) are voiced
     // the same way.
     //
-    // Hooks run on the main thread. Whether self-dialogue is on is published in Session, which condition hooks
-    // read from AI threads.
+    // Whether self-dialogue is on is published in Session, which condition hooks read from AI threads.
     class DialogueManager :
         public Singleton<DialogueManager>,
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>,

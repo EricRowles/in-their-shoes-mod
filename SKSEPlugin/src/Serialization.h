@@ -12,15 +12,14 @@ namespace InTheirShoes::Serialization {
     // The Dragonborn's face, stats and spells
     inline constexpr std::uint32_t kBaselineRecord = 'BASE';
     inline constexpr std::uint32_t kBaselineVersion = 1;
-    // Donor, puppet, swapped aliases and donor quest items carried by the player
+    // Donor, puppet, swapped aliases (with their factions) and donor quest items carried by the player.
+    // v2 added the aliases' factions; v1 isn't read.
     inline constexpr std::uint32_t kSessionRecord = 'SESS';
-    inline constexpr std::uint32_t kSessionVersion = 1;
+    inline constexpr std::uint32_t kSessionVersion = 2;
+    inline constexpr std::uint32_t kSessionMinVersion = 2;
     // The donor's appearance as captured when impersonation began
     inline constexpr std::uint32_t kDonorFaceRecord = 'DFAC';
     inline constexpr std::uint32_t kDonorFaceVersion = 1;
-    // Factions the donor's swapped aliases gave it, which the player holds while impersonating
-    inline constexpr std::uint32_t kDonorAliasFactionsRecord = 'AFAC';
-    inline constexpr std::uint32_t kDonorAliasFactionsVersion = 1;
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);

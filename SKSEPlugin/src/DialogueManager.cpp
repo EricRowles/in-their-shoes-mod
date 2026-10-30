@@ -315,12 +315,13 @@ namespace InTheirShoes {
         if (_line) {
             TickPlayerLine();
         }
-        UpdatePuppetSpeakerClear();
-        if (Session::GetSingleton().IsInSelfDialogue()) {
+        if (Session::GetSingleton().IsInSelfDialogue() || _puppetSpeakerClearPending.load(std::memory_order_acquire)) {
             // Topic fragments (run by the VM, a frame or more after their line) change the speaker, the
-            // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen.
+            // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen,
+            // and until the puppet stops being the speaker: the last line's fragment runs after the menu closes.
             Lifecycle::OnPuppetChangedInSelfDialogue();
         }
+        UpdatePuppetSpeakerClear();
         if (!_line) {
             if (auto item = IdleChatter::GetSingleton().Poll()) {
                 SpeakAsPlayer(item->responses.front(), false, true);
@@ -396,8 +397,7 @@ namespace InTheirShoes {
             return false;
         }
 
-        // Queue for DialogueManager::Update() on the main thread rather than SKSE's task interface,
-        // which dispatches on worker threads concurrently with the main loop.
+        // Opened from Update(), at a fixed point in the frame
         _pendingSelfDialogueTopic.store(a_forceGreetTopic, std::memory_order_release);
         _pendingSelfDialogue.store(true, std::memory_order_release);
         return true;
@@ -561,7 +561,11 @@ namespace InTheirShoes {
         auto* ui = RE::UI::GetSingleton();
         line.waitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
         if (!line.waitsForMenu) {
-            _origCharUpdateInDialogue(player, a_response, a_unused);
+            // Voiced from the frame when called elsewhere: voices started from the Dialogue Menu's job threads
+            // never played (#3)
+            if (IsMainThread()) {
+                _origCharUpdateInDialogue(player, a_response, a_unused);
+            }
             runtime.soundCallBackSet = 1;
         }
 

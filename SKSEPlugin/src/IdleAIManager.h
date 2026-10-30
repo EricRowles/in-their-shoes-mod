@@ -2,6 +2,7 @@
 
 #include "GameUtil.h"
 #include "Singleton.h"
+#include <atomic>
 #include <chrono>
 #include <vector>
 #include <cstdint>
@@ -10,7 +11,7 @@
 namespace InTheirShoes {
 
     // Drives the player with the donor's AI packages after a period without input.
-    // Runs entirely on the main thread (player update, input events, Papyrus natives).
+    // The force-greet hooks may run on AI threads; they only set _forceGreetProcedureActive.
     class IdleAIManager : public Singleton<IdleAIManager>,
         public RE::BSTEventSink<RE::InputEvent*> {
     public:
@@ -61,7 +62,7 @@ namespace InTheirShoes {
         bool _enabled{ false };
         bool _aiActive{ false };
         bool _forceGreetTriggered{ false };
-        bool _forceGreetProcedureActive{ false };
+        std::atomic<bool> _forceGreetProcedureActive{ false };
         float _idleTimeoutSeconds{ 10.0f };
         PlayerBusy _blockedBy{ PlayerBusy::kNo };
         RE::TESPackage* _loggedPackage{ nullptr };

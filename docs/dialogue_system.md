@@ -28,4 +28,4 @@ When the cooldown (MCM) has passed and the player is free, a random idle line th
 
 ## Follower recruitment
 
-Dialogue fragments act on the speaker, which in self-dialogue is the puppet. So while self-dialogue is open, faction changes on the puppet go to the donor, and any quest alias the puppet is put into (e.g. a follower alias) moves to the player. On revert, the donor gets it like its other aliases. Other changes a fragment makes to the speaker (items, AI) still land on the puppet ([#6](https://github.com/EricRowles/in-their-shoes-mod/issues/6)).
+Dialogue fragments act on the speaker, which in self-dialogue is the puppet. So during self-dialogue and just after it closes, faction changes on the puppet go to the donor, and any quest alias the puppet is put into (e.g. a follower alias) moves to the player and counts for the donor's conditions. If a quest later clears the alias (e.g. dismissal), the donor loses it; otherwise the donor gets it on revert like its other aliases. Other changes a fragment makes to the speaker (items, AI) still land on the puppet ([#6](https://github.com/EricRowles/in-their-shoes-mod/issues/6)).
