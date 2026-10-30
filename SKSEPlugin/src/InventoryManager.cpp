@@ -173,6 +173,18 @@ namespace InTheirShoes {
             return toMove;
         }
 
+        // Makes a stack's outfit items ordinary items. The tag names the outfit an item came from, and the engine
+        // removes tagged items when that actor's outfit changes. The extra data lists are the inventory's own
+        // (GetInventory copies only the list of pointers), so this changes the items themselves.
+        void ClearOutfitTags(const RE::InventoryEntryData* a_data) {
+            if (!a_data || !a_data->extraLists) return;
+            for (auto* xList : *a_data->extraLists) {
+                if (xList) {
+                    xList->RemoveByType(RE::ExtraDataType::kOutfitItem);
+                }
+            }
+        }
+
         // Equips a_worn on a_actor again, from the stacks it now holds
         void EquipWornItems(RE::Actor* a_actor, const std::vector<WornItem>& a_worn, bool a_forceEquip) {
             auto* equipMgr = RE::ActorEquipManager::GetSingleton();
@@ -308,6 +320,7 @@ namespace InTheirShoes {
         std::int32_t skinsKept = 0;
         const auto toMove = GetItemsToMove(a_fromActor, a_toActor, fromInventory, a_donorQuestItems, skinsKept);
         for (const auto& stack : toMove) {
+            ClearOutfitTags(fromInventory.at(stack.object).second.get());
             a_fromActor->RemoveItem(stack.object, stack.count, RE::ITEM_REMOVE_REASON::kStoreInContainer, nullptr, a_toActor);
         }
 

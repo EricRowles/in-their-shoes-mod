@@ -10,7 +10,6 @@
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
 #include "ImpersonationManager.h"
-#include "OutfitManager.h"
 #include "Session.h"
 
 namespace InTheirShoes::Lifecycle {
@@ -31,7 +30,6 @@ namespace InTheirShoes::Lifecycle {
         DialogueManager::GetSingleton().Initialize();
         ActorHooks::Install();
         ConditionHooks::Install();
-        OutfitManager::GetSingleton().InstallHook();
         FaceManager::GetSingleton().InstallHook();
         ImpersonationManager::GetSingleton().Initialize();
     }
@@ -48,7 +46,6 @@ namespace InTheirShoes::Lifecycle {
         CheckMainThread();
         ImpersonationManager::GetSingleton().OnRevert();
         AliasSwapManager::GetSingleton().Clear();
-        OutfitManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
         IdleChatter::GetSingleton().Clear();

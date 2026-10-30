@@ -15,9 +15,6 @@ namespace InTheirShoes::Serialization {
     // Donor, puppet, swapped aliases and donor quest items carried by the player
     inline constexpr std::uint32_t kSessionRecord = 'SESS';
     inline constexpr std::uint32_t kSessionVersion = 1;
-    // Actors whose outfit the engine no longer adds (every donor ever impersonated)
-    inline constexpr std::uint32_t kOutfitDisabledRecord = 'OUTF';
-    inline constexpr std::uint32_t kOutfitDisabledVersion = 1;
     // The donor's appearance as captured when impersonation began
     inline constexpr std::uint32_t kDonorFaceRecord = 'DFAC';
     inline constexpr std::uint32_t kDonorFaceVersion = 1;

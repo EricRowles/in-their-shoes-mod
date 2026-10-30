@@ -14,6 +14,7 @@ namespace InTheirShoes::Forms {
     inline RE::TESObjectREFR* storageMarker{ nullptr };    // ITS_StorageMarker, where the donor is parked
     inline RE::SpellItem* impersonateSpell{ nullptr };     // ITS_ImpersonateSpell
     inline RE::SpellItem* revertSpell{ nullptr };          // ITS_RevertSpell
+    inline RE::BGSOutfit* emptyOutfit{ nullptr };          // ITS_EmptyOutfit, given to unique donors
 
     // Skyrim.esm
     inline RE::TESFaction* currentFollowerFaction{ nullptr };

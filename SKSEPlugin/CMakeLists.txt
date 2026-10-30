@@ -30,8 +30,6 @@ add_library(${PROJECT_NAME} SHARED
     src/ActorHooks.cpp
     src/ConditionHooks.h
     src/ConditionHooks.cpp
-    src/OutfitManager.h
-    src/OutfitManager.cpp
     src/AliasSwapManager.h
     src/AliasSwapManager.cpp
     src/FaceManager.h

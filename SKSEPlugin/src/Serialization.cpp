@@ -5,7 +5,6 @@
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
-#include "OutfitManager.h"
 
 #include <type_traits>
 
@@ -257,31 +256,6 @@ namespace InTheirShoes::Serialization {
             ImpersonationManager::GetSingleton().RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
         }
 
-        // --- 'OUTF': actors whose outfit the engine no longer adds ---
-
-        void WriteOutfitDisabled(Serde* a_serde) {
-            const auto ids = OutfitManager::GetSingleton().GetOutfitDisabledIDs();
-            if (ids.empty()) return;
-            if (!a_serde->OpenRecord(kOutfitDisabledRecord, kOutfitDisabledVersion)) return;
-            WriteList(a_serde, ids, [&](RE::FormID a_id) { Write(a_serde, a_id); });
-        }
-
-        void ReadOutfitDisabled(Serde* a_serde) {
-            std::unordered_set<RE::FormID> ids;
-            const bool ok = ReadList(a_serde, [&] {
-                RE::FormID id = 0;
-                if (!ReadFormID(a_serde, id)) return false;
-                if (id != 0) ids.insert(id);
-                return true;
-            });
-            if (!ok) {
-                SKSE::log::warn("Outfit record is truncated; ignoring it.");
-                return;
-            }
-            SKSE::log::info("Loaded {} actors with their outfit disabled.", ids.size());
-            OutfitManager::GetSingleton().SetOutfitDisabledIDs(std::move(ids));
-        }
-
         // --- 'AFAC': factions the donor's swapped aliases gave it ---
 
         void WriteDonorAliasFactions(Serde* a_serde) {
@@ -347,7 +321,6 @@ namespace InTheirShoes::Serialization {
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
         }
-        WriteOutfitDisabled(a_serde);
         WriteDonorAliasFactions(a_serde);
 
         SKSE::log::info("Completed SKSE Co-Save serialization write.");
@@ -379,11 +352,6 @@ namespace InTheirShoes::Serialization {
                 case kSessionRecord:
                     if (!IsReadableVersion(type, version, kSessionVersion)) break;
                     ReadSession(a_serde);
-                    break;
-
-                case kOutfitDisabledRecord:
-                    if (!IsReadableVersion(type, version, kOutfitDisabledVersion)) break;
-                    ReadOutfitDisabled(a_serde);
                     break;
 
                 case kDonorAliasFactionsRecord:

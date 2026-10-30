@@ -31,6 +31,7 @@ namespace InTheirShoes::Forms {
         Lookup(dataHandler, storageMarker, 0x000807, kModPlugin, "ITS_StorageMarker"sv);
         Lookup(dataHandler, impersonateSpell, 0x000D69, kModPlugin, "ITS_ImpersonateSpell"sv);
         Lookup(dataHandler, revertSpell, 0x000802, kModPlugin, "ITS_RevertSpell"sv);
+        Lookup(dataHandler, emptyOutfit, 0x00087C, kModPlugin, "ITS_EmptyOutfit"sv);
 
         Lookup(dataHandler, currentFollowerFaction, 0x05C84E, kSkyrimPlugin, "CurrentFollowerFaction"sv);
         Lookup(dataHandler, playerFollowerFaction, 0x0BD738, kSkyrimPlugin, "PlayerFollowerFaction"sv);

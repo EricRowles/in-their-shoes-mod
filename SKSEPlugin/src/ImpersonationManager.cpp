@@ -6,9 +6,24 @@
 #include "Forms.h"
 #include "GameUtil.h"
 #include "Lifecycle.h"
-#include "OutfitManager.h"
 
 namespace InTheirShoes {
+
+    namespace {
+        // Gives a unique donor an empty outfit, so the engine never adds its outfit again: the outfit's items
+        // left with the player, and re-adding it duplicated what the donor was given back.
+        //
+        // This deliberately breaks the rule against permanent base record changes.
+        void RemoveUniqueDonorOutfit(RE::Actor* a_donor) {
+            auto* npc = a_donor->GetActorBase();
+            if (!Forms::emptyOutfit || !npc || !npc->IsUnique() || npc->IsDynamicForm()) return;
+            // Set on the base record directly, not through Actor::SetDefaultOutfit: that first removes the old
+            // outfit's items from the donor, which would take the skin if it came from the outfit
+            npc->SetDefaultOutfit(Forms::emptyOutfit);
+            npc->SetSleepOutfit(Forms::emptyOutfit);
+            SKSE::log::info("Gave unique donor {:08X} an empty outfit.", a_donor->GetFormID());
+        }
+    }
 
     void ImpersonationManager::ForwardPuppetFactionsToDonor() {
         auto* puppet = GetPuppet();
@@ -207,7 +222,8 @@ namespace InTheirShoes {
 
         SKSE::log::info("Beginning impersonation: Donor {:08X} ({})", a_donor->GetFormID(), a_donor->GetName());
 
-        OutfitManager::GetSingleton().DisableOutfit(a_donor);
+        // After its items have moved to the player
+        RemoveUniqueDonorOutfit(a_donor);
         AliasSwapManager::GetSingleton().SwapDonorAliasesToPlayer(a_donor, player);
 
         if (auto* puppet = GetPuppet()) {

@@ -12,7 +12,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 
 ## What happens
 
-- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and gear, the player gets the donor's, and the donor is parked.
+- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and gear, the player gets the donor's, and the donor is parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
 - **Switch donor:** the first donor gets the player's current state back and takes the player's place, then the new donor is applied. The puppet is unchanged.
 - **Revert:** the donor gets the player's current items, spells and stats. The player gets the Dragonborn back.
 - **While impersonating:**
@@ -32,7 +32,6 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `ConditionHooks` | Identity and location conditions answer for the right actor |
 | `ActorHooks` | Voice type, editor location and per-frame player update hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |
-| `OutfitManager` | Stops impersonated donors' outfits being re-added |
 | `DialogueManager` | Self-dialogue, the player voicing lines |
 | `IdleChatter` | Picks the donor's idle lines for the player to say |
 | `QuestConditions` | Evaluates a condition list in its quest's context |
@@ -45,7 +44,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 Rules the code relies on:
 - Engine and Papyrus calls run on the main thread. Hooks that run on other threads read only `Session` and lock-protected lists.
 - Managers don't call each other for lifecycle work; that goes through `Lifecycle`.
-- Base records aren't changed permanently; per-actor runtime state and hooks are used instead.
+- Base records aren't changed permanently; per-actor runtime state and hooks are used instead. (One exception: unique donors' outfits, see `ImpersonationManager.cpp`.)
 
 Implementation details live in comments in the code.
 
