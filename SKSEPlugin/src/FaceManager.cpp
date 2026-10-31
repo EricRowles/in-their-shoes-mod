@@ -106,12 +106,11 @@ namespace InTheirShoes {
         // The player's face and body are tinted from PlayerCharacter's own skin tone tint mask as well as the
         // base record's bodyTintColor, so the two have to agree. Sets the mask in both of the player's tint lists
         // (base and overlay), as SKSE's Game.SetNthTintMaskColor does. CommonLib's GetTintList() returns only
-        // one of them, and isn't available in builds that also target VR, whose layout isn't known.
+        // one of them.
         void SetPlayerSkinTone(RE::PlayerCharacter* a_player, const RE::Color& a_color) {
             if (!a_player || REL::Module::IsVR()) return;
-            auto* base = &REL::RelocateMemberIfNewer<RE::BSTArray<RE::TintMask*>>(SKSE::RUNTIME_SSE_1_6_629, a_player, 0xB10, 0xB18);
-            auto* overlay = REL::RelocateMemberIfNewer<RE::BSTArray<RE::TintMask*>*>(SKSE::RUNTIME_SSE_1_6_629, a_player, 0xB28, 0xB30);
-            for (auto* list : { base, overlay }) {
+            auto& data = a_player->GetPlayerRuntimeData();
+            for (auto* list : { &data.tintMasks, data.overlayTintMasks }) {
                 if (!list) continue;
                 for (auto* mask : *list) {
                     if (mask && mask->type == RE::TintMask::Type::kSkinTone) {
