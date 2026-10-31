@@ -63,6 +63,22 @@ String Function ValidationMessage(Int a_code)
 	Return "Cannot impersonate this target."
 EndFunction
 
+; Fades -----------------------------------------------------------------------------------
+; Fades with the vanilla FadeToBlackHoldImod, which holds black until removed. Game.FadeOutGame
+; didn't hold for the whole swap in large load orders (#24).
+ImageSpaceModifier Function FadeHoldImod()
+	Return Game.GetFormFromFile(0x000F756E, "Skyrim.esm") as ImageSpaceModifier
+EndFunction
+
+Function FadeToBlack()
+	FadeHoldImod().ApplyCrossFade(0.3)
+	Utility.Wait(0.3)
+EndFunction
+
+Function FadeFromBlack()
+	ImageSpaceModifier.RemoveCrossFade(0.4)
+EndFunction
+
 ; Morph Complete Function -----------------------------------------------------------------------------------
 Function ITS_ImpersonateComplete(Actor a_donor)
 	If !a_donor || a_donor == PlayerRef
@@ -83,7 +99,7 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 	PlayerRef.StopCombat()
 	a_donor.StopCombat()
 
-	Game.FadeOutGame(True, True, 0.0, 0.3)
+	FadeToBlack()
 
 	; Ensure puppet alias is filled and vanilla activation is blocked
 	Actor puppet = Alias_PlayerPuppet.GetActorReference()
@@ -122,7 +138,7 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 	EndIf
 	ITS_TempMarker.MoveTo(ITS_StorageMarker)
 
-	Game.FadeOutGame(False, True, 0.0, 0.4)
+	FadeFromBlack()
 EndFunction
 
 ; Revert Function -----------------------------------------------------------------------------------
@@ -135,7 +151,7 @@ Function ITS_Revert()
 		EndIf
 		Actor puppet = Alias_PlayerPuppet.GetActorReference()
 
-		Game.FadeOutGame(True, True, 0.0, 0.3)
+		FadeToBlack()
 
 		; Restore state first so the native donor leash is off before anyone moves
 		ITS_TempMarker.MoveTo(PlayerRef)
@@ -143,7 +159,7 @@ Function ITS_Revert()
 			; The plugin refused and still holds the session: leave everyone where they are. (If the plugin has
 			; no session, e.g. after a lost co-save, carry on so the aliases and actors are put back.)
 			ITS_TempMarker.MoveTo(ITS_StorageMarker)
-			Game.FadeOutGame(False, True, 0.0, 0.4)
+			FadeFromBlack()
 			Debug.Notification("Couldn't return to your body.")
 			Return
 		EndIf
@@ -161,7 +177,7 @@ Function ITS_Revert()
 		Alias_PlayerPuppet.Clear()
 		UpdateRevertSpell()
 
-		Game.FadeOutGame(False, True, 0.0, 0.4)
+		FadeFromBlack()
 
 		Debug.Notification("Returned to Body")
 	EndIf
