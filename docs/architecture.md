@@ -8,7 +8,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | **Player** | Looks, sounds and fights like the donor (appearance, voice, stats, spells, items). Holds the donor's quest aliases and answers the donor's conditions. |
 | **Puppet** (`ITS_TempPlayer`) | Looks like the Dragonborn and follows the player. Talking to it opens the donor's dialogue. |
-| **Donor** | Parked out of sight in a holding cell. Conditions and scripts that ask where the donor is get the player's location. |
+| **Donor** | Parked out of sight in a holding cell. Conditions and scripts that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. |
 
 ## What happens
 
@@ -39,7 +39,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `Forms` | Every form looked up by ID |
 | `Serialization` | Co-save records |
-| `Papyrus` | `ITS_NG` natives, and location natives that answer for the parked donor |
+| `Papyrus` | `ITS_NG` natives, and location natives and trigger events that answer for the parked donor |
 
 Rules the code relies on:
 - Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session` and locked state.

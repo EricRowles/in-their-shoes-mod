@@ -8,6 +8,7 @@
 #include "Version.h"
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
+#include <RE/F/FunctionArguments.h>
 
 namespace InTheirShoes::Papyrus {
 
@@ -188,6 +189,66 @@ namespace InTheirShoes::Papyrus {
             a_vm->RegisterFunction("GetHeadingAngle", cls, GetHeadingAngle);
             SKSE::log::info("Overrode ObjectReference spatial natives for the parked donor.");
         }
+
+        // --- Trigger events ---
+        // When the player enters or leaves a trigger with a script property set to the donor,
+        // the trigger also gets the event for the donor.
+        // Runs on any thread: reads only Session and the VM's locked script table.
+
+        using SendEvent_t = void(VM*, RE::VMHandle, const RE::BSFixedString&, RE::BSScript::IFunctionArguments*);
+        REL::Relocation<SendEvent_t> _origSendEvent;
+
+        // A form's VM handle holds its form ID in the low 32 bits
+        bool IsFormObject(const RE::BSScript::Variable& a_var, const RE::TESForm* a_form) {
+            if (!a_var.IsObject()) return false;
+            auto object = a_var.GetObject();
+            return object && static_cast<RE::FormID>(object->GetHandle() & 0xFFFFFFFF) == a_form->GetFormID();
+        }
+
+        bool IsPlayerArgument(const RE::BSScript::IFunctionArguments* a_args) {
+            RE::BSScrapArray<RE::BSScript::Variable> args;
+            (*a_args)(args);
+            return !args.empty() && IsFormObject(args[0], RE::PlayerCharacter::GetSingleton());
+        }
+
+        // Whether any script on the object has a variable (auto properties included) holding a_donor
+        bool HasDonorProperty(VM* a_vm, RE::VMHandle a_handle, const RE::Actor* a_donor) {
+            auto* vm = static_cast<RE::BSScript::Internal::VirtualMachine*>(a_vm);
+            RE::BSSpinLockGuard locker(vm->attachedScriptsLock);
+            auto it = vm->attachedScripts.find(a_handle);
+            if (it == vm->attachedScripts.end()) return false;
+            for (auto& script : it->second) {
+                const auto* object = script.get();
+                const auto* type = object ? object->GetTypeInfo() : nullptr;
+                if (!type) continue;
+                for (std::uint32_t i = 0; i < type->GetTotalNumVariables(); ++i) {
+                    if (IsFormObject(object->variables[i], a_donor)) return true;
+                }
+            }
+            return false;
+        }
+
+        void SendEvent(VM* a_vm, RE::VMHandle a_handle, const RE::BSFixedString& a_eventName, RE::BSScript::IFunctionArguments* a_args) {
+            static const RE::BSFixedString onTriggerEnter{ "OnTriggerEnter" };
+            static const RE::BSFixedString onTriggerLeave{ "OnTriggerLeave" };
+            auto& session = Session::GetSingleton();
+            auto* donor = session.IsActive() ? session.GetDonor() : nullptr;
+            // The VM owns a_args once the event is sent, so they're read first
+            const bool sendForDonor = donor && a_args && (a_eventName == onTriggerEnter || a_eventName == onTriggerLeave) &&
+                                      IsPlayerArgument(a_args) && HasDonorProperty(a_vm, a_handle, donor);
+            _origSendEvent(a_vm, a_handle, a_eventName, a_args);
+            if (sendForDonor) {
+                SKSE::log::info("Sent {} for the donor to handle {:X}", a_eventName.c_str(), a_handle);
+                _origSendEvent(a_vm, a_handle, a_eventName, RE::MakeFunctionArguments(static_cast<RE::TESObjectREFR*>(donor)));
+            }
+        }
+
+        void HookSendEvent() {
+            if (_origSendEvent.address()) return;
+            REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_BSScript__Internal__VirtualMachine[0] };
+            _origSendEvent = vtbl.write_vfunc(0x24, &SendEvent);
+            SKSE::log::info("Hooked VirtualMachine::SendEvent (0x24) to send trigger events for the donor.");
+        }
     }
 
     bool Register(RE::BSScript::IVirtualMachine* a_vm) {
@@ -197,6 +258,7 @@ namespace InTheirShoes::Papyrus {
         }
 
         RegisterSpatialOverrides(a_vm);
+        HookSendEvent();
 
         constexpr std::string_view className = "ITS_NG";
 
