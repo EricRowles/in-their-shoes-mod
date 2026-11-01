@@ -262,11 +262,11 @@ namespace InTheirShoes {
             }
         }
 
-        bool IsDonorStandIn(const RE::Actor* a_actor) {
+        // The puppet in self-dialogue speaks the donor's lines. (Lines scripts give the parked donor go to the
+        // player: NativeRedirect sends its Say() there.)
+        bool IsPuppetStandIn(const RE::Actor* a_actor) {
             auto& session = Session::GetSingleton();
-            return a_actor && session.IsActive() &&
-                   ((a_actor == session.GetPuppet() && session.IsInSelfDialogue()) ||
-                       a_actor == session.GetDonor());
+            return a_actor && session.IsActive() && a_actor == session.GetPuppet() && session.IsInSelfDialogue();
         }
     }
 
@@ -315,9 +315,9 @@ namespace InTheirShoes {
         if (_line) {
             TickPlayerLine();
         }
-        if (Session::GetSingleton().IsInSelfDialogue() || _puppetSpeakerClearPending.load(std::memory_order_acquire)) {
-            // Topic fragments (run by the VM, a frame or more after their line) change the speaker, the
-            // puppet. The next topics' conditions test the donor, so the changes are forwarded as they happen,
+        if (Session::GetSingleton().IsPuppetSpeakingForDonor()) {
+            // Topic fragments (run by the VM, a frame or more after their line) may put the speaker, the puppet,
+            // into quest aliases. The next topics' conditions test the donor, so those are moved as they happen,
             // and until the puppet stops being the speaker: the last line's fragment runs after the menu closes.
             Lifecycle::OnPuppetChangedInSelfDialogue();
         }
@@ -334,7 +334,7 @@ namespace InTheirShoes {
         Session::GetSingleton().SetInSelfDialogue(false);
         _pendingSelfDialogue.store(false, std::memory_order_release);
         _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
-        _puppetSpeakerClearPending.store(false, std::memory_order_release);
+        Session::GetSingleton().SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
         _line.reset();
     }
@@ -441,7 +441,7 @@ namespace InTheirShoes {
 
         // Not yet cleared if the last conversation just ended
         ClearPuppetAsSpeaker();
-        _puppetSpeakerClearPending.store(false, std::memory_order_release);
+        Session::GetSingleton().SetPuppetSpeakerPending(false);
 
         a_speaker->AllowPCDialogue(true);
         a_speaker->AllowBleedoutDialogue(true);
@@ -485,10 +485,10 @@ namespace InTheirShoes {
         }
         // The engine still needs the puppet as its (last) speaker while the menu closes: a Goodbye info's
         // end fragment runs then, and clearing it at once skipped the fragment. Update() clears it shortly after.
-        _puppetSpeakerClearPending.store(true, std::memory_order_release);
-        // What topic fragments did to the speaker (the puppet) belongs to the donor: factions and quest
-        // aliases (e.g. a follower alias) go to the player, who holds the donor's for the session.
-        // Update() forwards them every frame during self-dialogue; this catches the last frame's.
+        Session::GetSingleton().SetPuppetSpeakerPending(true);
+        // Quest aliases topic fragments put the speaker (the puppet) into (e.g. a follower alias) go to the
+        // player standing in for the donor. Update() moves them every frame during self-dialogue; this catches
+        // the last frame's.
         Lifecycle::OnPuppetChangedInSelfDialogue();
     }
 
@@ -509,13 +509,14 @@ namespace InTheirShoes {
         }
         bool ret = _origSetDialogueWithPlayer(a_this, a_flag, a_forceGreet, a_topic);
         if (!a_flag && a_this && session.IsActive() && a_this == session.GetPuppet()) {
-            GetSingleton()._puppetSpeakerClearPending.store(true, std::memory_order_release);
+            session.SetPuppetSpeakerPending(true);
         }
         return ret;
     }
 
     void DialogueManager::UpdatePuppetSpeakerClear() {
-        if (!_puppetSpeakerClearPending.load(std::memory_order_acquire)) return;
+        auto& session = Session::GetSingleton();
+        if (!session.IsPuppetSpeakerPending()) return;
         auto* ui = RE::UI::GetSingleton();
         if (ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
             _puppetSpeakerClearAt.reset();
@@ -525,7 +526,7 @@ namespace InTheirShoes {
             _puppetSpeakerClearAt = std::chrono::steady_clock::now();
         }
         if (SecondsSince(*_puppetSpeakerClearAt) < kPuppetSpeakerClearSeconds) return;
-        _puppetSpeakerClearPending.store(false, std::memory_order_release);
+        session.SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
         ClearPuppetAsSpeaker();
     }
@@ -746,15 +747,10 @@ namespace InTheirShoes {
             return ret;
         }
 
-        if (IsDonorStandIn(a_this)) {
-            // The player voices the line from its own copy. The stand-in (the puppet in self-dialogue, or
-            // the hidden donor) still runs the engine's response object, silenced: the engine tracks which
-            // response the speaker is on by that object, and only moves to the next one if it matches.
-            // The response belongs to this one playing of the topic, so silencing it is safe.
-            if (a_this != session.GetPuppet()) {
-                // The donor is out of sight, so its subtitle is shown for the player
-                QueueSubtitle(RE::PlayerCharacter::GetSingleton(), a_response);
-            }
+        if (IsPuppetStandIn(a_this)) {
+            // The player voices the line from its own copy. The puppet still runs the engine's response object,
+            // silenced: the engine tracks which response the speaker is on by that object, and only moves to the
+            // next one if it matches. The response belongs to this one playing of the topic, so silencing it is safe.
             CopyResponse(a_response, self._standInLine);
             Silence(a_response);
             bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
@@ -773,7 +769,7 @@ namespace InTheirShoes {
     }
 
     bool DialogueManager::Hook_Character_QSpeakingDone(const RE::Actor* a_this) {
-        if (!IsDonorStandIn(a_this)) {
+        if (!IsPuppetStandIn(a_this)) {
             return _origCharQSpeakingDone(a_this);
         }
         // The stand-in is done when the player has finished voicing its line

@@ -47,9 +47,6 @@ namespace InTheirShoes {
 
         void SetPuppetFollowsPlayer(bool a_follows);
 
-        // Faction changes made to the puppet in self-dialogue (it stands in for the donor) go to the player,
-        // who holds the donor's factions; follower factions also make the donor a teammate
-        void ForwardPuppetFactions();
         // Gives the puppet the Dragonborn's name back if a quest alias renamed it
         void RestorePuppetName();
 

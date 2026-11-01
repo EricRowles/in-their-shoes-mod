@@ -9,9 +9,9 @@ namespace InTheirShoes::Serialization {
     // Every record starts at v1 (the first release format; development saves aren't read).
     inline constexpr std::uint32_t kMinSupportedVersion = 1;
 
-    // The Dragonborn's face, stats and spells
+    // The Dragonborn's face, stats and spells. v2 added the Dragonborn's abilities.
     inline constexpr std::uint32_t kBaselineRecord = 'BASE';
-    inline constexpr std::uint32_t kBaselineVersion = 1;
+    inline constexpr std::uint32_t kBaselineVersion = 2;
     // Donor, puppet, swapped aliases (with their factions) and donor quest items carried by the player.
     // v2 added the aliases' factions; v1 isn't read.
     inline constexpr std::uint32_t kSessionRecord = 'SESS';

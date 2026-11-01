@@ -8,11 +8,11 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | **Player** | Looks, sounds and fights like the donor (appearance, voice, stats, spells, items). Belongs to the donor's factions, holds its quest aliases and answers its conditions. |
 | **Puppet** (`ITS_TempPlayer`) | Looks like the Dragonborn and follows the player. Talking to it opens the donor's dialogue. |
-| **Donor** | Parked out of sight in a holding cell. Conditions and scripts that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. |
+| **Donor** | Parked out of sight in a holding cell. Conditions that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. Other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor. Scripts on the donor's own body (its magic effects) still act on it. Actors whose AI packages follow or go to the donor follow or go to the player. |
 
 ## What happens
 
-- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and worn gear, the rest of the Dragonborn's items go into a chest in the holding cell, the player gets the donor's look and items, and the donor is parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
+- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and worn gear, the rest of the Dragonborn's items go into a chest in the holding cell, the player gets the donor's look, items and abilities (e.g. a unique NPC's footstep trail), and the donor is parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
 - **Switch donor:** the first donor gets the player's current state back and takes the player's place, then the new donor is applied. The puppet is unchanged.
 - **Revert:** the donor gets the player's current items, spells and stats. The player gets the Dragonborn back, with the puppet's items and the chest's.
 - **While impersonating:**
@@ -38,11 +38,13 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `IdleChatter` | Picks the donor's idle lines for the player to say |
 | `QuestConditions` | Evaluates a condition list in its quest's context |
 | `IdleAIManager` | Runs the donor's packages on the idle player |
+| `PackageRetarget` | Other actors' packages that target the donor (e.g. a companion following it) target the player |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `FactionManager` | Moves the donor's factions to the player for the session and hands them back |
 | `Forms` | Every form looked up by ID |
 | `Serialization` | Co-save records |
-| `Papyrus` | `ITS_NG` natives, and location natives and trigger events that answer for the parked donor |
+| `Papyrus` | `ITS_NG` natives, and trigger events that fire for the parked donor |
+| `NativeRedirect` | Natives other mods' scripts call on the donor (or on the puppet in self-dialogue) run on the player |
 
 Rules the code relies on:
 - Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session` and locked state.

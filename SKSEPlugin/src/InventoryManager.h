@@ -5,9 +5,13 @@
 
 namespace InTheirShoes {
 
-    // The Dragonborn's own castable spells and equipped magic, stashed while impersonating
+    // The Dragonborn's own castable spells and equipped magic, stashed while impersonating, and its own
+    // abilities, which it keeps
     struct SpellSnapshot {
         std::vector<RE::FormID> addedSpells;
+        std::vector<RE::FormID> abilities;
+        // False for sessions saved before abilities were recorded (and copied to the player)
+        bool abilitiesRecorded{ false };
         RE::SpellItem* leftSpell{ nullptr };
         RE::SpellItem* rightSpell{ nullptr };
         RE::TESShout* shout{ nullptr };
@@ -26,16 +30,18 @@ namespace InTheirShoes {
         // Moves everything in a_container to a_toActor, without equipping it
         void TakeAllItems(RE::TESObjectREFR* a_container, RE::Actor* a_toActor);
 
-        // Removes the player's castable added spells and records them with the equipped magic
+        // Removes the player's castable added spells and records them with the equipped magic, and records its
+        // added abilities
         void StashPlayerSpells(RE::Actor* a_player, SpellSnapshot& a_outSnapshot);
         void RestorePlayerSpells(RE::Actor* a_player, const SpellSnapshot& a_snapshot);
 
-        // Grants the donor's added and base spells to the player
+        // Grants the donor's added and base spells and abilities to the player (e.g. a unique NPC's footstep
+        // trail or speed boost ability, whose effect scripts then run on the player)
         void CopyDonorSpells(RE::Actor* a_donor, RE::Actor* a_player);
 
-        // Removes every castable added spell from the player, handing back to the donor any that
-        // the donor doesn't already get from its base record
-        void ReturnSpellsToDonor(RE::Actor* a_player, RE::Actor* a_donor);
+        // Removes every castable added spell, and every ability the Dragonborn didn't have, from the player,
+        // handing back to the donor any that the donor doesn't already have (learned while impersonating)
+        void ReturnSpellsToDonor(RE::Actor* a_player, RE::Actor* a_donor, const SpellSnapshot& a_dragonborn);
     }
 
 }

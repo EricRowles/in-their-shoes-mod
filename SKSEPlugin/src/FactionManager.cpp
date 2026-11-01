@@ -97,6 +97,10 @@ namespace InTheirShoes {
         for (const auto& [faction, rank] : _dragonbornFactions) {
             a_player->AddToFaction(faction, rank);
         }
+        // A script's RemoveFromAllFactions on the donor ran on the player (NativeRedirect)
+        if (Forms::playerFaction && !GetMemberships(a_player).contains(Forms::playerFaction)) {
+            a_player->AddToFaction(Forms::playerFaction, 0);
+        }
         SKSE::log::info("Returned {} factions to the donor and {} to the Dragonborn.", current.size(), _dragonbornFactions.size());
         Clear();
     }

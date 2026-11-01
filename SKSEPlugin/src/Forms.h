@@ -18,8 +18,6 @@ namespace InTheirShoes::Forms {
     inline RE::BGSOutfit* emptyOutfit{ nullptr };          // ITS_EmptyOutfit, given to unique donors
 
     // Skyrim.esm
-    inline RE::TESFaction* currentFollowerFaction{ nullptr };
-    inline RE::TESFaction* playerFollowerFaction{ nullptr };
     inline RE::TESFaction* playerFaction{ nullptr };  // The Dragonborn's own; owns their homes and belongings
     inline RE::TESPackage* defaultSandboxPackage{ nullptr };  // DefaultSandboxCurrentLocation1024
     inline RE::TESQuest* playerWerewolfQuest{ nullptr };

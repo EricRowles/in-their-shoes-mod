@@ -10,6 +10,8 @@
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
 #include "ImpersonationManager.h"
+#include "NativeRedirect.h"
+#include "PackageRetarget.h"
 #include "Session.h"
 
 namespace InTheirShoes::Lifecycle {
@@ -30,6 +32,7 @@ namespace InTheirShoes::Lifecycle {
         ConditionHooks::Install();
         FaceManager::GetSingleton().InstallHook();
         ImpersonationManager::GetSingleton().Initialize();
+        NativeRedirect::Install();
     }
 
     void OnPostLoadGame() {
@@ -37,6 +40,7 @@ namespace InTheirShoes::Lifecycle {
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
             FactionManager::GetSingleton().OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
             IdleAIManager::GetSingleton().OnImpersonationChanged(true);
+            PackageRetarget::GetSingleton().RetargetDonorToPlayer(session.GetDonor(), Session::GetPlayer());
         }
     }
 
@@ -47,6 +51,8 @@ namespace InTheirShoes::Lifecycle {
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
         IdleChatter::GetSingleton().Clear();
+        // After IdleAIManager, which restores the targets it retargeted from the player to the puppet
+        PackageRetarget::GetSingleton().Restore(false);
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
@@ -64,10 +70,10 @@ namespace InTheirShoes::Lifecycle {
         IdleAIManager::GetSingleton().ClearPlayerPackages();
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
+        PackageRetarget::GetSingleton().RetargetDonorToPlayer(Session::GetSingleton().GetDonor(), Session::GetPlayer());
     }
 
     void OnPuppetChangedInSelfDialogue() {
-        ImpersonationManager::GetSingleton().ForwardPuppetFactions();
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
             AliasSwapManager::GetSingleton().AdoptPuppetAliases(session.GetPuppet(), Session::GetPlayer());
             ImpersonationManager::GetSingleton().RestorePuppetName();
@@ -77,6 +83,8 @@ namespace InTheirShoes::Lifecycle {
     void OnSessionEnd() {
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
+        // After IdleAIManager, which restores the targets it retargeted from the player to the puppet
+        PackageRetarget::GetSingleton().Restore();
     }
 
 }

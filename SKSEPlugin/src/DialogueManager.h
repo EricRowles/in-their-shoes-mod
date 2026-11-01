@@ -10,11 +10,11 @@ namespace InTheirShoes {
 
     // Routes dialogue so the impersonating player speaks the donor's lines.
     //
-    // Every line is voiced once, by the player. When the engine's speaker is a stand-in for the donor
-    // (the puppet in self-dialogue, or the hidden donor itself), that speaker runs the line silenced and
-    // is held "speaking" until the player's line ends, so the engine waits for the player.
-    // The player's own lines (scenes on swapped aliases) and idle chatter (picked by IdleChatter) are voiced
-    // the same way.
+    // Every line is voiced once, by the player. In self-dialogue the engine's speaker is the puppet, standing in
+    // for the donor: it runs the line silenced and is held "speaking" until the player's line ends, so the
+    // engine waits for the player. The player's own lines (scenes on swapped aliases, and lines scripts give the
+    // donor, which NativeRedirect sends to the player) and idle chatter (picked by IdleChatter) are voiced the
+    // same way.
     //
     // Whether self-dialogue is on is published in Session, which condition hooks read from AI threads.
     class DialogueManager :
@@ -56,7 +56,7 @@ namespace InTheirShoes {
         void TickPlayerLine();
         void FinishPlayerLine();
 
-        // Stand-in speakers (the puppet in self-dialogue, the hidden donor)
+        // The stand-in speaker (the puppet in self-dialogue)
         void HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response);
         static void ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response);
 
@@ -85,9 +85,8 @@ namespace InTheirShoes {
         bool _initialized{ false };
         std::atomic<bool> _pendingSelfDialogue{ false };
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
-        // Set when self-dialogue ends; the puppet is cleared as the engine's speaker shortly after the menu closes
-        std::atomic<bool> _puppetSpeakerClearPending{ false };
-        // When the menu was first seen closed, once it has
+        // After self-dialogue ends (Session::IsPuppetSpeakerPending), the puppet is cleared as the engine's speaker
+        // shortly after the menu closes. When the menu was first seen closed, once it has
         std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
 
         // The line the player is voicing. It exists only while the line plays, and is dropped as a whole

@@ -185,10 +185,11 @@ namespace InTheirShoes::Serialization {
             WriteFormID(a_serde, spells.leftSpell);
             WriteFormID(a_serde, spells.rightSpell);
             WriteFormID(a_serde, spells.shout);
+            WriteList(a_serde, spells.abilities, [&](RE::FormID a_id) { Write(a_serde, a_id); });
         }
 
-        bool ReadBaseline(Serde* a_serde, Baseline& a_out) {
-            return ReadFaceSnapshot(a_serde, a_out.face) &&
+        bool ReadBaseline(Serde* a_serde, std::uint32_t a_version, Baseline& a_out) {
+            const bool ok = ReadFaceSnapshot(a_serde, a_out.face) &&
                    ReadList(a_serde, [&] {
                        std::uint32_t av = 0;
                        float value = 0.0f;
@@ -205,6 +206,15 @@ namespace InTheirShoes::Serialization {
                    ReadForm(a_serde, a_out.spells.leftSpell) &&
                    ReadForm(a_serde, a_out.spells.rightSpell) &&
                    ReadForm(a_serde, a_out.spells.shout);
+            // v1 has no abilities (and didn't give the player the donor's): revert leaves them alone
+            if (!ok || a_version < 2) return ok;
+            a_out.spells.abilitiesRecorded = true;
+            return ReadList(a_serde, [&] {
+                RE::FormID id = 0;
+                if (!ReadFormID(a_serde, id)) return false;
+                if (id != 0) a_out.spells.abilities.push_back(id);
+                return true;
+            });
         }
 
         // --- 'SESS': donor, puppet, swapped aliases and donor quest items carried by the player ---
@@ -356,7 +366,7 @@ namespace InTheirShoes::Serialization {
                 case kBaselineRecord: {
                     if (!IsReadableVersion(type, version, kBaselineVersion)) break;
                     Baseline baseline;
-                    if (ReadBaseline(a_serde, baseline)) {
+                    if (ReadBaseline(a_serde, version, baseline)) {
                         ImpersonationManager::GetSingleton().SetBaseline(std::move(baseline));
                         SKSE::log::info("Loaded Dragonborn baseline from co-save.");
                     } else {

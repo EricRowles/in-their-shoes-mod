@@ -26,33 +26,6 @@ namespace InTheirShoes {
         }
     }
 
-    void ImpersonationManager::ForwardPuppetFactions() {
-        auto* puppet = GetPuppet();
-        auto* donor = GetDonor();
-        auto* player = GetPlayer();
-        if (!puppet || !donor || !player) return;
-
-        auto* extraFaction = puppet->extraList.GetByType<RE::ExtraFactionChanges>();
-        if (!extraFaction || extraFaction->factionChanges.empty()) return;
-
-        for (const auto& fRank : extraFaction->factionChanges) {
-            if (!fRank.faction) continue;
-            // The player holds the donor's factions until the session ends, when the donor gets them
-            if (fRank.rank < 0) {
-                player->RemoveFromFaction(fRank.faction);
-            } else {
-                player->AddToFaction(fRank.faction, fRank.rank);
-            }
-            SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to player.", fRank.faction->GetFormID(), fRank.rank);
-
-            if (fRank.rank >= 0 &&
-                (fRank.faction == Forms::currentFollowerFaction || fRank.faction == Forms::playerFollowerFaction)) {
-                donor->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
-            }
-        }
-        extraFaction->factionChanges.clear();
-    }
-
     void ImpersonationManager::RestorePuppetName() {
         auto* puppet = GetPuppet();
         if (!puppet || !_baseline || _baseline->face.fullName.empty()) return;
@@ -239,7 +212,7 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StatManager::CopyStats(player, a_donor);
         InventoryManager::TransferAllItems(player, a_donor, _donorQuestItems);
-        InventoryManager::ReturnSpellsToDonor(player, a_donor);
+        InventoryManager::ReturnSpellsToDonor(player, a_donor, _baseline ? _baseline->spells : SpellSnapshot{});
         _donorQuestItems.clear();
     }
 
@@ -269,7 +242,6 @@ namespace InTheirShoes {
         auto* donor = GetDonor();
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
-        ForwardPuppetFactions();
         // While the player still holds the aliases, whose factions stay with them
         FactionManager::GetSingleton().ReturnFactions(donor, GetPlayer());
         AliasSwapManager::GetSingleton().RestoreSwappedAliases(donor);
