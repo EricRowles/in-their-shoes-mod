@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GameUtil.h"
+#include "PackageUtil.h"
 #include "Singleton.h"
 #include <atomic>
 #include <chrono>
@@ -73,25 +74,8 @@ namespace InTheirShoes {
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };
         bool _savedUserRunning{ true };
 
-        // A package target redirected from the player to the puppet while autonomous AI is active
-        struct RetargetedPackageTarget {
-            RE::PackageTarget* target{ nullptr };
-            std::int8_t origType{ 0 };
-            RE::ObjectRefHandle origHandle;
-            RE::TESForm* origObject{ nullptr };
-        };
-
-        // A package location redirected from the player to the puppet while autonomous AI is active
-        struct RetargetedPackageLocation {
-            RE::PackageLocation* location{ nullptr };
-            std::uint8_t origType{ 0 };
-            RE::ObjectRefHandle origHandle;
-            RE::TESForm* origObject{ nullptr };
-            std::uint32_t origRad{ 0 };
-        };
-
-        std::vector<RetargetedPackageTarget> _retargetedTargets;
-        std::vector<RetargetedPackageLocation> _retargetedLocations;
+        // Package targets and locations redirected from the player to the puppet while autonomous AI is active
+        PackageUtil::PackageEdits _packageEdits;
     };
 
 }

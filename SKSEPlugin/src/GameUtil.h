@@ -21,6 +21,13 @@ namespace InTheirShoes {
         return a_quest && a_quest->IsEnabled() && !a_quest->IsStopping();
     }
 
+    // Whether a script variable holds a_form. A form's VM handle holds its form ID in the low 32 bits.
+    inline bool HoldsForm(const RE::BSScript::Variable& a_var, const RE::TESForm* a_form) {
+        if (!a_form || !a_var.IsObject()) return false;
+        auto object = a_var.GetObject();
+        return object && static_cast<RE::FormID>(object->GetHandle() & 0xFFFFFFFF) == a_form->GetFormID();
+    }
+
     inline bool IsBlockingMenuOpen() {
         auto* ui = RE::UI::GetSingleton();
         if (!ui) return true;

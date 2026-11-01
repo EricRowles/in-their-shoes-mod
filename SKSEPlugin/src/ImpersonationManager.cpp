@@ -25,28 +25,6 @@ namespace InTheirShoes {
         }
     }
 
-    void ImpersonationManager::ForwardPuppetFactionsToDonor() {
-        auto* puppet = GetPuppet();
-        auto* donor = GetDonor();
-        if (!puppet || !donor) return;
-
-        auto* extraFaction = puppet->extraList.GetByType<RE::ExtraFactionChanges>();
-        if (!extraFaction || extraFaction->factionChanges.empty()) return;
-
-        for (const auto& fRank : extraFaction->factionChanges) {
-            if (!fRank.faction) continue;
-            donor->AddToFaction(fRank.faction, fRank.rank);
-            SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to donor {:08X}.",
-                fRank.faction->GetFormID(), fRank.rank, donor->GetFormID());
-
-            if (fRank.rank >= 0 &&
-                (fRank.faction == Forms::currentFollowerFaction || fRank.faction == Forms::playerFollowerFaction)) {
-                donor->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
-            }
-        }
-        extraFaction->factionChanges.clear();
-    }
-
     void ImpersonationManager::RestorePuppetName() {
         auto* puppet = GetPuppet();
         if (!puppet || !_baseline || _baseline->face.fullName.empty()) return;
@@ -260,7 +238,6 @@ namespace InTheirShoes {
         auto* donor = GetDonor();
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
-        ForwardPuppetFactionsToDonor();
         AliasSwapManager::GetSingleton().RestoreSwappedAliases(donor);
 
         Lifecycle::OnSessionEnd();

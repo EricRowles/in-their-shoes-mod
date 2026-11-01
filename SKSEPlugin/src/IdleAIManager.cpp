@@ -5,6 +5,7 @@
 #include "DialogueManager.h"
 #include "Forms.h"
 #include "GameUtil.h"
+#include "PackageUtil.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,14 +25,12 @@
 
 namespace InTheirShoes {
 
+    using namespace PackageUtil;
+
     // Game.SetPlayerAIDriven runs through the script VM, so the package is evaluated a moment later
     constexpr float kEvaluateAfterEngageSeconds = 0.25f;
     // How often the donor's packages are synced to the player while idle AI runs
     constexpr float kPackageSyncSeconds = 1.5f;
-
-    // Package target types (PackageTarget::targType): which member of PackageTarget::target is set
-    constexpr std::int8_t kTargetSpecificReference = 0;  // target.handle
-    constexpr std::int8_t kTargetObjectID = 1;           // target.object
 
     namespace {
         // Updates aiControlledPackage synchronously so immediate EvaluatePackage calls see the new state,
@@ -45,105 +44,6 @@ namespace InTheirShoes {
             if (!vm) return;
             RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
             vm->DispatchStaticCall("Game", "SetPlayerAIDriven", RE::MakeFunctionArguments(std::move(a_enable)), callback);
-        }
-
-        // Templated packages keep their targets, locations and topics in TESCustomPackageData inputs (with
-        // packTarg/packLoc null). Each BGSPackageDataPointerTemplate input keeps its data at +0x10: a pointer to
-        // a PackageTarget ("SingleRef", "TargetSelector") or PackageLocation ("Location"), or a
-        // PackageEventAction::TopicData in place ("Topic").
-        template <class T>
-        T* GetInputData(RE::IPackageData* a_input) {
-            constexpr std::uintptr_t kInputDataOffset = 0x10;
-            return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(a_input) + kInputDataOffset);
-        }
-
-        // Calls a_fn(input) for each of the package's own data inputs whose type is one of a_typeNames
-        template <typename Fn>
-        void ForEachPackageInput(const RE::TESPackage* a_pkg, std::initializer_list<const char*> a_typeNames, Fn&& a_fn) {
-            const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
-            if (!customData || !customData->data.data) return;
-
-            for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
-                auto* input = customData->data.data[i];
-                if (!input) continue;
-                const auto& typeName = input->GetTypeName();
-                if (typeName.empty()) continue;
-                for (const char* name : a_typeNames) {
-                    if (_stricmp(typeName.c_str(), name) == 0) {
-                        a_fn(input);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages.
-        // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
-        // Distance" Location input (radius 300) is near the player, so left alone the player is always within
-        // it and skips the Travel branch.
-        template <typename Fn>
-        void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
-            if (!a_pkg) return;
-            if (a_pkg->packTarg) {
-                a_fn(a_pkg->packTarg);
-            }
-            ForEachPackageInput(a_pkg, { "SingleRef", "TargetSelector" }, [&](RE::IPackageData* a_input) {
-                if (auto* targ = *GetInputData<RE::PackageTarget*>(a_input)) {
-                    a_fn(targ);
-                }
-            });
-        }
-
-        template <typename Fn>
-        void ForEachPackageLocation(const RE::TESPackage* a_pkg, Fn&& a_fn) {
-            if (!a_pkg) return;
-            if (a_pkg->packLoc) {
-                a_fn(a_pkg->packLoc);
-            }
-            ForEachPackageInput(a_pkg, { "Location" }, [&](RE::IPackageData* a_input) {
-                if (auto* loc = *GetInputData<RE::PackageLocation*>(a_input)) {
-                    a_fn(loc);
-                }
-            });
-        }
-
-        bool TargetReferencesActor(const RE::PackageTarget* a_targ, RE::Actor* a_actor) {
-            if (!a_targ || !a_actor) return false;
-            if (a_targ->targType == kTargetSpecificReference) {
-                return a_targ->target.handle == a_actor->GetHandle();
-            }
-            if (a_targ->targType == kTargetObjectID) {
-                return a_targ->target.object == a_actor || a_targ->target.object == a_actor->GetBaseObject();
-            }
-            return false;
-        }
-
-        bool LocationReferencesActor(const RE::PackageLocation* a_loc, RE::Actor* a_actor) {
-            if (!a_loc || !a_actor) return false;
-            auto type = a_loc->locType.get();
-            if (type == RE::PackageLocation::Type::kNearReference) {
-                return a_loc->data.refHandle == a_actor->GetHandle();
-            }
-            if (type == RE::PackageLocation::Type::kObjectID) {
-                return a_loc->data.object == a_actor || a_loc->data.object == a_actor->GetBaseObject();
-            }
-            return false;
-        }
-
-        bool PackageTargetsActor(const RE::TESPackage* a_pkg, RE::Actor* a_actor) {
-            bool found = false;
-            ForEachPackageTarget(a_pkg, [&](RE::PackageTarget* a_targ) {
-                if (TargetReferencesActor(a_targ, a_actor)) {
-                    found = true;
-                }
-            });
-            if (found) return true;
-            ForEachPackageLocation(a_pkg, [&](RE::PackageLocation* a_loc) {
-                if (LocationReferencesActor(a_loc, a_actor)) {
-                    found = true;
-                }
-            });
-            return found;
         }
 
         bool HasProcedureTreeProcedure(const RE::IProcedureTreeItem* a_item, std::uintptr_t a_procVtbl) {
@@ -478,36 +378,13 @@ namespace InTheirShoes {
 
         ForEachPackageTarget(a_pkg, [&](RE::PackageTarget* a_targ) {
             if (!TargetReferencesActor(a_targ, a_player)) return;
-            auto it = std::find_if(_retargetedTargets.begin(), _retargetedTargets.end(),
-                [a_targ](const RetargetedPackageTarget& a_rec) { return a_rec.target == a_targ; });
-            if (it == _retargetedTargets.end()) {
-                RetargetedPackageTarget rec;
-                rec.target = a_targ;
-                rec.origType = a_targ->targType;
-                rec.origHandle = a_targ->target.handle;
-                rec.origObject = a_targ->target.object;
-                _retargetedTargets.push_back(rec);
-            }
-            a_targ->targType = kTargetSpecificReference;
-            a_targ->target.handle = a_puppet->GetHandle();
+            _packageEdits.Retarget(a_targ, a_puppet);
             retargeted = true;
         });
 
         ForEachPackageLocation(a_pkg, [&](RE::PackageLocation* a_loc) {
             if (!LocationReferencesActor(a_loc, a_player)) return;
-            auto it = std::find_if(_retargetedLocations.begin(), _retargetedLocations.end(),
-                [a_loc](const RetargetedPackageLocation& a_rec) { return a_rec.location == a_loc; });
-            if (it == _retargetedLocations.end()) {
-                RetargetedPackageLocation rec;
-                rec.location = a_loc;
-                rec.origType = static_cast<std::uint8_t>(a_loc->locType.underlying());
-                rec.origHandle = a_loc->data.refHandle;
-                rec.origObject = a_loc->data.object;
-                rec.origRad = a_loc->rad;
-                _retargetedLocations.push_back(rec);
-            }
-            a_loc->locType = RE::PackageLocation::Type::kNearReference;
-            a_loc->data.refHandle = a_puppet->GetHandle();
+            _packageEdits.Relocate(a_loc, a_puppet);
             // ForceGreet packages often have a preliminary Travel branch whose Trigger Location radius is
             // 500+ units around the player, while the ForceGreet branch only activates within 300 units.
             // Clamp the radius so the Travel branch brings the impersonator within greeting distance.
@@ -601,33 +478,11 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::ClearPlayerPackages() {
-        for (const auto& entry : _retargetedTargets) {
-            auto* targ = entry.target;
-            if (!targ) continue;
-            targ->targType = entry.origType;
-            if (entry.origType == kTargetSpecificReference) {
-                targ->target.handle = entry.origHandle;
-            } else {
-                targ->target.object = entry.origObject;
-            }
-        }
-        for (const auto& entry : _retargetedLocations) {
-            auto* loc = entry.location;
-            if (!loc) continue;
-            loc->locType = static_cast<RE::PackageLocation::Type>(entry.origType);
-            if (loc->locType == RE::PackageLocation::Type::kNearReference) {
-                loc->data.refHandle = entry.origHandle;
-            } else {
-                loc->data.object = entry.origObject;
-            }
-            loc->rad = entry.origRad;
-        }
-        if (!_retargetedTargets.empty() || !_retargetedLocations.empty()) {
+        if (_packageEdits.TargetCount() || _packageEdits.LocationCount()) {
             SKSE::log::info("Restored {} retargeted package targets and {} package locations",
-                _retargetedTargets.size(), _retargetedLocations.size());
+                _packageEdits.TargetCount(), _packageEdits.LocationCount());
         }
-        _retargetedTargets.clear();
-        _retargetedLocations.clear();
+        _packageEdits.Restore();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return;

@@ -17,7 +17,8 @@ Opens when the player activates the puppet, or when a donor package that would g
 
 ## Speech
 
-- **Donor lines** (self-dialogue, or lines the hidden donor is given): the engine's speaker runs the line silently while the player voices it, so the conversation waits for the player. Lines from the hidden donor get a subtitle.
+- **Self-dialogue lines:** the puppet runs the line silently while the player voices it, so the conversation waits for the player.
+- **Lines scripts give the donor** (e.g. a follower's reply to another follower) are spoken by the player.
 - **Scene lines** the player is given through the donor's aliases are voiced by the player.
 - **Skipping:** the usual skip input during a self-dialogue line ends the player's line.
 - Outside self-dialogue the puppet says nothing.
@@ -28,4 +29,4 @@ When the cooldown (MCM) has passed and the player is free, a random idle line th
 
 ## Follower recruitment
 
-Dialogue fragments act on the speaker, which in self-dialogue is the puppet. So during self-dialogue and just after it closes, faction changes on the puppet go to the donor, and any quest alias the puppet is put into (e.g. a follower alias) moves to the player and counts for the donor's conditions. If a quest later clears the alias (e.g. dismissal), the donor loses it; otherwise the donor gets it on revert like its other aliases. Other changes a fragment makes to the speaker (items, AI) still land on the puppet ([#6](https://github.com/EricRowles/in-their-shoes-mod/issues/6)).
+Dialogue fragments act on the speaker, which in self-dialogue is the puppet. So during self-dialogue and just after it closes, what a fragment does to the puppet goes to the player (items, AI), except factions and teammate status, which go to the donor. Any quest alias the puppet is put into (e.g. a follower alias) moves to the player and counts for the donor's conditions. If a quest later clears the alias (e.g. dismissal), the donor loses it; otherwise the donor gets it on revert like its other aliases.

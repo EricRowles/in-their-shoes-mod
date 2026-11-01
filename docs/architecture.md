@@ -8,7 +8,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | **Player** | Looks, sounds and fights like the donor (appearance, voice, stats, spells, items). Holds the donor's quest aliases and answers the donor's conditions. |
 | **Puppet** (`ITS_TempPlayer`) | Looks like the Dragonborn and follows the player. Talking to it opens the donor's dialogue. |
-| **Donor** | Parked out of sight in a holding cell. Conditions and scripts that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. |
+| **Donor** | Parked out of sight in a holding cell. Conditions that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. Other mods' scripts that act on the donor (make it speak, ask where it is) act on the player instead; its factions and teammate status stay on the donor. Scripts on the donor's own body (its magic effects) still act on it. Actors whose AI packages follow or go to the donor follow or go to the player. |
 
 ## What happens
 
@@ -36,10 +36,12 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `IdleChatter` | Picks the donor's idle lines for the player to say |
 | `QuestConditions` | Evaluates a condition list in its quest's context |
 | `IdleAIManager` | Runs the donor's packages on the idle player |
+| `PackageRetarget` | Other actors' packages that target the donor (e.g. a companion following it) target the player |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `Forms` | Every form looked up by ID |
 | `Serialization` | Co-save records |
-| `Papyrus` | `ITS_NG` natives, and location natives and trigger events that answer for the parked donor |
+| `Papyrus` | `ITS_NG` natives, and trigger events that fire for the parked donor |
+| `NativeRedirect` | Natives other mods' scripts call on the donor (or on the puppet in self-dialogue) run on the player |
 
 Rules the code relies on:
 - Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session` and locked state.
