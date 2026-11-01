@@ -1,18 +1,19 @@
 #pragma once
 
 #include "Singleton.h"
+#include <mutex>
+#include <optional>
 #include <vector>
 
 namespace InTheirShoes {
 
     // Makes the player a real member of the donor's factions for the session, and takes the Dragonborn out of
-    // theirs. Unlike the faction condition hooks, this reaches what the engine decides from membership: faction
-    // reactions (a bandit's allies are the player's), faction ownership (guild beds and stock) and Papyrus
-    // IsInFaction / GetFactionRank on the player.
+    // theirs. This reaches what the engine decides from membership: faction reactions (a bandit's allies are
+    // the player's), faction ownership (guild beds and stock), faction conditions and Papyrus IsInFaction /
+    // GetFactionRank. The donor's dialogue needs nothing more: its faction conditions ask the player.
     //
-    // Some factions stay with their owner: the Dragonborn's PlayerFaction, the follower factions (the alias
-    // swap and ForwardPuppetFactionsToDonor handle those) and the factions of the donor's swapped aliases,
-    // which reach the player with the aliases. Not thread-safe.
+    // Two kinds of faction stay put: the Dragonborn's PlayerFaction, and the factions of the donor's swapped
+    // aliases, which reach the player with the aliases. Not thread-safe, except GetDragonbornFactionRank.
     class FactionManager : public Singleton<FactionManager> {
     public:
         using FactionRank = std::pair<RE::TESFaction*, std::int8_t>;
@@ -21,15 +22,18 @@ namespace InTheirShoes {
         void CaptureDragonborn(RE::Actor* a_player);
         // After the aliases have moved: the player joins the donor's factions and leaves the Dragonborn's
         void TakeOnDonorFactions(RE::Actor* a_donor, RE::Actor* a_player);
-        // While the player still holds the donor's aliases: the donor gets the player's current factions (so
-        // a script that promoted or expelled "the donor" through an alias sticks), and the player gets the
-        // Dragonborn's back
+        // While the player still holds the donor's aliases: the donor gets the player's current factions (so a
+        // script or topic that promoted or expelled the donor sticks), and the player gets the Dragonborn's back
         void ReturnFactions(RE::Actor* a_donor, RE::Actor* a_player);
-        // A faction change made to the donor mid-session (self-dialogue forwarding): the player, who is the
-        // donor for now, gets it too, so ReturnFactions doesn't undo it
-        void OnDonorFactionChanged(RE::Actor* a_player, RE::TESFaction* a_faction, std::int8_t a_rank);
+        // A session saved before the player took on the donor's factions does so now
+        void OnPostLoadGame(RE::Actor* a_donor, RE::Actor* a_player);
 
-        bool IsActive() const { return _active; }
+        // While the player holds the donor's factions, the Dragonborn's rank in a_faction (-1 if not a member),
+        // for conditions asked of the Dragonborn. nullopt when the player's own membership is the answer.
+        // May be read from any thread.
+        std::optional<std::int8_t> GetDragonbornFactionRank(const RE::TESFaction* a_faction) const;
+
+        bool IsActive() const;
         void Clear();
 
         // Serialization ('FACT' record)
@@ -42,6 +46,8 @@ namespace InTheirShoes {
         FactionManager() = default;
         ~FactionManager() = default;
 
+        // Guards _active and _dragonbornFactions, which the condition hooks read; written on the main thread only
+        mutable std::mutex _lock;
         bool _active{ false };
         // The Dragonborn's factions when the session began
         std::vector<FactionRank> _dragonbornFactions;

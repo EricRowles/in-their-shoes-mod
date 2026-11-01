@@ -26,20 +26,24 @@ namespace InTheirShoes {
         }
     }
 
-    void ImpersonationManager::ForwardPuppetFactionsToDonor() {
+    void ImpersonationManager::ForwardPuppetFactions() {
         auto* puppet = GetPuppet();
         auto* donor = GetDonor();
-        if (!puppet || !donor) return;
+        auto* player = GetPlayer();
+        if (!puppet || !donor || !player) return;
 
         auto* extraFaction = puppet->extraList.GetByType<RE::ExtraFactionChanges>();
         if (!extraFaction || extraFaction->factionChanges.empty()) return;
 
         for (const auto& fRank : extraFaction->factionChanges) {
             if (!fRank.faction) continue;
-            donor->AddToFaction(fRank.faction, fRank.rank);
-            FactionManager::GetSingleton().OnDonorFactionChanged(GetPlayer(), fRank.faction, fRank.rank);
-            SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to donor {:08X}.",
-                fRank.faction->GetFormID(), fRank.rank, donor->GetFormID());
+            // The player holds the donor's factions until the session ends, when the donor gets them
+            if (fRank.rank < 0) {
+                player->RemoveFromFaction(fRank.faction);
+            } else {
+                player->AddToFaction(fRank.faction, fRank.rank);
+            }
+            SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to player.", fRank.faction->GetFormID(), fRank.rank);
 
             if (fRank.rank >= 0 &&
                 (fRank.faction == Forms::currentFollowerFaction || fRank.faction == Forms::playerFollowerFaction)) {
@@ -265,7 +269,7 @@ namespace InTheirShoes {
         auto* donor = GetDonor();
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
-        ForwardPuppetFactionsToDonor();
+        ForwardPuppetFactions();
         // While the player still holds the aliases, whose factions stay with them
         FactionManager::GetSingleton().ReturnFactions(donor, GetPlayer());
         AliasSwapManager::GetSingleton().RestoreSwappedAliases(donor);

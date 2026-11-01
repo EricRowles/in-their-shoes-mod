@@ -486,8 +486,8 @@ namespace InTheirShoes {
         // The engine still needs the puppet as its (last) speaker while the menu closes: a Goodbye info's
         // end fragment runs then, and clearing it at once skipped the fragment. Update() clears it shortly after.
         _puppetSpeakerClearPending.store(true, std::memory_order_release);
-        // What topic fragments did to the speaker (the puppet) belongs to the donor: factions go to the
-        // donor, and quest aliases (e.g. a follower alias) go to the player standing in for the donor.
+        // What topic fragments did to the speaker (the puppet) belongs to the donor: factions and quest
+        // aliases (e.g. a follower alias) go to the player, who holds the donor's for the session.
         // Update() forwards them every frame during self-dialogue; this catches the last frame's.
         Lifecycle::OnPuppetChangedInSelfDialogue();
     }

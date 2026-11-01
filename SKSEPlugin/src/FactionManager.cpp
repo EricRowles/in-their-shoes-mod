@@ -22,9 +22,7 @@ namespace InTheirShoes {
 
         // Whether the faction moves between the Dragonborn and the donor (see FactionManager.h)
         bool IsSwappable(const RE::TESFaction* a_faction) {
-            return a_faction && a_faction != Forms::playerFaction && a_faction != Forms::currentFollowerFaction &&
-                   a_faction != Forms::playerFollowerFaction &&
-                   !AliasSwapManager::GetSingleton().GetDonorAliasFactionRank(a_faction);
+            return a_faction && a_faction != Forms::playerFaction && !AliasSwapManager::GetSingleton().IsAliasFaction(a_faction);
         }
 
         std::vector<FactionManager::FactionRank> GetSwappableMemberships(RE::Actor* a_actor) {
@@ -41,7 +39,9 @@ namespace InTheirShoes {
     }
 
     void FactionManager::CaptureDragonborn(RE::Actor* a_player) {
-        _dragonbornFactions = GetSwappableMemberships(a_player);
+        auto factions = GetSwappableMemberships(a_player);
+        std::scoped_lock lock(_lock);
+        _dragonbornFactions = std::move(factions);
     }
 
     void FactionManager::TakeOnDonorFactions(RE::Actor* a_donor, RE::Actor* a_player) {
@@ -60,13 +60,14 @@ namespace InTheirShoes {
             SKSE::log::info("  player joins donor faction {:08X} ({}) at rank {}", faction->GetFormID(),
                 faction->GetName(), rank);
         }
+        std::scoped_lock lock(_lock);
         _active = true;
         SKSE::log::info("Player took on {} donor factions and left {} of the Dragonborn's.", _givenFactions.size(), left);
     }
 
     void FactionManager::ReturnFactions(RE::Actor* a_donor, RE::Actor* a_player) {
         // A session loaded from a save made before this feature never gave the player the donor's factions
-        if (!_active || !a_player) {
+        if (!IsActive() || !a_player) {
             Clear();
             return;
         }
@@ -100,22 +101,36 @@ namespace InTheirShoes {
         Clear();
     }
 
-    void FactionManager::OnDonorFactionChanged(RE::Actor* a_player, RE::TESFaction* a_faction, std::int8_t a_rank) {
-        if (!_active || !a_player || !IsSwappable(a_faction)) return;
-        if (a_rank < 0) {
-            a_player->RemoveFromFaction(a_faction);
-        } else {
-            a_player->AddToFaction(a_faction, a_rank);
-        }
+    void FactionManager::OnPostLoadGame(RE::Actor* a_donor, RE::Actor* a_player) {
+        if (IsActive() || !a_donor || !a_player) return;
+        SKSE::log::info("Session has no saved factions; the player takes on the donor's now.");
+        CaptureDragonborn(a_player);
+        TakeOnDonorFactions(a_donor, a_player);
+    }
+
+    std::optional<std::int8_t> FactionManager::GetDragonbornFactionRank(const RE::TESFaction* a_faction) const {
+        // The player keeps PlayerFaction, so their own membership answers for it
+        if (!a_faction || a_faction == Forms::playerFaction) return std::nullopt;
+        std::scoped_lock lock(_lock);
+        if (!_active) return std::nullopt;
+        auto it = std::ranges::find(_dragonbornFactions, a_faction, &FactionRank::first);
+        return it != _dragonbornFactions.end() ? it->second : std::int8_t{ -1 };
+    }
+
+    bool FactionManager::IsActive() const {
+        std::scoped_lock lock(_lock);
+        return _active;
     }
 
     void FactionManager::Clear() {
+        std::scoped_lock lock(_lock);
         _active = false;
         _dragonbornFactions.clear();
         _givenFactions.clear();
     }
 
     void FactionManager::Restore(std::vector<FactionRank> a_dragonborn, std::vector<FactionRank> a_given) {
+        std::scoped_lock lock(_lock);
         _dragonbornFactions = std::move(a_dragonborn);
         _givenFactions = std::move(a_given);
         _active = true;

@@ -1,6 +1,6 @@
 #include "PCH.h"
 #include "ConditionHooks.h"
-#include "AliasSwapManager.h"
+#include "FactionManager.h"
 #include "Forms.h"
 #include "Session.h"
 
@@ -70,38 +70,6 @@ namespace InTheirShoes::ConditionHooks {
             return true;
         }
 
-        bool InFactionAsDonor(const Query& a_q, double& a_result) {
-            if (a_q.IsTrueFor(a_q.donor) ||
-                AliasSwapManager::GetSingleton().GetDonorAliasFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
-                a_result = 1.0;
-                return true;
-            }
-            if (a_q.subject == a_q.player) {
-                return a_q.Ask(a_q.player, a_result);
-            }
-            a_result = 0.0;
-            return true;
-        }
-
-        bool FactionRankAsDonor(const Query& a_q, double& a_result) {
-            if (a_q.donor) {
-                double donorRank = -1.0;
-                if (a_q.Ask(a_q.donor, donorRank) && donorRank >= 0.0) {
-                    a_result = donorRank;
-                    return true;
-                }
-            }
-            if (auto rank = AliasSwapManager::GetSingleton().GetDonorAliasFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
-                a_result = *rank;
-                return true;
-            }
-            if (a_q.subject == a_q.player) {
-                return a_q.Ask(a_q.player, a_result);
-            }
-            a_result = -1.0;
-            return true;
-        }
-
         bool IsReferenceAsDonor(const Query& a_q, double& a_result) {
             if (a_q.donor && static_cast<RE::TESObjectREFR*>(a_q.param1) == a_q.donor) {
                 a_result = 1.0;
@@ -152,6 +120,24 @@ namespace InTheirShoes::ConditionHooks {
             return AskPlayer(a_q, a_result);
         }
 
+        // The player is in the donor's factions for the session (FactionManager), so the Dragonborn's are
+        // answered from what they were when it began
+        bool InFactionAsDragonborn(const Query& a_q, double& a_result) {
+            if (auto rank = FactionManager::GetSingleton().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+                a_result = *rank >= 0 ? 1.0 : 0.0;
+                return true;
+            }
+            return AskPlayer(a_q, a_result);
+        }
+
+        bool FactionRankAsDragonborn(const Query& a_q, double& a_result) {
+            if (auto rank = FactionManager::GetSingleton().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+                a_result = *rank;
+                return true;
+            }
+            return AskPlayer(a_q, a_result);
+        }
+
         bool IsVoiceTypeAsDragonborn(const Query& a_q, double& a_result) {
             auto* targetVoice = static_cast<RE::BGSVoiceType*>(a_q.param1);
             auto* origVoice = a_q.session.GetOrigPlayerVoiceType();
@@ -176,9 +162,10 @@ namespace InTheirShoes::ConditionHooks {
         };
 
         constexpr IdentityCondition kIdentityConditions[] = {
-            { "GetInFaction"sv, &InFactionAsDonor, &AskPlayer },
+            // The player is really in the donor's factions and its aliases' (FactionManager)
+            { "GetInFaction"sv, &AskPlayer, &InFactionAsDragonborn },
             { "GetIsID"sv, &IsIDAsDonor, &IsIDAsDragonborn },
-            { "GetFactionRank"sv, &FactionRankAsDonor, &AskPlayer },
+            { "GetFactionRank"sv, &AskPlayer, &FactionRankAsDragonborn },
             { "GetIsReference"sv, &IsReferenceAsDonor, &IsReferenceAsDragonborn },
             { "GetIsAliasRef"sv, &IsAliasRefAsDonor, &AskPlayer },
             { "GetIsVoiceType"sv, &IsVoiceTypeAsDonor, &IsVoiceTypeAsDragonborn },
@@ -297,8 +284,9 @@ namespace InTheirShoes::ConditionHooks {
                 ResolveRelationshipRef(session, static_cast<RE::TESObjectREFR*>(a_p1)), a_p2, a_result);
         }
 
-        // --- The PC's class: GetPCIsRace and GetPCIsSex follow the player's record, which has the donor's race
-        // and sex, but the class stays the Dragonborn's ---
+        // --- The PC: outside self-dialogue the PC is the donor. GetPCIsRace and GetPCIsSex follow the player's
+        // record, which has the donor's race and sex, but the class stays the Dragonborn's. GetPCInFaction follows
+        // the player's real factions, which are the donor's; in self-dialogue the PC is the Dragonborn. ---
 
         Condition_t* s_originalPCIsClass{ nullptr };
 
@@ -312,6 +300,20 @@ namespace InTheirShoes::ConditionHooks {
             }
             a_result = donorBase->npcClass && donorBase->npcClass == static_cast<RE::TESClass*>(a_p1) ? 1.0 : 0.0;
             return true;
+        }
+
+        Condition_t* s_originalPCInFaction{ nullptr };
+
+        bool PCInFactionThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            if (!s_originalPCInFaction) return false;
+            auto& session = Session::GetSingleton();
+            if (session.IsActive() && session.IsInSelfDialogue()) {
+                if (auto rank = FactionManager::GetSingleton().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_p1))) {
+                    a_result = *rank >= 0 ? 1.0 : 0.0;
+                    return true;
+                }
+            }
+            return s_originalPCInFaction(a_thisObj, a_p1, a_p2, a_result);
         }
 
         // Swaps in a_thunk as the named condition's function, keeping the original in a_original
@@ -354,9 +356,10 @@ namespace InTheirShoes::ConditionHooks {
         const std::size_t hookedCount = HookIdentityConditions(std::make_index_sequence<kIdentityCount>{}) +
                                         HookSpatialConditions(std::make_index_sequence<kSpatialCount>{}) +
                                         HookRelationshipConditions(std::make_index_sequence<kRelationshipCount>{}) +
-                                        HookCondition(s_originalPCIsClass, "GetPCIsClass"sv, &PCIsClassThunk);
+                                        HookCondition(s_originalPCIsClass, "GetPCIsClass"sv, &PCIsClassThunk) +
+                                        HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk);
 
-        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 1;
+        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 2;
         if (hookedCount == kExpectedHooks) {
             SKSE::log::info("Installed all {} script condition hooks.", hookedCount);
         } else {

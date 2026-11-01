@@ -34,7 +34,8 @@ namespace InTheirShoes::Lifecycle {
 
     void OnPostLoadGame() {
         ImpersonationManager::GetSingleton().OnPostLoadGame();
-        if (Session::GetSingleton().IsActive()) {
+        if (auto& session = Session::GetSingleton(); session.IsActive()) {
+            FactionManager::GetSingleton().OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
             IdleAIManager::GetSingleton().OnImpersonationChanged(true);
         }
     }
@@ -66,7 +67,7 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnPuppetChangedInSelfDialogue() {
-        ImpersonationManager::GetSingleton().ForwardPuppetFactionsToDonor();
+        ImpersonationManager::GetSingleton().ForwardPuppetFactions();
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
             AliasSwapManager::GetSingleton().AdoptPuppetAliases(session.GetPuppet(), Session::GetPlayer());
             ImpersonationManager::GetSingleton().RestorePuppetName();
