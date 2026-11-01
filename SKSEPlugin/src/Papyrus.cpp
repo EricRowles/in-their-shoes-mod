@@ -30,6 +30,10 @@ namespace InTheirShoes::Papyrus {
             IdleAIManager::GetSingleton().SetIdleTimeout(a_seconds);
         }
 
+        void SetIdleAIPackage(RE::StaticFunctionTag*, std::int32_t a_index) {
+            IdleAIManager::GetSingleton().SetIdlePackage(a_index);
+        }
+
         void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
             IdleChatter::GetSingleton().SetInterval(a_seconds);
         }
@@ -199,6 +203,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("Revert", className, Revert);
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
+        a_vm->RegisterFunction("SetIdleAIPackage", className, SetIdleAIPackage);
         a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
         a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);

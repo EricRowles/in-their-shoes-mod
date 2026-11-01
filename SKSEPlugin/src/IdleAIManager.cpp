@@ -420,6 +420,79 @@ namespace InTheirShoes {
         }
     }
 
+    void IdleAIManager::CollectDonorPackages(RE::TESActorBase* a_donorBase, RE::Actor* a_player, RE::Actor* a_puppet,
+        std::vector<RE::TESPackage*>& a_out) {
+        RetargetAliasPackagesToPuppet();
+
+        // The donor's own (base record) packages go on the player's base record. The swapped aliases
+        // apply their packages to the player directly. ForceGreet packages on the donor's base record
+        // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
+        // (such as follower Follow packages) are skipped.
+        for (auto* pkg : a_donorBase->aiPackages.packages) {
+            if (!pkg) continue;
+            if (HasForceGreetProcedure(pkg) && a_puppet) {
+                RetargetPackageToPuppet(pkg, a_player, a_puppet);
+            } else if (PackageTargetsActor(pkg, a_player)) {
+                continue;
+            }
+            if (std::find(a_out.begin(), a_out.end(), pkg) == a_out.end()) {
+                a_out.push_back(pkg);
+            }
+        }
+    }
+
+    void IdleAIManager::SetIdlePackage(std::int32_t a_index) {
+        _idlePackageIndex = a_index;
+        auto* pkg = GetChosenPackage();
+        SKSE::log::info("Idle AI package: {}", pkg ? fmt::format("{:08X}", pkg->GetFormID()) : "the donor's own"s);
+        if (_aiActive) {
+            SyncDonorPackagesToPlayer();
+        }
+    }
+
+    RE::TESPackage* IdleAIManager::GetChosenPackage() const {
+        if (_idlePackageIndex <= 0 || static_cast<std::size_t>(_idlePackageIndex) > Forms::idlePackages.size()) return nullptr;
+        return Forms::idlePackages[_idlePackageIndex - 1];
+    }
+
+    void IdleAIManager::HideAliasPackages() {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
+        if (!aliasArray) return;
+
+        // The engine picks alias packages from each instance's instancedPackages, so emptying the pointer
+        // hides them. Runs every sync, which also catches aliases the player gained since.
+        RE::BSWriteLockGuard locker(aliasArray->lock);
+        for (auto* inst : aliasArray->aliases) {
+            if (!inst || !inst->instancedPackages || inst->instancedPackages->empty()) continue;
+            _hiddenAliasPackages.emplace_back(inst, inst->instancedPackages);
+            inst->instancedPackages = nullptr;
+            SKSE::log::info("Hid the packages of quest {:08X} alias {} while idle AI runs the chosen package",
+                inst->quest ? inst->quest->GetFormID() : 0, inst->alias ? inst->alias->aliasID : 0);
+        }
+    }
+
+    void IdleAIManager::RestoreAliasPackages() {
+        if (_hiddenAliasPackages.empty()) return;
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
+
+        // Only into instances the player still holds: a released alias's instance data is gone (its packages
+        // with it, unless the engine frees them through the pointer we emptied, in which case they leak)
+        std::size_t restored = 0;
+        if (aliasArray) {
+            RE::BSWriteLockGuard locker(aliasArray->lock);
+            for (const auto& [inst, packages] : _hiddenAliasPackages) {
+                if (std::ranges::find(aliasArray->aliases, inst) != aliasArray->aliases.end() && !inst->instancedPackages) {
+                    inst->instancedPackages = packages;
+                    ++restored;
+                }
+            }
+        }
+        SKSE::log::info("Restored the packages of {} of {} hidden aliases", restored, _hiddenAliasPackages.size());
+        _hiddenAliasPackages.clear();
+    }
+
     void IdleAIManager::SyncDonorPackagesToPlayer() {
         auto& session = Session::GetSingleton();
         auto* donor = session.GetDonor();
@@ -431,29 +504,15 @@ namespace InTheirShoes {
         auto* playerBase = skyrim_cast<RE::TESNPC*>(player->GetActorBase());
         if (!donorBase || !playerBase) return;
 
-        RetargetAliasPackagesToPuppet();
-
-        // The donor's own (base record) packages go on the player's base record. The swapped aliases
-        // apply their packages to the player directly. ForceGreet packages on the donor's base record
-        // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
-        // (such as follower Follow packages) are skipped.
         std::vector<RE::TESPackage*> donorPkgs;
-        for (auto* pkg : donorBase->aiPackages.packages) {
-            if (!pkg) continue;
-            if (HasForceGreetProcedure(pkg) && puppet) {
-                RetargetPackageToPuppet(pkg, player, puppet);
-            } else if (PackageTargetsActor(pkg, player)) {
-                continue;
-            }
-            if (std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
-                donorPkgs.push_back(pkg);
-            }
-        }
-        // The fallback when nothing else applies
-        if (auto* defaultSandbox = Forms::defaultSandboxPackage) {
-            if (std::find(donorPkgs.begin(), donorPkgs.end(), defaultSandbox) == donorPkgs.end()) {
-                donorPkgs.push_back(defaultSandbox);
-            }
+        if (auto* chosen = GetChosenPackage()) {
+            // The package picked in the MCM runs instead of the donor's. Alias packages outrank the player's
+            // own, so a quest that made the donor a follower would keep the player following the puppet.
+            HideAliasPackages();
+            donorPkgs.push_back(chosen);
+        } else {
+            RestoreAliasPackages();
+            CollectDonorPackages(donorBase, player, puppet, donorPkgs);
         }
 
         std::vector<RE::TESPackage*> playerPkgs;
@@ -483,6 +542,7 @@ namespace InTheirShoes {
                 _packageEdits.TargetCount(), _packageEdits.LocationCount());
         }
         _packageEdits.Restore();
+        RestoreAliasPackages();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return;

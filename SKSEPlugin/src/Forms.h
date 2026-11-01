@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 namespace InTheirShoes::Forms {
 
     // The player's base record and reference, which have the same ID in every load order
@@ -19,7 +21,8 @@ namespace InTheirShoes::Forms {
 
     // Skyrim.esm
     inline RE::TESFaction* playerFaction{ nullptr };  // The Dragonborn's own; owns their homes and belongings
-    inline RE::TESPackage* defaultSandboxPackage{ nullptr };  // DefaultSandboxCurrentLocation1024
+    // Packages the MCM offers for idle AI, in the order of the MCM's list (index 0 there is the donor's own)
+    inline std::array<RE::TESPackage*, 3> idlePackages{};
     inline RE::TESQuest* playerWerewolfQuest{ nullptr };
 
     // Dawnguard.esm

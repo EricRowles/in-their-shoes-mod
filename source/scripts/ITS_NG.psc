@@ -16,6 +16,10 @@ Function SetIdleAIEnabled(Bool a_enabled) Global Native
 ; Sets the idle timeout in seconds before autonomous AI pathing begins (default 10.0s).
 Function SetIdleAITimeout(Float a_seconds) Global Native
 
+; Picks what the player runs during idle AI: 0 runs the donor's own packages, 1+ a package from the MCM's
+; list, which replaces the donor's (its quest aliases' packages too, such as a follower's Follow).
+Function SetIdleAIPackage(Int a_index) Global Native
+
 ; Sets the idle chatter cooldown in seconds between ambient dialogue lines while impersonating an NPC (default 60.0s).
 Function SetIdleChatterTime(Float a_seconds) Global Native
 

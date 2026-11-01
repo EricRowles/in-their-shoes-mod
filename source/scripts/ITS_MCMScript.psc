@@ -6,6 +6,7 @@ GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the
 ; MCM Property Variables
 Bool Property IdleAIEnabled = True Auto
 Float Property IdleAITimeout = 10.0 Auto
+Int Property IdleAIPackage = 0 Auto
 Float Property IdleChatterTime = 60.0 Auto
 Bool Property NPCVoiceEnabled = True Auto
 Bool Property PuppetFollowsPlayer = True Auto
@@ -13,6 +14,7 @@ Bool Property PuppetFollowsPlayer = True Auto
 ; Option IDs
 Int _oid_idleAI
 Int _oid_idleTimeout
+Int _oid_idlePackage
 Int _oid_idleChatterTime
 Int _oid_npcVoice
 Int _oid_puppetFollows
@@ -30,9 +32,13 @@ Function PushConfig()
 	If IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	EndIf
+	If IdleAIPackage < 0 || IdleAIPackage > 3
+		IdleAIPackage = 0
+	EndIf
 
 	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
 	ITS_NG.SetIdleAITimeout(IdleAITimeout)
+	ITS_NG.SetIdleAIPackage(IdleAIPackage)
 	ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
 	ApplyPuppetFollows()
@@ -47,6 +53,16 @@ Function ApplyPuppetFollows()
 		EndIf
 	EndIf
 	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+EndFunction
+
+; The idle AI packages, in the order of the plugin's Forms::idlePackages (after Default)
+String[] Function GetIdlePackageNames()
+	String[] names = new String[4]
+	names[0] = "Default"
+	names[1] = "Sandbox (wide)"
+	names[2] = "Sandbox (close)"
+	names[3] = "Sandbox (no chatting)"
+	Return names
 EndFunction
 
 Event OnVersionUpdate(Int a_version)
@@ -74,6 +90,7 @@ Event OnPageReset(String page)
 	AddHeaderOption("Autonomous AI")
 	_oid_idleAI = AddToggleOption("Idle AI Pathing", IdleAIEnabled)
 	_oid_idleTimeout = AddSliderOption("Idle AI Delay", IdleAITimeout, "{1} s")
+	_oid_idlePackage = AddMenuOption("Idle AI Package", GetIdlePackageNames()[IdleAIPackage])
 
 	; Right Column: Puppet & Voice Settings
 	SetCursorPosition(5)
@@ -157,11 +174,29 @@ Event OnOptionSliderAccept(Int option, Float value)
 	EndIf
 EndEvent
 
+Event OnOptionMenuOpen(Int option)
+	If option == _oid_idlePackage
+		SetMenuDialogOptions(GetIdlePackageNames())
+		SetMenuDialogStartIndex(IdleAIPackage)
+		SetMenuDialogDefaultIndex(0)
+	EndIf
+EndEvent
+
+Event OnOptionMenuAccept(Int option, Int index)
+	If option == _oid_idlePackage && index >= 0
+		IdleAIPackage = index
+		SetMenuOptionValue(_oid_idlePackage, GetIdlePackageNames()[index])
+		ITS_NG.SetIdleAIPackage(IdleAIPackage)
+	EndIf
+EndEvent
+
 Event OnOptionHighlight(Int option)
 	If option == _oid_idleAI
 		SetInfoText("Enables autonomous AI pathing on your player after a few seconds of inactivity.")
 	ElseIf option == _oid_idleTimeout
 		SetInfoText("Seconds of player inactivity before autonomous AI pathing begins.")
+	ElseIf option == _oid_idlePackage
+		SetInfoText("What you do when idle AI starts. Default runs the NPC's own packages. Any other choice runs instead of them, even while the NPC is a follower.")
 	ElseIf option == _oid_npcVoice
 		SetInfoText("Enables donor NPC voice comments and voice identity on the player while impersonating.")
 	ElseIf option == _oid_idleChatterTime

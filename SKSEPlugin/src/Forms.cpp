@@ -35,7 +35,11 @@ namespace InTheirShoes::Forms {
         Lookup(dataHandler, emptyOutfit, 0x00087C, kModPlugin, "ITS_EmptyOutfit"sv);
 
         Lookup(dataHandler, playerFaction, 0x000DB1, kSkyrimPlugin, "PlayerFaction"sv);
-        Lookup(dataHandler, defaultSandboxPackage, 0x0BFB6B, kSkyrimPlugin, "DefaultSandboxCurrentLocation1024"sv);
+        Lookup(dataHandler, idlePackages[0], 0x0BFB6B, kSkyrimPlugin, "DefaultSandboxCurrentLocation1024"sv);
+        Lookup(dataHandler, idlePackages[1], 0x0956B8, kSkyrimPlugin, "DefaultSandboxCurrentLocation256"sv);
+        // Sandboxes around the editor location, which is where the player stands (ActorHooks), without
+        // starting conversations with nearby actors
+        Lookup(dataHandler, idlePackages[2], 0x10F587, kSkyrimPlugin, "DefaultSandboxEditorLocation1024NoConv"sv);
         Lookup(dataHandler, playerWerewolfQuest, 0x02BA16, kSkyrimPlugin, "PlayerWerewolfQuest"sv);
 
         Lookup(dataHandler, dlc1PlayerVampireQuest, 0x0071D0, kDawnguardPlugin, "DLC1PlayerVampireQuest"sv);
