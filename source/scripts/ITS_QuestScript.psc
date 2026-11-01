@@ -125,6 +125,7 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 		PlayerRef.MoveTo(ITS_TempMarker)
 		PlayerRef.StopCombat()
 		Alias_OriginalDonor.ForceRefTo(a_donor)
+		a_donor.EvaluatePackage()	; the alias's hold-position package keeps it at the storage marker
 		UpdateRevertSpell()
 		Debug.Notification("Control Swapped")
 	Else

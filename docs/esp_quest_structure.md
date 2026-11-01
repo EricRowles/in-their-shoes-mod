@@ -9,7 +9,7 @@ The ESP holds the few records the plugin and scripts need. It is ESL-flagged, so
 | `ITS_Quest` | `D92` | Always-running controller quest (`ITS_QuestScript`, `ITS_MCMScript`) |
 | ↳ alias `Player` (0) | | The player (`ITS_PlayerScript`, and SkyUI's `SKI_PlayerLoadGameAlias`, which reloads the MCM on each load) |
 | ↳ alias `PlayerPuppet` (1) | | The puppet (`ITS_NPCScript`). Packages: `ITS_PuppetFollowPackage`, then vanilla `DefaultSandboxCurrentLocation1024` when following is off |
-| ↳ alias `OriginalDonor` (2) | | The current donor |
+| ↳ alias `OriginalDonor` (2) | | The current donor. Package: vanilla `DefaultHoldPositionCurrentLoc64`, which keeps it in the holding cell (its quest aliases have moved to the player, so this outranks what's left) |
 | `ITS_PackageManager` | `87E` | Priority 100, so its alias packages outrank other quests'. The plugin puts the player in one alias while idle AI runs the package picked in the MCM (`ITS_IdlePackage`). Aliases are Optional and empty |
 | ↳ alias `PackageSandboxWide` (0) | | Package: vanilla `DefaultSandboxCurrentLocation1024` |
 | ↳ alias `PackageSandboxClose` (1) | | Package: vanilla `DefaultSandboxCurrentLocation256` |

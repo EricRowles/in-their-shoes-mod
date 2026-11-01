@@ -337,6 +337,9 @@ namespace InTheirShoes {
 
         if (!IsActive() || _leashQueued) return;
 
+        // The OriginalDonor alias's hold-position package keeps the donor's own AI at the marker. This leash
+        // catches the rest: other mods' MoveTo on the donor (NativeRedirect leaves it on the donor)
+
         auto* donor = GetDonor();
         auto marker = _storageMarker.get();
         if (!donor || !marker) return;
