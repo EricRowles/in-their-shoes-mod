@@ -35,6 +35,20 @@ namespace InTheirShoes {
             return false;
         }
 
+        bool IsAbility(RE::SpellItem* a_spell) {
+            return a_spell && a_spell->GetSpellType() == RE::MagicSystem::SpellType::kAbility && !IsModSystemSpell(a_spell);
+        }
+
+        std::vector<RE::SpellItem*> GetAddedAbilities(RE::Actor* a_actor) {
+            std::vector<RE::SpellItem*> result;
+            for (auto* spell : a_actor->GetActorRuntimeData().addedSpells) {
+                if (IsAbility(spell)) {
+                    result.push_back(spell);
+                }
+            }
+            return result;
+        }
+
         std::vector<RE::SpellItem*> GetCastableAddedSpells(RE::Actor* a_actor) {
             std::vector<RE::SpellItem*> result;
             for (auto* spell : a_actor->GetActorRuntimeData().addedSpells) {
@@ -229,7 +243,14 @@ namespace InTheirShoes {
             a_outSnapshot.addedSpells.push_back(spell->GetFormID());
             a_player->RemoveSpell(spell);
         }
-        SKSE::log::info("Stashed {} player castable spells.", a_outSnapshot.addedSpells.size());
+        // The Dragonborn keeps its abilities (standing stone, blessings); they're recorded so revert leaves them
+        a_outSnapshot.abilities.clear();
+        a_outSnapshot.abilitiesRecorded = true;
+        for (auto* ability : GetAddedAbilities(a_player)) {
+            a_outSnapshot.abilities.push_back(ability->GetFormID());
+        }
+        SKSE::log::info("Stashed {} player castable spells ({} abilities kept).", a_outSnapshot.addedSpells.size(),
+            a_outSnapshot.abilities.size());
     }
 
     void InventoryManager::RestorePlayerSpells(RE::Actor* a_player, const SpellSnapshot& a_snapshot) {
@@ -248,9 +269,14 @@ namespace InTheirShoes {
 
     void InventoryManager::CopyDonorSpells(RE::Actor* a_donor, RE::Actor* a_player) {
         std::int32_t copiedCount = 0;
+        std::int32_t abilityCount = 0;
         auto grantSpell = [&](RE::SpellItem* spell) {
             if (spell && IsCastableSpell(spell) && !IsModSystemSpell(spell) && a_player->AddSpell(spell)) {
                 copiedCount++;
+            } else if (IsAbility(spell) && !a_player->HasSpell(spell) && a_player->AddSpell(spell)) {
+                // The donor keeps its own copy: its effects keep running on the parked donor too
+                SKSE::log::info("Gave the player the donor's ability {:08X} '{}'", spell->GetFormID(), spell->GetName());
+                abilityCount++;
             }
         };
 
@@ -270,10 +296,11 @@ namespace InTheirShoes {
                 }
             }
         }
-        SKSE::log::info("Copied {} castable spells from donor {:08X} to player.", copiedCount, a_donor->GetFormID());
+        SKSE::log::info("Copied {} castable spells and {} abilities from donor {:08X} to player.", copiedCount,
+            abilityCount, a_donor->GetFormID());
     }
 
-    void InventoryManager::ReturnSpellsToDonor(RE::Actor* a_player, RE::Actor* a_donor) {
+    void InventoryManager::ReturnSpellsToDonor(RE::Actor* a_player, RE::Actor* a_donor, const SpellSnapshot& a_dragonborn) {
         // The player's own spells were stashed at baseline capture, so everything castable left on the
         // player is either a donor copy or was learned while impersonating
         auto* donorBase = a_donor ? a_donor->GetActorBase() : nullptr;
@@ -284,7 +311,18 @@ namespace InTheirShoes {
             }
             a_player->RemoveSpell(spell);
         }
-        SKSE::log::info("Returned {} spells to donor.", returnedCount);
+        // Abilities the Dragonborn didn't have are the donor's copies, or were added while impersonating
+        // (a script's AddSpell on the donor lands on the player)
+        std::int32_t removedAbilities = 0;
+        for (auto* ability : a_dragonborn.abilitiesRecorded ? GetAddedAbilities(a_player) : std::vector<RE::SpellItem*>{}) {
+            if (std::ranges::find(a_dragonborn.abilities, ability->GetFormID()) != a_dragonborn.abilities.end()) continue;
+            if (a_donor && !IsBaseSpellOf(ability, donorBase) && !a_donor->HasSpell(ability) && a_donor->AddSpell(ability)) {
+                returnedCount++;
+            }
+            a_player->RemoveSpell(ability);
+            removedAbilities++;
+        }
+        SKSE::log::info("Returned {} spells to donor ({} abilities removed from the player).", returnedCount, removedAbilities);
     }
 
     bool InventoryManager::TransferAllItems(RE::Actor* a_fromActor, RE::Actor* a_toActor,

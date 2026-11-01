@@ -211,7 +211,7 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StatManager::CopyStats(player, a_donor);
         InventoryManager::TransferAllItems(player, a_donor, _donorQuestItems);
-        InventoryManager::ReturnSpellsToDonor(player, a_donor);
+        InventoryManager::ReturnSpellsToDonor(player, a_donor, _baseline ? _baseline->spells : SpellSnapshot{});
         _donorQuestItems.clear();
     }
 
