@@ -28,8 +28,10 @@ namespace InTheirShoes {
 
         void SetIdleAIEnabled(bool a_enabled) { _enabled = a_enabled; }
         void SetIdleTimeout(float a_seconds) { _idleTimeoutSeconds = a_seconds; }
-        // The MCM's idle package: 0 runs the donor's own packages, n runs Forms::idlePackages[n - 1] instead
+        // The MCM's idle package: 0 runs the donor's own packages, n puts the player in ITS_PackageManager's
+        // alias n - 1 while idle AI runs, whose package outranks the donor's (its quests' too)
         void SetIdlePackage(std::int32_t a_index);
+        void OnPostLoadGame();
         bool IsAIActive() const { return _aiActive; }
 
         void ClearPlayerPackages();
@@ -53,9 +55,8 @@ namespace InTheirShoes {
         bool RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet);
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
-        RE::TESPackage* GetChosenPackage() const;
-        void HideAliasPackages();
-        void RestoreAliasPackages();
+        void FillIdlePackageAlias();
+        void ReleaseIdlePackageAlias(bool a_force = false);
         void LogRunningPackage();
 
         static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
@@ -85,8 +86,7 @@ namespace InTheirShoes {
         PackageUtil::PackageEdits _packageEdits;
 
         std::int32_t _idlePackageIndex{ 0 };
-        // While a chosen package runs: the player's alias instances whose packages were taken away, and those packages
-        std::vector<std::pair<RE::BGSRefAliasInstanceData*, const RE::BSTArray<RE::TESPackage*>*>> _hiddenAliasPackages;
+        bool _idlePackageAliasFilled{ false };
     };
 
 }

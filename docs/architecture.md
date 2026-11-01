@@ -19,7 +19,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
   - The player answers the donor's conditions and holds its quest aliases, so the donor's quests, scenes and idle lines play through the player.
   - The player is in the donor's factions instead of the Dragonborn's (the Dragonborn keeps PlayerFaction). The donor's faction allies and enemies react to the player as they would to the donor, and faction-owned beds and goods are the player's to use. When the session ends, the donor gets the player's factions as they are then.
   - Relationship conditions treat the player as the donor and the puppet as the Dragonborn, so the donor's family, friends and enemies treat the player as the donor. Class checks answer with the donor's class.
-  - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM runs instead of the donor's, its quest packages (such as a follower's Follow) included.
+  - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM comes from a high-priority quest alias, so it outranks the donor's packages, its quest packages (such as a follower's Follow) included.
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
   - RaceMenu won't open.
 - **Saving:** the session is stored in the SKSE co-save and restored on load.

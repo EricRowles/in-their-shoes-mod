@@ -37,6 +37,7 @@ namespace InTheirShoes::Lifecycle {
 
     void OnPostLoadGame() {
         ImpersonationManager::GetSingleton().OnPostLoadGame();
+        IdleAIManager::GetSingleton().OnPostLoadGame();
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
             FactionManager::GetSingleton().OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
             IdleAIManager::GetSingleton().OnImpersonationChanged(true);

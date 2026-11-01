@@ -32,7 +32,7 @@ Function PushConfig()
 	If IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	EndIf
-	If IdleAIPackage < 0 || IdleAIPackage > 3
+	If IdleAIPackage < 0 || IdleAIPackage > 2
 		IdleAIPackage = 0
 	EndIf
 
@@ -55,13 +55,12 @@ Function ApplyPuppetFollows()
 	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
 EndFunction
 
-; The idle AI packages, in the order of the plugin's Forms::idlePackages (after Default)
+; Default, then the ITS_PackageManager aliases in alias ID order
 String[] Function GetIdlePackageNames()
-	String[] names = new String[4]
+	String[] names = new String[3]
 	names[0] = "Default"
 	names[1] = "Sandbox (wide)"
 	names[2] = "Sandbox (close)"
-	names[3] = "Sandbox (no chatting)"
 	Return names
 EndFunction
 

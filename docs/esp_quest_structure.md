@@ -10,6 +10,9 @@ The ESP holds the few records the plugin and scripts need. It is ESL-flagged, so
 | ↳ alias `Player` (0) | | The player (`ITS_PlayerScript`, and SkyUI's `SKI_PlayerLoadGameAlias`, which reloads the MCM on each load) |
 | ↳ alias `PlayerPuppet` (1) | | The puppet (`ITS_NPCScript`). Packages: `ITS_PuppetFollowPackage`, then vanilla `DefaultSandboxCurrentLocation1024` when following is off |
 | ↳ alias `OriginalDonor` (2) | | The current donor |
+| `ITS_PackageManager` | `87E` | Priority 100, so its alias packages outrank other quests'. The plugin puts the player in one alias while idle AI runs the package picked in the MCM (`ITS_IdlePackage`). Aliases are Optional and empty |
+| ↳ alias `PackageSandboxWide` (0) | | Package: vanilla `DefaultSandboxCurrentLocation1024` |
+| ↳ alias `PackageSandboxClose` (1) | | Package: vanilla `DefaultSandboxCurrentLocation256` |
 | `ITS_PuppetFollows` | `878` | Global set by the MCM; gates the follow package |
 | `ITS_PuppetFollowPackage` | `87B` | Follow the player. A copy of vanilla `HowlSummonedWolfFollowPlayer`, since a templated package needs all of its template's data inputs (check with `scratch/dump_packages.py`) |
 | `ITS_ImpersonateSpell` / `ITS_ImpersonateEffect` | `D69` / `D6B` | Impersonate (`ITS_ImpersonateScript`) |

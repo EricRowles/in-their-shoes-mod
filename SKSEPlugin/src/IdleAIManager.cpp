@@ -337,6 +337,7 @@ namespace InTheirShoes {
         _lastPackageSyncTime = _aiStartTime;
 
         SyncDonorPackagesToPlayer();
+        FillIdlePackageAlias();
         player->AllowBleedoutDialogue(true);
         SetPlayerAIDriven(true);
         SKSE::log::info("Player idle timeout reached - engaging autonomous AI.");
@@ -348,6 +349,7 @@ namespace InTheirShoes {
         _forceGreetProcedureActive = false;
 
         SetPlayerAIDriven(false);
+        ReleaseIdlePackageAlias();
         ClearPlayerPackages();
         if (auto* player = RE::PlayerCharacter::GetSingleton()) {
             player->EvaluatePackage(false, false);
@@ -443,54 +445,46 @@ namespace InTheirShoes {
 
     void IdleAIManager::SetIdlePackage(std::int32_t a_index) {
         _idlePackageIndex = a_index;
-        auto* pkg = GetChosenPackage();
-        SKSE::log::info("Idle AI package: {}", pkg ? fmt::format("{:08X}", pkg->GetFormID()) : "the donor's own"s);
+        SKSE::log::info("Idle AI package: {}", a_index > 0 ? fmt::format("alias {}", a_index - 1) : "the donor's own"s);
         if (_aiActive) {
-            SyncDonorPackagesToPlayer();
+            ReleaseIdlePackageAlias();
+            FillIdlePackageAlias();
         }
     }
 
-    RE::TESPackage* IdleAIManager::GetChosenPackage() const {
-        if (_idlePackageIndex <= 0 || static_cast<std::size_t>(_idlePackageIndex) > Forms::idlePackages.size()) return nullptr;
-        return Forms::idlePackages[_idlePackageIndex - 1];
+    void IdleAIManager::FillIdlePackageAlias() {
+        // Fill and Clear are Papyrus (CommonLib can't clear an alias), dispatched like SetPlayerAIDriven
+        auto* quest = Forms::idlePackageQuest;
+        auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+        if (!quest || !vm || _idlePackageIndex <= 0 || static_cast<std::size_t>(_idlePackageIndex) > quest->aliases.size()) return;
+        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+        vm->DispatchStaticCall("ITS_IdlePackage", "Fill",
+            RE::MakeFunctionArguments(std::move(quest), static_cast<std::int32_t>(_idlePackageIndex - 1)), callback);
+        _idlePackageAliasFilled = true;
+        SKSE::log::info("Player takes idle package alias {}", _idlePackageIndex - 1);
     }
 
-    void IdleAIManager::HideAliasPackages() {
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
-        if (!aliasArray) return;
-
-        // The engine picks alias packages from each instance's instancedPackages, so emptying the pointer
-        // hides them. Runs every sync, which also catches aliases the player gained since.
-        RE::BSWriteLockGuard locker(aliasArray->lock);
-        for (auto* inst : aliasArray->aliases) {
-            if (!inst || !inst->instancedPackages || inst->instancedPackages->empty()) continue;
-            _hiddenAliasPackages.emplace_back(inst, inst->instancedPackages);
-            inst->instancedPackages = nullptr;
-            SKSE::log::info("Hid the packages of quest {:08X} alias {} while idle AI runs the chosen package",
-                inst->quest ? inst->quest->GetFormID() : 0, inst->alias ? inst->alias->aliasID : 0);
-        }
+    void IdleAIManager::ReleaseIdlePackageAlias(bool a_force) {
+        auto* quest = Forms::idlePackageQuest;
+        auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+        if (!quest || !vm || (!_idlePackageAliasFilled && !a_force)) return;
+        _idlePackageAliasFilled = false;
+        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+        vm->DispatchStaticCall("ITS_IdlePackage", "Release", RE::MakeFunctionArguments(std::move(quest)), callback);
+        SKSE::log::info("Player leaves the idle package aliases");
     }
 
-    void IdleAIManager::RestoreAliasPackages() {
-        if (_hiddenAliasPackages.empty()) return;
+    void IdleAIManager::OnPostLoadGame() {
+        // A save made while idle AI ran may have the player in a package alias, and idle AI isn't running now
+        auto* quest = Forms::idlePackageQuest;
         auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
-
-        // Only into instances the player still holds: a released alias's instance data is gone (its packages
-        // with it, unless the engine frees them through the pointer we emptied, in which case they leak)
-        std::size_t restored = 0;
-        if (aliasArray) {
-            RE::BSWriteLockGuard locker(aliasArray->lock);
-            for (const auto& [inst, packages] : _hiddenAliasPackages) {
-                if (std::ranges::find(aliasArray->aliases, inst) != aliasArray->aliases.end() && !inst->instancedPackages) {
-                    inst->instancedPackages = packages;
-                    ++restored;
-                }
+        if (!quest || !player) return;
+        for (const auto* alias : quest->aliases) {
+            if (alias && quest->GetAliasedRef(alias->aliasID).get().get() == player) {
+                ReleaseIdlePackageAlias(true);
+                return;
             }
         }
-        SKSE::log::info("Restored the packages of {} of {} hidden aliases", restored, _hiddenAliasPackages.size());
-        _hiddenAliasPackages.clear();
     }
 
     void IdleAIManager::SyncDonorPackagesToPlayer() {
@@ -504,16 +498,9 @@ namespace InTheirShoes {
         auto* playerBase = skyrim_cast<RE::TESNPC*>(player->GetActorBase());
         if (!donorBase || !playerBase) return;
 
+        // A package picked in the MCM comes from an ITS_PackageManager alias, which outranks these
         std::vector<RE::TESPackage*> donorPkgs;
-        if (auto* chosen = GetChosenPackage()) {
-            // The package picked in the MCM runs instead of the donor's. Alias packages outrank the player's
-            // own, so a quest that made the donor a follower would keep the player following the puppet.
-            HideAliasPackages();
-            donorPkgs.push_back(chosen);
-        } else {
-            RestoreAliasPackages();
-            CollectDonorPackages(donorBase, player, puppet, donorPkgs);
-        }
+        CollectDonorPackages(donorBase, player, puppet, donorPkgs);
 
         std::vector<RE::TESPackage*> playerPkgs;
         for (auto* pkg : playerBase->aiPackages.packages) {
@@ -542,7 +529,6 @@ namespace InTheirShoes {
                 _packageEdits.TargetCount(), _packageEdits.LocationCount());
         }
         _packageEdits.Restore();
-        RestoreAliasPackages();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return;
