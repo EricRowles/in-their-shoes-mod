@@ -2,6 +2,7 @@
 #include "ImpersonationManager.h"
 #include "ActorHooks.h"
 #include "AliasSwapManager.h"
+#include "FactionManager.h"
 #include "FaceManager.h"
 #include "Forms.h"
 #include "GameUtil.h"
@@ -36,6 +37,7 @@ namespace InTheirShoes {
         for (const auto& fRank : extraFaction->factionChanges) {
             if (!fRank.faction) continue;
             donor->AddToFaction(fRank.faction, fRank.rank);
+            FactionManager::GetSingleton().OnDonorFactionChanged(GetPlayer(), fRank.faction, fRank.rank);
             SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to donor {:08X}.",
                 fRank.faction->GetFormID(), fRank.rank, donor->GetFormID());
 
@@ -246,7 +248,10 @@ namespace InTheirShoes {
 
         // After its items have moved to the player
         RemoveUniqueDonorOutfit(a_donor);
+        auto& factions = FactionManager::GetSingleton();
+        factions.CaptureDragonborn(player);
         AliasSwapManager::GetSingleton().SwapDonorAliasesToPlayer(a_donor, player);
+        factions.TakeOnDonorFactions(a_donor, player);
 
         if (auto* puppet = GetPuppet()) {
             ApplyPuppetFollowState(puppet);
@@ -261,6 +266,8 @@ namespace InTheirShoes {
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
         ForwardPuppetFactionsToDonor();
+        // While the player still holds the aliases, whose factions stay with them
+        FactionManager::GetSingleton().ReturnFactions(donor, GetPlayer());
         AliasSwapManager::GetSingleton().RestoreSwappedAliases(donor);
 
         Lifecycle::OnSessionEnd();

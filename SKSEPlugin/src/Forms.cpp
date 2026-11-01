@@ -36,6 +36,7 @@ namespace InTheirShoes::Forms {
 
         Lookup(dataHandler, currentFollowerFaction, 0x05C84E, kSkyrimPlugin, "CurrentFollowerFaction"sv);
         Lookup(dataHandler, playerFollowerFaction, 0x0BD738, kSkyrimPlugin, "PlayerFollowerFaction"sv);
+        Lookup(dataHandler, playerFaction, 0x000DB1, kSkyrimPlugin, "PlayerFaction"sv);
         Lookup(dataHandler, defaultSandboxPackage, 0x0BFB6B, kSkyrimPlugin, "DefaultSandboxCurrentLocation1024"sv);
         Lookup(dataHandler, playerWerewolfQuest, 0x02BA16, kSkyrimPlugin, "PlayerWerewolfQuest"sv);
 

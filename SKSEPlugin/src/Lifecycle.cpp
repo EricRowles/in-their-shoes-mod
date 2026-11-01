@@ -5,6 +5,7 @@
 #include "ConditionHooks.h"
 #include "DialogueManager.h"
 #include "FaceManager.h"
+#include "FactionManager.h"
 #include "Forms.h"
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
@@ -41,6 +42,7 @@ namespace InTheirShoes::Lifecycle {
     void OnGameRevert() {
         ImpersonationManager::GetSingleton().OnRevert();
         AliasSwapManager::GetSingleton().Clear();
+        FactionManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
         IdleChatter::GetSingleton().Clear();

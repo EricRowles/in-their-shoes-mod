@@ -20,6 +20,9 @@ namespace InTheirShoes::Serialization {
     // The donor's appearance as captured when impersonation began
     inline constexpr std::uint32_t kDonorFaceRecord = 'DFAC';
     inline constexpr std::uint32_t kDonorFaceVersion = 1;
+    // The Dragonborn's factions, and the donor's factions the player was given (FactionManager)
+    inline constexpr std::uint32_t kFactionsRecord = 'FACT';
+    inline constexpr std::uint32_t kFactionsVersion = 1;
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);

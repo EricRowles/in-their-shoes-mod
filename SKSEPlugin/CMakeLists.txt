@@ -38,6 +38,8 @@ add_library(${PROJECT_NAME} SHARED
     src/InventoryManager.cpp
     src/StatManager.h
     src/StatManager.cpp
+    src/FactionManager.h
+    src/FactionManager.cpp
     src/IdleAIManager.h
     src/IdleAIManager.cpp
     src/DialogueManager.h

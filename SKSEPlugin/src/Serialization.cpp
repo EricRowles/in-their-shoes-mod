@@ -2,6 +2,7 @@
 #include "Serialization.h"
 #include "AliasSwapManager.h"
 #include "FaceManager.h"
+#include "FactionManager.h"
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
@@ -277,6 +278,28 @@ namespace InTheirShoes::Serialization {
             ImpersonationManager::GetSingleton().RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
         }
 
+        // --- 'FACT': the Dragonborn's factions and the donor's the player was given ---
+
+        void WriteFactions(Serde* a_serde) {
+            auto& factions = FactionManager::GetSingleton();
+            if (!factions.IsActive() || !Session::GetSingleton().IsActive()) return;
+            if (!a_serde->OpenRecord(kFactionsRecord, kFactionsVersion)) return;
+            WriteFactionRanks(a_serde, factions.GetDragonbornFactions());
+            WriteFactionRanks(a_serde, factions.GetGivenFactions());
+        }
+
+        void ReadFactions(Serde* a_serde) {
+            std::vector<FactionManager::FactionRank> dragonborn;
+            std::vector<FactionManager::FactionRank> given;
+            if (!ReadFactionRanks(a_serde, dragonborn) || !ReadFactionRanks(a_serde, given)) {
+                SKSE::log::warn("Factions record is truncated; ignoring it.");
+                return;
+            }
+            FactionManager::GetSingleton().Restore(std::move(dragonborn), std::move(given));
+            SKSE::log::info("Loaded session factions ({} Dragonborn, {} donor).",
+                FactionManager::GetSingleton().GetDragonbornFactions().size(), FactionManager::GetSingleton().GetGivenFactions().size());
+        }
+
         // Whether this build can read a record saved at a_version (it reads a_current and every older
         // version back to a_min)
         bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current,
@@ -310,6 +333,7 @@ namespace InTheirShoes::Serialization {
             WriteBaseline(a_serde, *baseline);
         }
         WriteSession(a_serde);
+        WriteFactions(a_serde);
         if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton().IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
@@ -357,6 +381,11 @@ namespace InTheirShoes::Serialization {
                     }
                     break;
                 }
+
+                case kFactionsRecord:
+                    if (!IsReadableVersion(type, version, kFactionsVersion)) break;
+                    ReadFactions(a_serde);
+                    break;
 
                 default:
                     SKSE::log::warn("Unknown record type {:08X} in co-save", type);
