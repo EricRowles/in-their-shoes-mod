@@ -24,7 +24,7 @@ Opens when the player activates the puppet, or when a donor package that would g
 
 ## Idle chatter
 
-When the cooldown (MCM) has passed and the player is free, a random idle line the donor could say is picked from running quests and voiced by the player.
+When the cooldown (MCM) has passed and the player is free, a random idle line the donor could say is picked from running quests and voiced by the player. The line's fragments run with the donor as the speaker, so it can start a scene (e.g. another follower's reply).
 
 ## Follower recruitment
 
