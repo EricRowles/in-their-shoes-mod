@@ -16,11 +16,11 @@ namespace InTheirShoes::Forms {
     inline RE::SpellItem* impersonateSpell{ nullptr };     // ITS_ImpersonateSpell
     inline RE::SpellItem* revertSpell{ nullptr };          // ITS_RevertSpell
     inline RE::BGSOutfit* emptyOutfit{ nullptr };          // ITS_EmptyOutfit, given to unique donors
+    // ITS_PackageManager: one alias per idle AI package the MCM offers, filled with the player while it runs
+    inline RE::TESQuest* idlePackageQuest{ nullptr };
 
     // Skyrim.esm
-    inline RE::TESFaction* currentFollowerFaction{ nullptr };
-    inline RE::TESFaction* playerFollowerFaction{ nullptr };
-    inline RE::TESPackage* defaultSandboxPackage{ nullptr };  // DefaultSandboxCurrentLocation1024
+    inline RE::TESFaction* playerFaction{ nullptr };  // The Dragonborn's own; owns their homes and belongings
     inline RE::TESQuest* playerWerewolfQuest{ nullptr };
 
     // Dawnguard.esm
@@ -28,9 +28,9 @@ namespace InTheirShoes::Forms {
 
     void Resolve();
 
-    // The mod's own quest, which is never swapped to the player or used for idle chatter
+    // The mod's own quests, which are never swapped to the player or used for idle chatter
     inline bool IsModQuest(const RE::TESQuest* a_quest) {
-        return a_quest && a_quest == itsQuest;
+        return a_quest && (a_quest == itsQuest || a_quest == idlePackageQuest);
     }
 
 }

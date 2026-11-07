@@ -38,8 +38,13 @@ add_library(${PROJECT_NAME} SHARED
     src/InventoryManager.cpp
     src/StatManager.h
     src/StatManager.cpp
+    src/FactionManager.h
+    src/FactionManager.cpp
     src/IdleAIManager.h
     src/IdleAIManager.cpp
+    src/PackageUtil.h
+    src/PackageRetarget.h
+    src/PackageRetarget.cpp
     src/DialogueManager.h
     src/DialogueManager.cpp
     src/IdleChatter.h
@@ -48,6 +53,8 @@ add_library(${PROJECT_NAME} SHARED
     src/QuestConditions.cpp
     src/Papyrus.h
     src/Papyrus.cpp
+    src/NativeRedirect.h
+    src/NativeRedirect.cpp
     src/Serialization.h
     src/Serialization.cpp
     src/ImpersonationManager.h

@@ -77,7 +77,6 @@ namespace InTheirShoes {
                 a_donor->GetFormID(), quest->GetFormID(), aid);
             _swappedAliases.push_back({ quest->GetFormID(), aid, MoveAlias(quest, aid, a_donor, a_player) });
         }
-        PublishDonorAliasFactions();
     }
 
     void AliasSwapManager::RestoreSwappedAliases(RE::Actor* a_donor) {
@@ -103,7 +102,6 @@ namespace InTheirShoes {
         }
         // The aliases gave their factions back
         _swappedAliases.clear();
-        PublishDonorAliasFactions();
     }
 
     void AliasSwapManager::AdoptPuppetAliases(RE::Actor* a_puppet, RE::Actor* a_player) {
@@ -127,7 +125,6 @@ namespace InTheirShoes {
             }
         }
         a_puppet->EvaluatePackage(false, false);
-        PublishDonorAliasFactions();
     }
 
     void AliasSwapManager::DropReleasedAliases() {
@@ -143,7 +140,6 @@ namespace InTheirShoes {
         });
         if (released.empty()) return;
         _swappedAliases.erase(released.begin(), released.end());
-        PublishDonorAliasFactions();
     }
 
     bool AliasSwapManager::IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
@@ -155,36 +151,16 @@ namespace InTheirShoes {
 
     void AliasSwapManager::Clear() {
         _swappedAliases.clear();
-        PublishDonorAliasFactions();
     }
 
-    void AliasSwapManager::PublishDonorAliasFactions() {
-        std::vector<FactionRank> factions;
-        for (const auto& entry : _swappedAliases) {
-            for (const auto& [faction, rank] : entry.factions) {
-                auto known = std::ranges::find(factions, faction, &FactionRank::first);
-                if (known == factions.end()) {
-                    factions.emplace_back(faction, rank);
-                } else {
-                    known->second = std::max(known->second, rank);
-                }
-            }
-        }
-        std::scoped_lock lock(_donorAliasFactionsLock);
-        _donorAliasFactions = std::move(factions);
-    }
-
-    std::optional<std::int8_t> AliasSwapManager::GetDonorAliasFactionRank(const RE::TESFaction* a_faction) const {
-        std::scoped_lock lock(_donorAliasFactionsLock);
-        for (const auto& [faction, rank] : _donorAliasFactions) {
-            if (faction == a_faction) return rank;
-        }
-        return std::nullopt;
+    bool AliasSwapManager::IsAliasFaction(const RE::TESFaction* a_faction) const {
+        return std::ranges::any_of(_swappedAliases, [&](const SwappedAlias& a_entry) {
+            return std::ranges::find(a_entry.factions, a_faction, &FactionRank::first) != a_entry.factions.end();
+        });
     }
 
     void AliasSwapManager::SetSwappedAliases(std::vector<SwappedAlias> a_aliases) {
         _swappedAliases = std::move(a_aliases);
-        PublishDonorAliasFactions();
     }
 
 }

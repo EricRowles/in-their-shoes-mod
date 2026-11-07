@@ -2,6 +2,7 @@
 #include "ImpersonationManager.h"
 #include "ActorHooks.h"
 #include "AliasSwapManager.h"
+#include "FactionManager.h"
 #include "FaceManager.h"
 #include "Forms.h"
 #include "GameUtil.h"
@@ -23,28 +24,6 @@ namespace InTheirShoes {
             npc->SetSleepOutfit(Forms::emptyOutfit);
             SKSE::log::info("Gave unique donor {:08X} an empty outfit.", a_donor->GetFormID());
         }
-    }
-
-    void ImpersonationManager::ForwardPuppetFactionsToDonor() {
-        auto* puppet = GetPuppet();
-        auto* donor = GetDonor();
-        if (!puppet || !donor) return;
-
-        auto* extraFaction = puppet->extraList.GetByType<RE::ExtraFactionChanges>();
-        if (!extraFaction || extraFaction->factionChanges.empty()) return;
-
-        for (const auto& fRank : extraFaction->factionChanges) {
-            if (!fRank.faction) continue;
-            donor->AddToFaction(fRank.faction, fRank.rank);
-            SKSE::log::info("Forwarded faction {:08X} rank {} from puppet to donor {:08X}.",
-                fRank.faction->GetFormID(), fRank.rank, donor->GetFormID());
-
-            if (fRank.rank >= 0 &&
-                (fRank.faction == Forms::currentFollowerFaction || fRank.faction == Forms::playerFollowerFaction)) {
-                donor->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
-            }
-        }
-        extraFaction->factionChanges.clear();
     }
 
     void ImpersonationManager::RestorePuppetName() {
@@ -233,7 +212,7 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StatManager::CopyStats(player, a_donor);
         InventoryManager::TransferAllItems(player, a_donor, _donorQuestItems);
-        InventoryManager::ReturnSpellsToDonor(player, a_donor);
+        InventoryManager::ReturnSpellsToDonor(player, a_donor, _baseline ? _baseline->spells : SpellSnapshot{});
         _donorQuestItems.clear();
     }
 
@@ -246,7 +225,10 @@ namespace InTheirShoes {
 
         // After its items have moved to the player
         RemoveUniqueDonorOutfit(a_donor);
+        auto& factions = FactionManager::GetSingleton();
+        factions.CaptureDragonborn(player);
         AliasSwapManager::GetSingleton().SwapDonorAliasesToPlayer(a_donor, player);
+        factions.TakeOnDonorFactions(a_donor, player);
 
         if (auto* puppet = GetPuppet()) {
             ApplyPuppetFollowState(puppet);
@@ -260,7 +242,8 @@ namespace InTheirShoes {
         auto* donor = GetDonor();
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
-        ForwardPuppetFactionsToDonor();
+        // While the player still holds the aliases, whose factions stay with them
+        FactionManager::GetSingleton().ReturnFactions(donor, GetPlayer());
         AliasSwapManager::GetSingleton().RestoreSwappedAliases(donor);
 
         Lifecycle::OnSessionEnd();
@@ -353,6 +336,9 @@ namespace InTheirShoes {
         }
 
         if (!IsActive() || _leashQueued) return;
+
+        // The OriginalDonor alias's hold-position package keeps the donor's own AI at the marker. This leash
+        // catches the rest: other mods' MoveTo on the donor (NativeRedirect leaves it on the donor)
 
         auto* donor = GetDonor();
         auto marker = _storageMarker.get();
