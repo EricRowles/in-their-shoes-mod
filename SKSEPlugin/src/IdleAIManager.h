@@ -50,13 +50,11 @@ namespace InTheirShoes {
         void OnUserInput();
         void CheckIdleAI();
         void SyncDonorPackagesToPlayer();
-        void CollectDonorPackages(RE::TESActorBase* a_donorBase, RE::Actor* a_player, RE::Actor* a_puppet,
-            std::vector<RE::TESPackage*>& a_out);
         bool RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet);
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
         void FillIdlePackageAlias();
-        void ReleaseIdlePackageAlias(bool a_force = false);
+        void ReleaseIdlePackageAlias();
         void LogRunningPackage();
 
         static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);

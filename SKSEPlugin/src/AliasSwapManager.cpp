@@ -5,7 +5,6 @@
 #include "Session.h"
 
 #include <algorithm>
-#include <unordered_map>
 #include <RE/B/BGSRefAlias.h>
 #include <RE/E/ExtraAliasInstanceArray.h>
 #include <RE/T/TESQuest.h>
@@ -33,23 +32,12 @@ namespace InTheirShoes {
             return aliases;
         }
 
-        std::unordered_map<RE::TESFaction*, std::int8_t> GetFactionRanks(RE::Actor* a_actor) {
-            std::unordered_map<RE::TESFaction*, std::int8_t> ranks;
-            a_actor->VisitFactions([&](RE::TESFaction* a_faction, std::int8_t a_rank) {
-                if (a_faction && a_rank >= 0) {
-                    ranks[a_faction] = a_rank;
-                }
-                return false;
-            });
-            return ranks;
-        }
-
         // Moves a_from's alias to a_to, returning the factions a_from lost with it (the alias's factions)
         std::vector<AliasSwapManager::FactionRank> MoveAlias(RE::TESQuest* a_quest, std::uint32_t a_aliasID,
             RE::Actor* a_from, RE::Actor* a_to) {
-            auto before = GetFactionRanks(a_from);
+            auto before = GetFactionMemberships(a_from);
             a_quest->ForceRefIntoAlias(a_aliasID, a_to);
-            auto after = GetFactionRanks(a_from);
+            auto after = GetFactionMemberships(a_from);
             std::vector<AliasSwapManager::FactionRank> lost;
             for (const auto& [faction, rank] : before) {
                 if (!after.contains(faction)) {

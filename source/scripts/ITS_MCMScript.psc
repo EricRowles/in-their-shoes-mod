@@ -34,7 +34,7 @@ Function PushConfig()
 	If IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	EndIf
-	If IdleAIPackage < 0 || IdleAIPackage > 2
+	If IdleAIPackage < 0 || IdleAIPackage >= GetIdlePackageNames().Length
 		IdleAIPackage = 0
 	EndIf
 
@@ -209,7 +209,7 @@ Event OnOptionHighlight(Int option)
 	ElseIf option == _oid_idleChatterTime
 		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
 	ElseIf option == _oid_nativeRedirect
-		SetInfoText("Experimental. Other mods' script calls on the NPC you're impersonating act on you instead, such as making it speak, asking where it is or changing its factions.")
+		SetInfoText("Other mods' script calls on the NPC you're impersonating act on you instead, such as making it speak, asking where it is or changing its factions.")
 	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
 	ElseIf option == _oid_revert

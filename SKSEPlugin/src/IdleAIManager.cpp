@@ -422,33 +422,15 @@ namespace InTheirShoes {
         }
     }
 
-    void IdleAIManager::CollectDonorPackages(RE::TESActorBase* a_donorBase, RE::Actor* a_player, RE::Actor* a_puppet,
-        std::vector<RE::TESPackage*>& a_out) {
-        RetargetAliasPackagesToPuppet();
-
-        // The donor's own (base record) packages go on the player's base record. The swapped aliases
-        // apply their packages to the player directly. ForceGreet packages on the donor's base record
-        // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
-        // (such as follower Follow packages) are skipped.
-        for (auto* pkg : a_donorBase->aiPackages.packages) {
-            if (!pkg) continue;
-            if (HasForceGreetProcedure(pkg) && a_puppet) {
-                RetargetPackageToPuppet(pkg, a_player, a_puppet);
-            } else if (PackageTargetsActor(pkg, a_player)) {
-                continue;
-            }
-            if (std::find(a_out.begin(), a_out.end(), pkg) == a_out.end()) {
-                a_out.push_back(pkg);
-            }
-        }
-    }
-
     void IdleAIManager::SetIdlePackage(std::int32_t a_index) {
         _idlePackageIndex = a_index;
         SKSE::log::info("Idle AI package: {}", a_index > 0 ? fmt::format("alias {}", a_index - 1) : "the donor's own"s);
-        if (_aiActive) {
-            ReleaseIdlePackageAlias();
+        if (!_aiActive) return;
+        // Not both: the two dispatched calls could run in either order, and Fill clears the other aliases itself
+        if (a_index > 0) {
             FillIdlePackageAlias();
+        } else {
+            ReleaseIdlePackageAlias();
         }
     }
 
@@ -464,10 +446,10 @@ namespace InTheirShoes {
         SKSE::log::info("Player takes idle package alias {}", _idlePackageIndex - 1);
     }
 
-    void IdleAIManager::ReleaseIdlePackageAlias(bool a_force) {
+    void IdleAIManager::ReleaseIdlePackageAlias() {
         auto* quest = Forms::idlePackageQuest;
         auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
-        if (!quest || !vm || (!_idlePackageAliasFilled && !a_force)) return;
+        if (!quest || !vm || !_idlePackageAliasFilled) return;
         _idlePackageAliasFilled = false;
         RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
         vm->DispatchStaticCall("ITS_IdlePackage", "Release", RE::MakeFunctionArguments(std::move(quest)), callback);
@@ -481,7 +463,8 @@ namespace InTheirShoes {
         if (!quest || !player) return;
         for (const auto* alias : quest->aliases) {
             if (alias && quest->GetAliasedRef(alias->aliasID).get().get() == player) {
-                ReleaseIdlePackageAlias(true);
+                _idlePackageAliasFilled = true;
+                ReleaseIdlePackageAlias();
                 return;
             }
         }
@@ -498,9 +481,25 @@ namespace InTheirShoes {
         auto* playerBase = skyrim_cast<RE::TESNPC*>(player->GetActorBase());
         if (!donorBase || !playerBase) return;
 
-        // A package picked in the MCM comes from an ITS_PackageManager alias, which outranks these
+        RetargetAliasPackagesToPuppet();
+
+        // The donor's own (base record) packages go on the player's base record. The swapped aliases
+        // apply their packages to the player directly. ForceGreet packages on the donor's base record
+        // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
+        // (such as follower Follow packages) are skipped. A package picked in the MCM comes from an
+        // ITS_PackageManager alias, which outranks all of these.
         std::vector<RE::TESPackage*> donorPkgs;
-        CollectDonorPackages(donorBase, player, puppet, donorPkgs);
+        for (auto* pkg : donorBase->aiPackages.packages) {
+            if (!pkg) continue;
+            if (HasForceGreetProcedure(pkg) && puppet) {
+                RetargetPackageToPuppet(pkg, player, puppet);
+            } else if (PackageTargetsActor(pkg, player)) {
+                continue;
+            }
+            if (std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
+                donorPkgs.push_back(pkg);
+            }
+        }
 
         std::vector<RE::TESPackage*> playerPkgs;
         for (auto* pkg : playerBase->aiPackages.packages) {

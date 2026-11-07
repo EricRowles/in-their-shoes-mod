@@ -37,7 +37,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `DialogueManager` | Self-dialogue, the player voicing lines |
 | `IdleChatter` | Picks the donor's idle lines for the player to say |
 | `QuestConditions` | Evaluates a condition list in its quest's context |
-| `IdleAIManager` | Runs the donor's packages on the idle player |
+| `IdleAIManager` | Runs the donor's packages, or the package picked in the MCM, on the idle player |
 | `PackageRetarget` | Other actors' packages that target the donor (e.g. a companion following it) target the player |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `FactionManager` | Moves the donor's factions to the player for the session and hands them back |

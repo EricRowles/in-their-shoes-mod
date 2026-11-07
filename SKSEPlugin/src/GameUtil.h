@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <unordered_map>
 
 namespace InTheirShoes {
 
@@ -19,6 +20,18 @@ namespace InTheirShoes {
     // stop or start is in progress, so it is also true for quests that were never started.
     inline bool IsQuestRunning(const RE::TESQuest* a_quest) {
         return a_quest && a_quest->IsEnabled() && !a_quest->IsStopping();
+    }
+
+    // An actor's faction memberships. VisitFactions lists the base record's factions, then the runtime changes; a
+    // later entry overrides an earlier one, and a rank below 0 means the actor left the faction.
+    inline std::unordered_map<RE::TESFaction*, std::int8_t> GetFactionMemberships(RE::Actor* a_actor) {
+        std::unordered_map<RE::TESFaction*, std::int8_t> ranks;
+        a_actor->VisitFactions([&](RE::TESFaction* a_faction, std::int8_t a_rank) {
+            if (a_faction) ranks[a_faction] = a_rank;
+            return false;
+        });
+        std::erase_if(ranks, [](const auto& a_entry) { return a_entry.second < 0; });
+        return ranks;
     }
 
     // Whether a script variable holds a_form. A form's VM handle holds its form ID in the low 32 bits.

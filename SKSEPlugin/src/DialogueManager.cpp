@@ -298,7 +298,7 @@ namespace InTheirShoes {
         }
 
         // The puppet in self-dialogue speaks the donor's lines. (Lines scripts give the parked donor go to the
-        // player: NativeRedirect sends its Say() there.)
+        // player when NativeRedirect is on: it sends their Say() there.)
         bool IsPuppetStandIn(const RE::Actor* a_actor) {
             auto& session = Session::GetSingleton();
             return a_actor && session.IsActive() && a_actor == session.GetPuppet() && session.IsInSelfDialogue();
