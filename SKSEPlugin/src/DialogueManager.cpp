@@ -638,6 +638,14 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto& line = *_line;
 
+        // A scene the player is in takes over from idle chatter: its lines would talk over this one, and the
+        // scene runs them on the player without going through here
+        if (auto* scene = player->GetCurrentScene(); line.isIdleChatter && scene && scene->isPlaying) {
+            SKSE::log::info("Scene {:08X} started; ending the idle line", scene->GetFormID());
+            FinishPlayerLine();
+            return;
+        }
+
         // The player's line isn't ticked while the Dialogue Menu is open; doing so stalls its lip sync
         auto* ui = RE::UI::GetSingleton();
         if (!(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
