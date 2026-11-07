@@ -64,7 +64,7 @@ namespace InTheirShoes {
         std::atomic<RE::BGSVoiceType*> _donorVoiceType{ nullptr };
         std::atomic<RE::BGSVoiceType*> _origPlayerVoiceType{ nullptr };
         std::atomic<bool> _npcVoiceEnabled{ true };
-        std::atomic<bool> _nativeRedirectEnabled{ false };
+        std::atomic<bool> _nativeRedirectEnabled{ true };
         std::atomic<bool> _inSelfDialogue{ false };
         std::atomic<bool> _puppetSpeakerPending{ false };
     };

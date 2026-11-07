@@ -116,6 +116,9 @@ namespace InTheirShoes {
             blockedBy = PlayerBusy::kCombat;
         } else if (IsBlockingMenuOpen()) {
             blockedBy = PlayerBusy::kMenu;
+        } else if (auto* scene = player->GetCurrentScene(); scene && scene->isPlaying) {
+            // Conditions can't rule this out: IsInScene answers no for the player (ConditionHooks)
+            blockedBy = PlayerBusy::kScene;
         }
         if (blockedBy != _blockedBy) {
             if (blockedBy != PlayerBusy::kNo) {

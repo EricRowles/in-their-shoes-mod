@@ -268,6 +268,20 @@ namespace InTheirShoes {
             auto& session = Session::GetSingleton();
             return a_actor && session.IsActive() && a_actor == session.GetPuppet() && session.IsInSelfDialogue();
         }
+
+        // Idle chatter skips the engine's speech path, which is what sends this event. SkyrimVM's sink runs the
+        // info's begin or end fragment from it, so sending it runs them for idle lines too (e.g. a follower's
+        // "Marco" whose end fragment starts the reply's scene, #5).
+        void SendTopicInfoEvent(const RE::DialogueItem& a_item, RE::TESTopicInfoEvent::TopicInfoEventType a_type) {
+            auto* events = RE::ScriptEventSourceHolder::GetSingleton();
+            if (!events || !a_item.info) return;
+            RE::TESTopicInfoEvent event;
+            event.speakerRef.reset(a_item.speaker);
+            event.topicInfoFormID = a_item.info->GetFormID();
+            event.type = a_type;
+            event.stage = 0;
+            events->SendEvent(&event);
+        }
     }
 
     // --- Setup ---
@@ -324,6 +338,7 @@ namespace InTheirShoes {
         UpdatePuppetSpeakerClear();
         if (!_line) {
             if (auto item = IdleChatter::GetSingleton().Poll()) {
+                SendTopicInfoEvent(*item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicBegin);
                 SpeakAsPlayer(item->responses.front(), false, true);
                 _line->item = std::move(item);  // the response must outlive the line
             }
@@ -624,6 +639,14 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto& line = *_line;
 
+        // A scene the player is in takes over from idle chatter: its lines would talk over this one, and the
+        // scene runs them on the player without going through here
+        if (auto* scene = player->GetCurrentScene(); line.isIdleChatter && scene && scene->isPlaying) {
+            SKSE::log::info("Scene {:08X} started; ending the idle line", scene->GetFormID());
+            FinishPlayerLine();
+            return;
+        }
+
         // The player's line isn't ticked while the Dialogue Menu is open; doing so stalls its lip sync
         auto* ui = RE::UI::GetSingleton();
         if (!(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
@@ -679,6 +702,9 @@ namespace InTheirShoes {
         ResetFace(player);
 
         if (line.isIdleChatter) {
+            if (line.item) {
+                SendTopicInfoEvent(*line.item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd);
+            }
             IdleChatter::GetSingleton().OnLineFinished();
         }
     }

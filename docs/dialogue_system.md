@@ -9,7 +9,7 @@ While impersonating, the **player** voices every line the donor would say, and t
 | Normal play | Donor | Dragonborn |
 | Self-dialogue (talking to the puppet) | Dragonborn (the listener) | Donor (the speaker) |
 
-The parked donor always counts as being where the player is. The player and puppet both use the donor's voice type, so lines resolve to the donor's voice files. With NPC voice off in the MCM, the player keeps the Dragonborn's voice type.
+The parked donor always counts as being where the player is. The player and puppet both use the donor's voice type, so lines resolve to the donor's voice files. With NPC voice off in the MCM, the player keeps the Dragonborn's voice type. Conditions never count the player as being in a scene, because it only joins scenes in the donor's place.
 
 ## Self-dialogue
 
@@ -25,7 +25,7 @@ Opens when the player activates the puppet, or when a donor package that would g
 
 ## Idle chatter
 
-When the cooldown (MCM) has passed and the player is free, a random idle line the donor could say is picked from running quests and voiced by the player.
+When the cooldown (MCM) has passed and the player is free and not in a scene, a random idle line the donor could say is picked from running quests and voiced by the player. The line's fragments run with the donor as the speaker, so it can start a scene (e.g. another follower's reply).
 
 ## Follower recruitment
 

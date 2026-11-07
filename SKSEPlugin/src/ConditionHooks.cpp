@@ -104,10 +104,23 @@ namespace InTheirShoes::ConditionHooks {
             return a_q.Ask(a_q.donor ? a_q.donor : a_q.player, a_result);
         }
 
+        // The player only joins the donor's scenes through its swapped aliases, which doesn't put the Dragonborn in
+        // them. A banter quest's "IsInScene == 0 on the player" dialogue condition failed all of its lines, so a
+        // scene's actions finished at once with nothing said (#1). The condition can't tell which aliases put the
+        // player in the scene, so scenes it's really in answer no as well.
+        bool IsInSceneAsDonor(const Query& a_q, double& a_result) {
+            a_result = a_q.IsTrueFor(a_q.donor) ? 1.0 : 0.0;
+            return true;
+        }
+
         // --- Identity: the subject answers as the Dragonborn ---
 
         bool AskPlayer(const Query& a_q, double& a_result) {
             return a_q.Ask(a_q.player, a_result);
+        }
+
+        bool AskSubject(const Query& a_q, double& a_result) {
+            return a_q.Ask(a_q.subject, a_result);
         }
 
         bool IsIDAsDragonborn(const Query& a_q, double& a_result) {
@@ -172,6 +185,7 @@ namespace InTheirShoes::ConditionHooks {
             { "IsInList"sv, &IsInListAsDonor, &AskPlayer },
             { "GetIsClass"sv, &AskDonor, &AskPlayer },
             { "GetIsCrimeFaction"sv, &AskDonor, &AskPlayer },
+            { "IsInScene"sv, &IsInSceneAsDonor, &AskSubject },
         };
         constexpr std::size_t kIdentityCount = std::size(kIdentityConditions);
         std::array<Condition_t*, kIdentityCount> s_originalIdentity{};
