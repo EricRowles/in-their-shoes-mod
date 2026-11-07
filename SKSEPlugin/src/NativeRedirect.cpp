@@ -181,7 +181,9 @@ namespace InTheirShoes::NativeRedirect {
             auto call = [&](Variable& a_callSelf) { return orig(a_this, a_callSelf, a_vm, a_stackID, a_result, a_frame); };
 
             const auto& session = Session::GetSingleton();
-            if (!session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) return call(a_self);
+            if (!session.IsNativeRedirectEnabled() || !session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) {
+                return call(a_self);
+            }
             const auto* caller = GetCallingFrame(a_this, a_frame);
             if (!caller || IsOurScript(*caller)) return call(a_self);
 

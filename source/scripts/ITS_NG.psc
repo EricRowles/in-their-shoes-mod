@@ -29,6 +29,9 @@ Bool Function OpenSelfDialogue(Actor a_speaker = None) Global Native
 ; Enables or disables donor NPC voice comments and voice identity on the player.
 Function SetNPCVoiceEnabled(Bool a_enabled) Global Native
 
+; Enables or disables running other mods' script calls on the donor (and the puppet in self-dialogue) on the player.
+Function SetNativeRedirectEnabled(Bool a_enabled) Global Native
+
 ; Sets the puppet's teammate status and teleports it to the player when re-enabled.
 ; The follow package itself is gated by the ITS_PuppetFollows global, which the caller sets.
 Function SetPuppetFollowsPlayer(Bool a_follows) Global Native

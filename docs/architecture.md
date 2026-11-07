@@ -8,7 +8,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | **Player** | Looks, sounds and fights like the donor (appearance, voice, stats, spells, items). Belongs to the donor's factions, holds its quest aliases and answers its conditions. |
 | **Puppet** (`ITS_TempPlayer`) | Looks like the Dragonborn and follows the player. Talking to it opens the donor's dialogue. |
-| **Donor** | Parked out of sight in a holding cell. Conditions that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. Other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor. Scripts on the donor's own body (its magic effects) still act on it. Actors whose AI packages follow or go to the donor follow or go to the player. |
+| **Donor** | Parked out of sight in a holding cell. Conditions that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. With the MCM's script redirect on, other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor, and scripts on the donor's own body (its magic effects) still act on it. Actors whose AI packages follow or go to the donor follow or go to the player. |
 
 ## What happens
 
@@ -44,7 +44,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `Forms` | Every form looked up by ID |
 | `Serialization` | Co-save records |
 | `Papyrus` | `ITS_NG` natives, and trigger events that fire for the parked donor |
-| `NativeRedirect` | Natives other mods' scripts call on the donor (or on the puppet in self-dialogue) run on the player |
+| `NativeRedirect` | When enabled in the MCM, natives other mods' scripts call on the donor (or on the puppet in self-dialogue) run on the player |
 
 Rules the code relies on:
 - Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session` and locked state.

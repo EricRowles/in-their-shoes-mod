@@ -74,4 +74,5 @@ The donor shall remain hidden from the player. If scripting would make the donor
   - NPC voice (toggle)
   - NPC voice - interval between idle lines
   - Puppet follows player (toggle)
+  - Redirect other mods' script calls on the donor to the player (toggle)
   - Return to body (action)

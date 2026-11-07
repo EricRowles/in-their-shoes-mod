@@ -48,6 +48,10 @@ namespace InTheirShoes::Papyrus {
             Session::GetSingleton().SetNPCVoiceEnabled(a_enabled);
         }
 
+        void SetNativeRedirectEnabled(RE::StaticFunctionTag*, bool a_enabled) {
+            Session::GetSingleton().SetNativeRedirectEnabled(a_enabled);
+        }
+
         void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
             ImpersonationManager::GetSingleton().SetPuppetFollowsPlayer(a_follows);
         }
@@ -207,6 +211,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
         a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);
+        a_vm->RegisterFunction("SetNativeRedirectEnabled", className, SetNativeRedirectEnabled);
         a_vm->RegisterFunction("SetPuppetFollowsPlayer", className, SetPuppetFollowsPlayer);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
         a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);

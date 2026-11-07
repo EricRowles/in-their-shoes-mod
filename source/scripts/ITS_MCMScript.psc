@@ -9,6 +9,7 @@ Float Property IdleAITimeout = 10.0 Auto
 Int Property IdleAIPackage = 0 Auto
 Float Property IdleChatterTime = 60.0 Auto
 Bool Property NPCVoiceEnabled = True Auto
+Bool Property NativeRedirectEnabled = True Auto
 Bool Property PuppetFollowsPlayer = True Auto
 
 ; Option IDs
@@ -17,6 +18,7 @@ Int _oid_idleTimeout
 Int _oid_idlePackage
 Int _oid_idleChatterTime
 Int _oid_npcVoice
+Int _oid_nativeRedirect
 Int _oid_puppetFollows
 Int _oid_revert
 Bool _pendingRevert = False
@@ -41,6 +43,7 @@ Function PushConfig()
 	ITS_NG.SetIdleAIPackage(IdleAIPackage)
 	ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
 	ApplyPuppetFollows()
 EndFunction
 
@@ -98,9 +101,10 @@ Event OnPageReset(String page)
 	_oid_npcVoice = AddToggleOption("NPC Voice", NPCVoiceEnabled)
 	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s")
 	_oid_puppetFollows = AddToggleOption("Puppet Follows Player", PuppetFollowsPlayer)
+	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", NativeRedirectEnabled)
 	; Leave a gap before Return to Body. (Not AddEmptyOption: SkyUI versions disagree on whether it returns
 	; an Int, and a mismatch logs a Papyrus error every time the page opens.)
-	SetCursorPosition(15)
+	SetCursorPosition(17)
 
 	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
@@ -118,6 +122,10 @@ Event OnOptionSelect(Int option)
 		NPCVoiceEnabled = !NPCVoiceEnabled
 		SetToggleOptionValue(_oid_npcVoice, NPCVoiceEnabled)
 		ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ElseIf option == _oid_nativeRedirect
+		NativeRedirectEnabled = !NativeRedirectEnabled
+		SetToggleOptionValue(_oid_nativeRedirect, NativeRedirectEnabled)
+		ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
 	ElseIf option == _oid_puppetFollows
 		PuppetFollowsPlayer = !PuppetFollowsPlayer
 		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
@@ -200,6 +208,8 @@ Event OnOptionHighlight(Int option)
 		SetInfoText("Enables donor NPC voice comments and voice identity on the player while impersonating.")
 	ElseIf option == _oid_idleChatterTime
 		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
+	ElseIf option == _oid_nativeRedirect
+		SetInfoText("Experimental. Other mods' script calls on the NPC you're impersonating act on you instead, such as making it speak, asking where it is or changing its factions.")
 	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
 	ElseIf option == _oid_revert
