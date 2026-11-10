@@ -3,7 +3,9 @@
 #include "Singleton.h"
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <optional>
+#include <set>
 #include "RE/D/DialogueItem.h"
 
 namespace InTheirShoes {
@@ -33,7 +35,7 @@ namespace InTheirShoes {
         // BSTEventSink<RE::InputEvent*>: skipping self-dialogue lines
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
 
-        // BSTEventSink<RE::TESTopicInfoEvent>: logs the puppet's topic infos starting and ending
+        // BSTEventSink<RE::TESTopicInfoEvent>: tracks the puppet's topic infos starting and ending (see EndPuppetInfo)
         RE::BSEventNotifyControl ProcessEvent(const RE::TESTopicInfoEvent* a_event, RE::BSTEventSource<RE::TESTopicInfoEvent>* a_eventSource) override;
 
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
@@ -59,6 +61,7 @@ namespace InTheirShoes {
         // The stand-in speaker (the puppet in self-dialogue)
         void HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response);
         static void ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response);
+        void EndPuppetInfo(RE::Actor* a_puppet, RE::TESTopicInfo* a_info);
 
         static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
         using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
@@ -117,6 +120,12 @@ namespace InTheirShoes {
         // The player's copy of a stand-in's line (the stand-in's own response is silenced). Kept outside
         // PlayerLine: the line being voiced points at it, and replacing a line must not free it.
         RE::DialogueResponse _standInLine;
+
+        // The puppet's topic infos that began and haven't ended, and those we ended ourselves (EndPuppetInfo).
+        // Topic info events come from any thread.
+        std::mutex _puppetInfoLock;
+        std::set<RE::FormID> _puppetInfosOpen;
+        std::set<RE::FormID> _puppetInfosEndedByUs;
     };
 
 }

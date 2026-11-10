@@ -93,8 +93,21 @@ namespace InTheirShoes::NativeRedirect {
 
         // The calling script's frame: the native's frame, or the one before if the native has its own. None for
         // calls from C++.
+        // Actor.psc and ObjectReference.psc define some functions in Papyrus that call natives on themselves
+        // (KillEssential calls Kill, ModAV calls ModActorValue). Their frames run on the actor, so they looked
+        // like a script on its body and were never redirected; the script that called the wrapper is the caller
+        // (#30: a fragment's akSpeaker.KillEssential() killed the puppet, not the player).
+        bool IsBaseClassWrapper(const StackFrame& a_frame) {
+            const char* name = a_frame.owningObjectType->GetName();
+            return _stricmp(name, "Actor") == 0 || _stricmp(name, "ObjectReference") == 0 || _stricmp(name, "Form") == 0;
+        }
+
         const StackFrame* GetCallingFrame(const NativeFunction* a_native, const StackFrame& a_frame) {
             const auto* caller = a_frame.owningFunction.get() == a_native ? a_frame.previousFrame : &a_frame;
+            while (caller && caller->owningObjectType && IsBaseClassWrapper(*caller) && caller->previousFrame &&
+                   caller->previousFrame->owningObjectType) {
+                caller = caller->previousFrame;
+            }
             return caller && caller->owningObjectType ? caller : nullptr;
         }
 
