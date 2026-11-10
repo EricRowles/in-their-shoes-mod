@@ -731,6 +731,13 @@ namespace InTheirShoes {
         // In the Dialogue Menu the engine doesn't move to a topic's next response by itself here, and an
         // advance request replays the current response. So step the current response forward first;
         // the advance request then plays the next one.
+        //
+        // That includes stepping past the last response. MenuTopicManager's advance (ID 35285) speaks
+        // currentResponse while it has one; once it is null it ends the info the engine's way: an Invisible
+        // Continue info (TESTopicInfo +0x3C bit 6) plays its follow-up topic, a Goodbye info closes the menu,
+        // and any other rebuilds and shows the topic list. Leaving the last response current made Invisible
+        // Continue lines replay forever, and left a greeting with no topics whenever the engine hadn't
+        // already moved past it by itself (#30).
         auto* ui = RE::UI::GetSingleton();
         auto* topicMgr = RE::MenuTopicManager::GetSingleton();
         if (!topicMgr || !ui || !ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) return;
@@ -748,11 +755,9 @@ namespace InTheirShoes {
             SKSE::log::info("Stand-in's line isn't the selected topic's current response; not advancing");
             return;
         }
-        if (node->next) {
-            dialogue->currentResponse = node->next;
-            topicMgr->advanceRequested = true;
-            SKSE::log::info("Advancing to the topic's next response");
-        }
+        dialogue->currentResponse = node->next;
+        topicMgr->advanceRequested = true;
+        SKSE::log::info("{}", node->next ? "Advancing to the topic's next response" : "Last response done; ending the info");
     }
 
     // --- Hooks ---
