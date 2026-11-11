@@ -84,33 +84,40 @@ EndFunction
 Event OnPageReset(String page)
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
-	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
 
-	; Left Column: Autonomous AI & Gameplay Settings
-	SetCursorPosition(4)
-	SetCursorFillMode(TOP_TO_BOTTOM)
-	AddHeaderOption("Autonomous AI")
-	_oid_idleAI = AddToggleOption("Idle AI Pathing", IdleAIEnabled)
-	_oid_idleTimeout = AddSliderOption("Idle AI Delay", IdleAITimeout, "{1} s")
-	_oid_idlePackage = AddMenuOption("Idle AI Package", GetIdlePackageNames()[IdleAIPackage])
-
-	; Right Column: Puppet & Voice Settings
-	SetCursorPosition(5)
-	SetCursorFillMode(TOP_TO_BOTTOM)
-	AddHeaderOption("Impersonation Settings")
-	_oid_npcVoice = AddToggleOption("NPC Voice", NPCVoiceEnabled)
-	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s")
-	_oid_puppetFollows = AddToggleOption("Puppet Follows Player", PuppetFollowsPlayer)
-	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", NativeRedirectEnabled)
-	; Leave a gap before Return to Body. (Not AddEmptyOption: SkyUI versions disagree on whether it returns
-	; an Int, and a mismatch logs a Papyrus error every time the page opens.)
-	SetCursorPosition(17)
-
+	; Top row: Return to Body (left), Mod Version (right)
 	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
 	Else
 		_oid_revert = AddTextOption("Return to Body", "Already in Body", OPTION_FLAG_DISABLED)
 	EndIf
+	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
+
+	; Gaps between sections use SetCursorPosition, not AddEmptyOption: SkyUI versions disagree on whether
+	; AddEmptyOption returns an Int, and a mismatch logs a Papyrus error every time the page opens.
+
+	; Left column: Idle Movement, then Advanced
+	SetCursorPosition(4)
+	SetCursorFillMode(TOP_TO_BOTTOM)
+	AddHeaderOption("Idle Movement")
+	_oid_idleAI = AddToggleOption("Enabled", IdleAIEnabled)
+	_oid_idleTimeout = AddSliderOption("Idle Delay", IdleAITimeout, "{1} s")
+	_oid_idlePackage = AddMenuOption("Idle Package", GetIdlePackageNames()[IdleAIPackage])
+
+	SetCursorPosition(14)
+	AddHeaderOption("Advanced")
+	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", NativeRedirectEnabled)
+
+	; Right column: Voice, then Dragonborn Follower
+	SetCursorPosition(5)
+	SetCursorFillMode(TOP_TO_BOTTOM)
+	AddHeaderOption("Voice")
+	_oid_npcVoice = AddToggleOption("NPC Voice", NPCVoiceEnabled)
+	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s")
+
+	SetCursorPosition(13)
+	AddHeaderOption("Dragonborn Follower")
+	_oid_puppetFollows = AddToggleOption("Dragonborn follows you", PuppetFollowsPlayer)
 EndEvent
 
 Event OnOptionSelect(Int option)
@@ -199,9 +206,9 @@ EndEvent
 
 Event OnOptionHighlight(Int option)
 	If option == _oid_idleAI
-		SetInfoText("Enables autonomous AI pathing on your player after a few seconds of inactivity.")
+		SetInfoText("Your character moves on its own after a few seconds of inactivity.")
 	ElseIf option == _oid_idleTimeout
-		SetInfoText("Seconds of player inactivity before autonomous AI pathing begins.")
+		SetInfoText("Seconds of player inactivity before idle movement begins.")
 	ElseIf option == _oid_idlePackage
 		SetInfoText("What you do when idle AI starts. Default runs the NPC's own packages. Any other choice runs instead of them, even while the NPC is a follower.")
 	ElseIf option == _oid_npcVoice
@@ -209,7 +216,7 @@ Event OnOptionHighlight(Int option)
 	ElseIf option == _oid_idleChatterTime
 		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
 	ElseIf option == _oid_nativeRedirect
-		SetInfoText("Other mods' script calls on the NPC you're impersonating act on you instead, such as making it speak, asking where it is or changing its factions.")
+		SetInfoText("Papyrus scripts target the player instead of the NPC. SKSE scripts are unaffected.\nDisabling may affect dialogue playback")
 	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
 	ElseIf option == _oid_revert
