@@ -200,7 +200,10 @@ namespace InTheirShoes {
             player->EvaluatePackage(true, true);
         }
 
-        if (SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds) {
+        auto* scene = GetPlayingScene(player);
+        const ScenePhase scenePhase{ scene ? scene->GetFormID() : 0, scene ? scene->currentPhaseIndex : 0 };
+        if (SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds || scenePhase != _syncedScenePhase) {
+            _syncedScenePhase = scenePhase;
             _lastPackageSyncTime = std::chrono::steady_clock::now();
             SyncDonorPackagesToPlayer();
             CheckTravelArrival();
@@ -301,20 +304,16 @@ namespace InTheirShoes {
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto blockedBy = PlayerBusy::kNo;
-        // While AI-driven, the engine treats the player like an NPC in scenes and waits for the player's AI to
-        // run the scene's package, which idle AI never does: the player's scene lines stalled until pathing ended
-        auto* scene = player ? player->GetCurrentScene() : nullptr;
+        // Idle AI keeps running during scenes, so the player keeps travelling through follower banter and runs
+        // the scene's package actions. While AI-driven, the engine holds the player's scene lines until pathing
+        // ends (#2); that is accepted rather than stopping the player for its lines.
         if (!player || CombatStopsIdleAI(player)) {
             blockedBy = PlayerBusy::kCombat;
         } else if (IsBlockingMenuOpen()) {
             blockedBy = PlayerBusy::kMenu;
-        } else if (scene && scene->isPlaying) {
-            blockedBy = PlayerBusy::kScene;
         }
         if (blockedBy != _blockedBy) {
-            if (blockedBy == PlayerBusy::kScene) {
-                SKSE::log::info("Idle AI waiting: scene {:08X} '{}'", scene->GetFormID(), scene->GetFormEditorID());
-            } else if (blockedBy != PlayerBusy::kNo) {
+            if (blockedBy != PlayerBusy::kNo) {
                 SKSE::log::info("Idle AI waiting: {}", ToString(blockedBy));
             }
             _blockedBy = blockedBy;
@@ -350,6 +349,12 @@ namespace InTheirShoes {
         _aiStartTime = std::chrono::steady_clock::now();
         _lastPackageSyncTime = _aiStartTime;
         _travelArrived = false;  // Rechecked at the next package sync
+        _scenePackagesRunning = false;
+        if (auto* scene = GetPlayingScene(player)) {
+            _syncedScenePhase = { scene->GetFormID(), scene->currentPhaseIndex };
+        } else {
+            _syncedScenePhase = {};
+        }
 
         SyncDonorPackagesToPlayer();
         FillIdlePackageAlias();
@@ -362,6 +367,7 @@ namespace InTheirShoes {
         if (!_aiActive) return;
         _aiActive = false;
         _forceGreetProcedureActive = false;
+        _scenePackagesRunning = false;
 
         SetPlayerAIDriven(false);
         ReleaseIdlePackageAlias();
@@ -486,6 +492,8 @@ namespace InTheirShoes {
         auto* quest = Forms::idlePackageQuest;
         auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
         if (!quest || !vm || _idlePackageIndex <= 0 || static_cast<std::size_t>(_idlePackageIndex) > quest->aliases.size()) return;
+        // Scene package actions run instead; SyncDonorPackagesToPlayer fills the alias when they end
+        if (_scenePackagesRunning) return;
 
         const bool travelling = _idlePackageIndex == kTravelPackage;
         const std::int32_t packageIndex = travelling && _travelArrived ? kSandboxWidePackage : _idlePackageIndex;
@@ -558,7 +566,28 @@ namespace InTheirShoes {
         // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
         // (such as follower Follow packages) are skipped. A package picked in the MCM comes from an
         // ITS_PackageManager alias, which outranks all of these.
-        std::vector<RE::TESPackage*> donorPkgs;
+        //
+        // The scene's package actions for the player's aliases come first. The engine never gave them to the
+        // AI-driven player, so it stood still in quest scenes. While they run, the MCM's package alias is
+        // released so it doesn't outrank them. Packages on the donor's swapped aliases still do.
+        auto scenePkgs = GetScenePackagesInCurrentPhase(GetPlayingScene(player), player);
+        for (auto* pkg : scenePkgs) {
+            if (puppet) {
+                RetargetPackageToPuppet(pkg, player, puppet);
+            }
+        }
+        const auto scenePkgCount = scenePkgs.size();
+        const bool scenePackagesRunning = scenePkgCount > 0;
+        if (scenePackagesRunning != _scenePackagesRunning) {
+            _scenePackagesRunning = scenePackagesRunning;
+            if (scenePackagesRunning) {
+                ReleaseIdlePackageAlias();
+            } else if (_idlePackageIndex > 0) {
+                FillIdlePackageAlias();
+            }
+        }
+
+        std::vector<RE::TESPackage*> donorPkgs = std::move(scenePkgs);
         for (auto* pkg : donorBase->aiPackages.packages) {
             if (!pkg) continue;
             if (HasForceGreetProcedure(pkg) && puppet) {
@@ -588,7 +617,7 @@ namespace InTheirShoes {
             for (auto* pkg : donorPkgs) {
                 ids += fmt::format(" {:08X}", pkg->GetFormID());
             }
-            SKSE::log::info("Synchronized {} donor AI packages to player:{}", donorPkgs.size(), ids);
+            SKSE::log::info("Synchronized {} AI packages to player ({} from the scene):{}", donorPkgs.size(), scenePkgCount, ids);
         }
     }
 

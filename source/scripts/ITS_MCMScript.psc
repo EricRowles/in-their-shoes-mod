@@ -23,6 +23,9 @@ Int _oid_npcVoice
 Int _oid_nativeRedirect
 Int _oid_puppetFollows
 Int _oid_revert
+Int _oid_scene
+Int _oid_tempFactions
+Int _oid_tempAliases
 Bool _pendingRevert = False
 
 Int Function GetVersion()
@@ -172,6 +175,17 @@ Event OnPageReset(String page)
 	SetCursorPosition(13)
 	AddHeaderOption("Dragonborn")
 	_oid_puppetFollows = AddToggleOption("Dragonborn Follows You", PuppetFollowsPlayer)
+
+	; Read when the page opens; the game is paused while the menu is open
+	SetCursorPosition(17)
+	AddHeaderOption("Informational")
+	String sceneName = ITS_NG.GetCurrentSceneName()
+	If sceneName == ""
+		sceneName = "None"
+	EndIf
+	_oid_scene = AddTextOption("Current Scene", sceneName, OPTION_FLAG_DISABLED)
+	_oid_tempFactions = AddTextOption("Temporary Factions", ITS_NG.GetTemporaryFactionCount() as String, OPTION_FLAG_DISABLED)
+	_oid_tempAliases = AddTextOption("Temporary Aliases", ITS_NG.GetTemporaryAliasCount() as String, OPTION_FLAG_DISABLED)
 EndEvent
 
 Event OnOptionSelect(Int option)
@@ -286,6 +300,12 @@ Event OnOptionHighlight(Int option)
 		SetInfoText("Papyrus scripts target the player instead of the NPC. SKSE scripts are unaffected.\nDisabling may affect dialogue playback")
 	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
+	ElseIf option == _oid_scene
+		SetInfoText("The scene you're in, if any.")
+	ElseIf option == _oid_tempFactions
+		SetInfoText("The NPC's factions you've joined while impersonating them. They go back to the NPC when you return to your body.")
+	ElseIf option == _oid_tempAliases
+		SetInfoText("The NPC's quest roles you've taken over while impersonating them. They go back to the NPC when you return to your body.")
 	ElseIf option == _oid_revert
 		SetInfoText("Immediately return control back to your original character.")
 	EndIf

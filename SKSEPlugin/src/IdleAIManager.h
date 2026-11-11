@@ -88,6 +88,17 @@ namespace InTheirShoes {
         PackageUtil::PackageEdits _packageEdits;
 
         std::int32_t _idlePackageIndex{ 0 };
+        // A scene phase: the scene's form ID and its phase index
+        struct ScenePhase {
+            RE::FormID scene{ 0 };
+            std::uint32_t phase{ 0 };
+            bool operator==(const ScenePhase&) const = default;
+        };
+        // The scene phase the packages were last synced for, so a new phase syncs at once
+        ScenePhase _syncedScenePhase{};
+        // The player runs scene package actions, so the MCM's idle package alias is released until they end
+        bool _scenePackagesRunning{ false };
+
         std::int32_t _travelDestinationIndex{ 0 };
         bool _travelArrived{ false };  // The Travel package reached its city, so the player sandboxes there
         bool _idlePackageAliasFilled{ false };

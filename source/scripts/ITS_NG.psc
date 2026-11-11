@@ -24,6 +24,15 @@ Function SetIdleAIPackage(Int a_index) Global Native
 ; 6 Morthal, 7 Dawnstar, 8 Winterhold (Forms::travelDestinations in the plugin).
 Function SetIdleTravelDestination(Int a_index) Global Native
 
+; The scene the player is in: its editor ID (or form ID, when editor IDs aren't loaded), or "" when there is none
+String Function GetCurrentSceneName() Global Native
+
+; How many of the donor's factions the player was given for the session (not counting the aliases' factions)
+Int Function GetTemporaryFactionCount() Global Native
+
+; How many of the donor's quest aliases the player holds for the session
+Int Function GetTemporaryAliasCount() Global Native
+
 ; Sets the idle chatter cooldown in seconds between ambient dialogue lines while impersonating an NPC (default 60.0s).
 Function SetIdleChatterTime(Float a_seconds) Global Native
 

@@ -52,6 +52,39 @@ namespace InTheirShoes {
                ui->IsMenuOpen("MagicMenu"sv) || ui->IsMenuOpen("TweenMenu"sv) || ui->IsMenuOpen("Book Menu"sv);
     }
 
+    // The scene the player is in, or null when none is playing
+    inline RE::BGSScene* GetPlayingScene(RE::Actor* a_actor) {
+        auto* scene = a_actor ? a_actor->GetCurrentScene() : nullptr;
+        return scene && scene->isPlaying ? scene : nullptr;
+    }
+
+    // Calls a_visit for each action of a_type that a_actor has in the scene's current phase, through the scene
+    // quest's aliases
+    template <class Visit>
+    void ForEachSceneActionInCurrentPhase(const RE::BGSScene* a_scene, const RE::Actor* a_actor, RE::BGSSceneAction::Type a_type, Visit&& a_visit) {
+        if (!a_scene || !a_scene->isPlaying || !a_scene->parentQuest || !a_actor) return;
+        const auto phase = a_scene->currentPhaseIndex;
+        for (auto* action : a_scene->actions) {
+            if (!action || action->GetType() != a_type) continue;
+            if (phase < action->startPhase || phase > action->endPhase) continue;
+            if (a_scene->parentQuest->GetAliasedRef(action->actorID).get().get() != a_actor) continue;
+            a_visit(action);
+        }
+    }
+
+    // The packages a_actor's package actions give it in the scene's current phase, in order
+    inline std::vector<RE::TESPackage*> GetScenePackagesInCurrentPhase(const RE::BGSScene* a_scene, const RE::Actor* a_actor) {
+        std::vector<RE::TESPackage*> packages;
+        ForEachSceneActionInCurrentPhase(a_scene, a_actor, RE::BGSSceneAction::Type::kPackage, [&](RE::BGSSceneAction* a_action) {
+            for (auto* pkg : static_cast<RE::BGSSceneActionPackage*>(a_action)->packages) {
+                if (pkg && std::find(packages.begin(), packages.end(), pkg) == packages.end()) {
+                    packages.push_back(pkg);
+                }
+            }
+        });
+        return packages;
+    }
+
     // Why the player can't be given something to do right now (idle AI, idle chatter)
     enum class PlayerBusy {
         kNo,

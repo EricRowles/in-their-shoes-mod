@@ -41,7 +41,6 @@ namespace InTheirShoes {
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
 
-
     private:
         friend Singleton<DialogueManager>;
         DialogueManager() = default;
