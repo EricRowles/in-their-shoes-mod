@@ -299,7 +299,9 @@ namespace InTheirShoes {
             SKSE::log::warn("DialogueManager failed to get BSInputDeviceManager singleton.");
         }
         if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
-            events->AddEventSink<RE::TESTopicInfoEvent>(this);
+            // First, so it can stop the engine's late end event for an info we already ended (EndPuppetInfo)
+            // before SkyrimVM's sink runs its end fragment again
+            events->GetEventSource<RE::TESTopicInfoEvent>()->PrependEventSink(this);
         }
         InstallHooks();
         _initialized = true;
@@ -352,6 +354,9 @@ namespace InTheirShoes {
         Session::GetSingleton().SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
         _line.reset();
+        std::scoped_lock guard(_puppetInfoLock);
+        _puppetInfosOpen.clear();
+        _puppetInfosEndedByUs.clear();
     }
 
     // --- Self-dialogue ---
@@ -371,7 +376,18 @@ namespace InTheirShoes {
         auto& session = Session::GetSingleton();
         if (a_event && session.IsActive() && a_event->speakerRef && a_event->speakerRef.get() == session.GetPuppet()) {
             bool ended = a_event->type == RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd;
-            SKSE::log::info("Puppet topic info {:08X} {}", a_event->topicInfoFormID, ended ? "ended" : "began");
+            const auto id = a_event->topicInfoFormID;
+            std::scoped_lock guard(_puppetInfoLock);
+            if (!ended) {
+                _puppetInfosOpen.insert(id);
+                _puppetInfosEndedByUs.erase(id);
+            } else if (_puppetInfosEndedByUs.erase(id)) {
+                SKSE::log::info("Puppet topic info {:08X} ended again; already ended, so its fragment doesn't run twice", id);
+                return RE::BSEventNotifyControl::kStop;
+            } else {
+                _puppetInfosOpen.erase(id);
+            }
+            SKSE::log::info("Puppet topic info {:08X} {}", id, ended ? "ended" : "began");
         }
         return RE::BSEventNotifyControl::kContinue;
     }
@@ -731,6 +747,13 @@ namespace InTheirShoes {
         // In the Dialogue Menu the engine doesn't move to a topic's next response by itself here, and an
         // advance request replays the current response. So step the current response forward first;
         // the advance request then plays the next one.
+        //
+        // That includes stepping past the last response. MenuTopicManager's advance (ID 35285) speaks
+        // currentResponse while it has one; once it is null it ends the info the engine's way: an Invisible
+        // Continue info (TESTopicInfo +0x3C bit 6) plays its follow-up topic, a Goodbye info closes the menu,
+        // and any other rebuilds and shows the topic list. Leaving the last response current made Invisible
+        // Continue lines replay forever, and left a greeting with no topics whenever the engine hadn't
+        // already moved past it by itself (#30).
         auto* ui = RE::UI::GetSingleton();
         auto* topicMgr = RE::MenuTopicManager::GetSingleton();
         if (!topicMgr || !ui || !ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) return;
@@ -748,11 +771,42 @@ namespace InTheirShoes {
             SKSE::log::info("Stand-in's line isn't the selected topic's current response; not advancing");
             return;
         }
-        if (node->next) {
-            dialogue->currentResponse = node->next;
-            topicMgr->advanceRequested = true;
-            SKSE::log::info("Advancing to the topic's next response");
+        if (!node->next) {
+            DialogueManager::GetSingleton().EndPuppetInfo(standIn.get(), dialogue->parentTopicInfo);
         }
+        dialogue->currentResponse = node->next;
+        // MenuTopicManager's update (ID 35289) runs the advance only while canSkip (+0xBA) is set. Starting a
+        // line clears it, and within MenuTopicManager only the advance itself sets it again; for a line the
+        // engine voices, its voice-finished callback runs the advance directly. Our lines aren't the engine's,
+        // so a greeting or Goodbye line that came after canSkip was cleared never advanced: no topics, or a menu
+        // that didn't close (#30).
+        topicMgr->canSkip = true;
+        topicMgr->advanceRequested = true;
+        SKSE::log::info("{}", node->next ? "Advancing to the topic's next response" : "Last response done; ending the info");
+    }
+
+    // The engine sends a topic info's end event (which runs its end fragment) for an info the player picked, but
+    // not for one it moved to by itself (an Invisible Continue follow-up), and for the last info only when the
+    // menu closes. So the end fragment of e.g. There Is No Umbra's hug line (which advances its quest) never ran
+    // (#30). An info whose last response is done is ended here unless the engine already did; if the engine
+    // sends its end later, ProcessEvent stops it so the fragment doesn't run twice.
+    void DialogueManager::EndPuppetInfo(RE::Actor* a_puppet, RE::TESTopicInfo* a_info) {
+        if (!a_puppet || !a_info) return;
+        const auto id = a_info->GetFormID();
+        {
+            std::scoped_lock guard(_puppetInfoLock);
+            if (!_puppetInfosOpen.contains(id)) return;
+        }
+        auto* events = RE::ScriptEventSourceHolder::GetSingleton();
+        if (!events) return;
+        RE::TESTopicInfoEvent event;
+        event.speakerRef.reset(a_puppet);
+        event.topicInfoFormID = id;
+        event.type = RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd;
+        event.stage = 0;
+        events->SendEvent(&event);  // ProcessEvent sees it and marks the info closed
+        std::scoped_lock guard(_puppetInfoLock);
+        _puppetInfosEndedByUs.insert(id);
     }
 
     // --- Hooks ---

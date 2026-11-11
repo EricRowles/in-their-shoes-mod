@@ -38,7 +38,8 @@ namespace InTheirShoes::NativeRedirect {
             kPlayer,       // runs on the player
             kLocation,     // runs on the player, even for scripts on the donor's own body
             kDonor,        // state kept on the donor: the condition hooks and revert read it from there
-            kKept,         // left alone: which actor it is, or moving, enabling or killing it (it stays parked)
+            kKept,         // left alone: which actor it is, or moving or enabling it (it stays parked)
+            kLife,         // killing: runs on the player when the puppet speaks for the donor; the donor is left alone
         };
 
         Kind GetKind(const RE::BSFixedString& a_name) {
@@ -63,8 +64,11 @@ namespace InTheirShoes::NativeRedirect {
                 { "SetPosition", Kind::kKept }, { "SetAngle", Kind::kKept }, { "TranslateTo", Kind::kKept },
                 { "SplineTranslateTo", Kind::kKept }, { "Enable", Kind::kKept }, { "Disable", Kind::kKept },
                 { "EnableNoWait", Kind::kKept }, { "DisableNoWait", Kind::kKept }, { "Delete", Kind::kKept },
-                // Whether it lives
-                { "Kill", Kind::kKept }, { "KillEssential", Kind::kKept }, { "KillSilent", Kind::kKept },
+                // Whether it lives. A fragment that kills its speaker kills the donor the player is playing (e.g.
+                // There Is No Umbra's "May I wield you" kills Daumbra's host), so it kills the player, not the
+                // puppet, which is the Dragonborn's body (#30). Scripts that kill the parked donor still leave the
+                // player alone.
+                { "Kill", Kind::kLife }, { "KillEssential", Kind::kLife }, { "KillSilent", Kind::kLife },
             } };
             for (const auto& [name, kind] : kinds) {
                 if (name == a_name) return kind;
@@ -89,8 +93,21 @@ namespace InTheirShoes::NativeRedirect {
 
         // The calling script's frame: the native's frame, or the one before if the native has its own. None for
         // calls from C++.
+        // Actor.psc and ObjectReference.psc define some functions in Papyrus that call natives on themselves
+        // (KillEssential calls Kill, ModAV calls ModActorValue). Their frames run on the actor, so they looked
+        // like a script on its body and were never redirected; the script that called the wrapper is the caller
+        // (#30: a fragment's akSpeaker.KillEssential() killed the puppet, not the player).
+        bool IsBaseClassWrapper(const StackFrame& a_frame) {
+            const char* name = a_frame.owningObjectType->GetName();
+            return _stricmp(name, "Actor") == 0 || _stricmp(name, "ObjectReference") == 0 || _stricmp(name, "Form") == 0;
+        }
+
         const StackFrame* GetCallingFrame(const NativeFunction* a_native, const StackFrame& a_frame) {
             const auto* caller = a_frame.owningFunction.get() == a_native ? a_frame.previousFrame : &a_frame;
+            while (caller && caller->owningObjectType && IsBaseClassWrapper(*caller) && caller->previousFrame &&
+                   caller->previousFrame->owningObjectType) {
+                caller = caller->previousFrame;
+            }
             return caller && caller->owningObjectType ? caller : nullptr;
         }
 
@@ -202,6 +219,9 @@ namespace InTheirShoes::NativeRedirect {
                     if (standIn == donor || !GetObjectFor(a_vm, donor, className, target)) return call(a_self);
                     LogOnce(a_this, *caller, "puppet to the donor");
                     return call(target);
+                case Kind::kLife:
+                    if (standIn == donor) return call(a_self);
+                    [[fallthrough]];
                 default:
                     if (!GetObjectFor(a_vm, Session::GetPlayer(), className, target)) return call(a_self);
                     LogOnce(a_this, *caller, standIn == donor ? "donor to the player" : "puppet to the player");
