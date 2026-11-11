@@ -134,6 +134,41 @@ namespace InTheirShoes {
             subMgr->subtitles.push_back(info);
         }
 
+        // Shows the puppet's current self-dialogue line as its subtitle (#25). The engine queues no subtitle
+        // for the puppet's silenced lines and never removes the first one, so it stayed on screen. Replacing
+        // the entry's text isn't enough: SubtitleManager's update (ID 52637) only sends text to the HUD when
+        // the front entry's speaker differs from currentSpeaker, which the engine resets when a line ends
+        // (52627) but never does for the puppet. Clearing currentSpeaker makes the next update show it.
+        void RefreshPuppetSubtitle(RE::Actor* a_puppet, const RE::DialogueResponse* a_response) {
+            auto* subMgr = RE::SubtitleManager::GetSingleton();
+            if (!subMgr || a_response->text.empty()) return;
+
+            std::string_view text = a_response->text.c_str();
+            auto handle = a_puppet->GetHandle();
+            RE::BSSpinLockGuard locker(subMgr->lock);
+            bool shown = false;
+            for (std::uint32_t i = 0; i < subMgr->subtitles.size();) {
+                auto& entry = subMgr->subtitles[i];
+                if (entry.speaker == handle && (entry.subtitle.c_str() ? entry.subtitle.c_str() : "") != text) {
+                    subMgr->subtitles.erase(subMgr->subtitles.begin() + i);
+                    continue;
+                }
+                shown = shown || entry.speaker == handle;
+                ++i;
+            }
+            if (shown) return;
+
+            RE::SubtitleInfo info;
+            info.speaker = handle;
+            info.subtitle = a_response->text;
+            info.targetDistance = 0.0f;
+            info.forceDisplay = true;
+            subMgr->subtitles.push_back(info);
+            if (subMgr->currentSpeaker == handle) {
+                subMgr->currentSpeaker = RE::ObjectRefHandle{};
+            }
+        }
+
         // Plays the response's voice file on the actor, for when the engine didn't start it
         // (see SpeakAsPlayer). It has no lip sync.
         bool StartVoiceSound(RE::Actor* a_actor, const RE::DialogueResponse* a_response) {
@@ -834,6 +869,9 @@ namespace InTheirShoes {
             CopyResponse(a_response, self._standInLine);
             Silence(a_response);
             bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
+            if (a_this == session.GetPuppet()) {
+                RefreshPuppetSubtitle(a_this, a_response);
+            }
             self.SpeakAsPlayer(&self._standInLine, a_unused, false);
             self.HoldStandIn(a_this, a_response);
             return ret;
