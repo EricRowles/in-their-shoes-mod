@@ -3,18 +3,20 @@
 #include "Singleton.h"
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <optional>
+#include <set>
 #include "RE/D/DialogueItem.h"
 
 namespace InTheirShoes {
 
     // Routes dialogue so the impersonating player speaks the donor's lines.
     //
-    // Every line is voiced once, by the player. When the engine's speaker is a stand-in for the donor
-    // (the puppet in self-dialogue, or the hidden donor itself), that speaker runs the line silenced and
-    // is held "speaking" until the player's line ends, so the engine waits for the player.
-    // The player's own lines (scenes on swapped aliases) and idle chatter (picked by IdleChatter) are voiced
-    // the same way.
+    // Every line is voiced once, by the player. In self-dialogue the engine's speaker is the puppet, standing in
+    // for the donor: it runs the line silenced and is held "speaking" until the player's line ends, so the
+    // engine waits for the player. The player's own lines (scenes on swapped aliases, and lines scripts give the
+    // donor, which NativeRedirect sends to the player) and idle chatter (picked by IdleChatter) are voiced the
+    // same way.
     //
     // Whether self-dialogue is on is published in Session, which condition hooks read from AI threads.
     class DialogueManager :
@@ -33,7 +35,7 @@ namespace InTheirShoes {
         // BSTEventSink<RE::InputEvent*>: skipping self-dialogue lines
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
 
-        // BSTEventSink<RE::TESTopicInfoEvent>: logs the puppet's topic infos starting and ending
+        // BSTEventSink<RE::TESTopicInfoEvent>: tracks the puppet's topic infos starting and ending (see EndPuppetInfo)
         RE::BSEventNotifyControl ProcessEvent(const RE::TESTopicInfoEvent* a_event, RE::BSTEventSource<RE::TESTopicInfoEvent>* a_eventSource) override;
 
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
@@ -56,9 +58,10 @@ namespace InTheirShoes {
         void TickPlayerLine();
         void FinishPlayerLine();
 
-        // Stand-in speakers (the puppet in self-dialogue, the hidden donor)
+        // The stand-in speaker (the puppet in self-dialogue)
         void HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response);
         static void ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response);
+        void EndPuppetInfo(RE::Actor* a_puppet, RE::TESTopicInfo* a_info);
 
         static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
         using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
@@ -85,9 +88,8 @@ namespace InTheirShoes {
         bool _initialized{ false };
         std::atomic<bool> _pendingSelfDialogue{ false };
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
-        // Set when self-dialogue ends; the puppet is cleared as the engine's speaker shortly after the menu closes
-        std::atomic<bool> _puppetSpeakerClearPending{ false };
-        // When the menu was first seen closed, once it has
+        // After self-dialogue ends (Session::IsPuppetSpeakerPending), the puppet is cleared as the engine's speaker
+        // shortly after the menu closes. When the menu was first seen closed, once it has
         std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
 
         // The line the player is voicing. It exists only while the line plays, and is dropped as a whole
@@ -118,6 +120,12 @@ namespace InTheirShoes {
         // The player's copy of a stand-in's line (the stand-in's own response is silenced). Kept outside
         // PlayerLine: the line being voiced points at it, and replacing a line must not free it.
         RE::DialogueResponse _standInLine;
+
+        // The puppet's topic infos that began and haven't ended, and those we ended ourselves (EndPuppetInfo).
+        // Topic info events come from any thread.
+        std::mutex _puppetInfoLock;
+        std::set<RE::FormID> _puppetInfosOpen;
+        std::set<RE::FormID> _puppetInfosEndedByUs;
     };
 
 }

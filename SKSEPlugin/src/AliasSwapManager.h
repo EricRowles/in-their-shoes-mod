@@ -1,8 +1,6 @@
 #pragma once
 
 #include "Singleton.h"
-#include <mutex>
-#include <optional>
 #include <vector>
 
 namespace InTheirShoes {
@@ -11,7 +9,7 @@ namespace InTheirShoes {
     // rather than only answering GetIsAliasRef for the player, is needed because scenes only run an alias's
     // actions when the actor filling it is loaded, and the parked donor isn't.
     // Don't hook TESQuest::ForceRefIntoAlias: a 5-byte context hook split a prologue instruction and froze the game.
-    // Not thread-safe, except GetDonorAliasFactionRank, which faction condition hooks call from AI threads.
+    // Not thread-safe.
     class AliasSwapManager : public Singleton<AliasSwapManager> {
     public:
         using FactionRank = std::pair<RE::TESFaction*, std::int8_t>;
@@ -38,9 +36,9 @@ namespace InTheirShoes {
         std::size_t GetSwappedAliasCount() const { return _swappedAliases.size(); }
         void Clear();
 
-        // Factions the swapped aliases give the donor. The player holds the aliases, so the donor's faction
-        // conditions also count these. May be read from any thread.
-        std::optional<std::int8_t> GetDonorAliasFactionRank(const RE::TESFaction* a_faction) const;
+        // Whether a swapped alias gives its holder a_faction. The player gets these with the aliases, so
+        // FactionManager leaves them out of the factions it moves.
+        bool IsAliasFaction(const RE::TESFaction* a_faction) const;
 
         // Serialization: the swapped aliases are part of the session ('SESS') record
         const std::vector<SwappedAlias>& GetSwappedAliases() const { return _swappedAliases; }
@@ -51,13 +49,7 @@ namespace InTheirShoes {
         AliasSwapManager() = default;
         ~AliasSwapManager() = default;
 
-        void PublishDonorAliasFactions();
-
         std::vector<SwappedAlias> _swappedAliases;
-
-        // The swapped aliases' factions, for the condition hooks
-        mutable std::mutex _donorAliasFactionsLock;
-        std::vector<FactionRank> _donorAliasFactions;
     };
 
 }

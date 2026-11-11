@@ -6,15 +6,19 @@ GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the
 ; MCM Property Variables
 Bool Property IdleAIEnabled = True Auto
 Float Property IdleAITimeout = 10.0 Auto
+Int Property IdleAIPackage = 0 Auto
 Float Property IdleChatterTime = 60.0 Auto
 Bool Property NPCVoiceEnabled = True Auto
+Bool Property NativeRedirectEnabled = True Auto
 Bool Property PuppetFollowsPlayer = True Auto
 
 ; Option IDs
 Int _oid_idleAI
 Int _oid_idleTimeout
+Int _oid_idlePackage
 Int _oid_idleChatterTime
 Int _oid_npcVoice
+Int _oid_nativeRedirect
 Int _oid_puppetFollows
 Int _oid_revert
 Bool _pendingRevert = False
@@ -30,11 +34,16 @@ Function PushConfig()
 	If IdleChatterTime < 10.0
 		IdleChatterTime = 60.0
 	EndIf
+	If IdleAIPackage < 0 || IdleAIPackage > 2
+		IdleAIPackage = 0
+	EndIf
 
 	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
 	ITS_NG.SetIdleAITimeout(IdleAITimeout)
+	ITS_NG.SetIdleAIPackage(IdleAIPackage)
 	ITS_NG.SetIdleChatterTime(IdleChatterTime)
 	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
 	ApplyPuppetFollows()
 EndFunction
 
@@ -47,6 +56,15 @@ Function ApplyPuppetFollows()
 		EndIf
 	EndIf
 	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
+EndFunction
+
+; Default, then the ITS_PackageManager aliases in alias ID order
+String[] Function GetIdlePackageNames()
+	String[] names = new String[3]
+	names[0] = "Default"
+	names[1] = "Sandbox (wide)"
+	names[2] = "Sandbox (close)"
+	Return names
 EndFunction
 
 Event OnVersionUpdate(Int a_version)
@@ -74,6 +92,7 @@ Event OnPageReset(String page)
 	AddHeaderOption("Autonomous AI")
 	_oid_idleAI = AddToggleOption("Idle AI Pathing", IdleAIEnabled)
 	_oid_idleTimeout = AddSliderOption("Idle AI Delay", IdleAITimeout, "{1} s")
+	_oid_idlePackage = AddMenuOption("Idle AI Package", GetIdlePackageNames()[IdleAIPackage])
 
 	; Right Column: Puppet & Voice Settings
 	SetCursorPosition(5)
@@ -82,9 +101,10 @@ Event OnPageReset(String page)
 	_oid_npcVoice = AddToggleOption("NPC Voice", NPCVoiceEnabled)
 	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s")
 	_oid_puppetFollows = AddToggleOption("Puppet Follows Player", PuppetFollowsPlayer)
+	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", NativeRedirectEnabled)
 	; Leave a gap before Return to Body. (Not AddEmptyOption: SkyUI versions disagree on whether it returns
 	; an Int, and a mismatch logs a Papyrus error every time the page opens.)
-	SetCursorPosition(15)
+	SetCursorPosition(17)
 
 	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
 		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
@@ -102,6 +122,10 @@ Event OnOptionSelect(Int option)
 		NPCVoiceEnabled = !NPCVoiceEnabled
 		SetToggleOptionValue(_oid_npcVoice, NPCVoiceEnabled)
 		ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+	ElseIf option == _oid_nativeRedirect
+		NativeRedirectEnabled = !NativeRedirectEnabled
+		SetToggleOptionValue(_oid_nativeRedirect, NativeRedirectEnabled)
+		ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
 	ElseIf option == _oid_puppetFollows
 		PuppetFollowsPlayer = !PuppetFollowsPlayer
 		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
@@ -157,15 +181,35 @@ Event OnOptionSliderAccept(Int option, Float value)
 	EndIf
 EndEvent
 
+Event OnOptionMenuOpen(Int option)
+	If option == _oid_idlePackage
+		SetMenuDialogOptions(GetIdlePackageNames())
+		SetMenuDialogStartIndex(IdleAIPackage)
+		SetMenuDialogDefaultIndex(0)
+	EndIf
+EndEvent
+
+Event OnOptionMenuAccept(Int option, Int index)
+	If option == _oid_idlePackage && index >= 0
+		IdleAIPackage = index
+		SetMenuOptionValue(_oid_idlePackage, GetIdlePackageNames()[index])
+		ITS_NG.SetIdleAIPackage(IdleAIPackage)
+	EndIf
+EndEvent
+
 Event OnOptionHighlight(Int option)
 	If option == _oid_idleAI
 		SetInfoText("Enables autonomous AI pathing on your player after a few seconds of inactivity.")
 	ElseIf option == _oid_idleTimeout
 		SetInfoText("Seconds of player inactivity before autonomous AI pathing begins.")
+	ElseIf option == _oid_idlePackage
+		SetInfoText("What you do when idle AI starts. Default runs the NPC's own packages. Any other choice runs instead of them, even while the NPC is a follower.")
 	ElseIf option == _oid_npcVoice
 		SetInfoText("Enables donor NPC voice comments and voice identity on the player while impersonating.")
 	ElseIf option == _oid_idleChatterTime
 		SetInfoText("Seconds between ambient idle dialogue chatter lines while impersonating an NPC (up to 10 minutes).")
+	ElseIf option == _oid_nativeRedirect
+		SetInfoText("Experimental. Other mods' script calls on the NPC you're impersonating act on you instead, such as making it speak, asking where it is or changing its factions.")
 	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
 	ElseIf option == _oid_revert

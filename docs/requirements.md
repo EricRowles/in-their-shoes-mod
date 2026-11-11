@@ -37,6 +37,11 @@ The impersonator shall be treated as the quest target for idle dialogue. When th
 All conditions that would require the donor to say a line (in location, near reference, is reference, in quest alias etc.) will be applied to the player, so that the player can speak idle lines without the donor.
 Conditions that require the player to be nearby will still target the impersonator.
 
+### Impersonation - social identity
+While impersonating, the world shall treat the impersonator as the donor:
+- The impersonator shall be a member of the donor's factions, at the donor's ranks, and not of the Dragonborn's (except PlayerFaction). On revert, the donor shall get the impersonator's factions as they are then, and the Dragonborn's factions shall be restored.
+- Other actors' relationships with the donor shall apply to the impersonator, and the Dragonborn's relationships to the puppet.
+
 ### Impersonation - packages
 The donor's original packages shall apply to the player as configured in the MCM menu.
 
@@ -64,8 +69,10 @@ The donor shall remain hidden from the player. If scripting would make the donor
 - The user shall be able to configure these options:
   - Idle pathing (toggle)
   - Idle time before pathing (seconds)
+  - Idle package: Default (the donor's own packages) or a sandbox package that replaces them, so a donor whose quests made them a follower can still sandbox
   - Autonomous combat AI (toggle)
   - NPC voice (toggle)
   - NPC voice - interval between idle lines
   - Puppet follows player (toggle)
+  - Redirect other mods' script calls on the donor to the player (toggle)
   - Return to body (action)

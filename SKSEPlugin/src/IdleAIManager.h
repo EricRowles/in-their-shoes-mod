@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GameUtil.h"
+#include "PackageUtil.h"
 #include "Singleton.h"
 #include <atomic>
 #include <chrono>
@@ -27,6 +28,10 @@ namespace InTheirShoes {
 
         void SetIdleAIEnabled(bool a_enabled) { _enabled = a_enabled; }
         void SetIdleTimeout(float a_seconds) { _idleTimeoutSeconds = a_seconds; }
+        // The MCM's idle package: 0 runs the donor's own packages, n puts the player in ITS_PackageManager's
+        // alias n - 1 while idle AI runs, whose package outranks the donor's (its quests' too)
+        void SetIdlePackage(std::int32_t a_index);
+        void OnPostLoadGame();
         bool IsAIActive() const { return _aiActive; }
 
         void ClearPlayerPackages();
@@ -45,9 +50,13 @@ namespace InTheirShoes {
         void OnUserInput();
         void CheckIdleAI();
         void SyncDonorPackagesToPlayer();
+        void CollectDonorPackages(RE::TESActorBase* a_donorBase, RE::Actor* a_player, RE::Actor* a_puppet,
+            std::vector<RE::TESPackage*>& a_out);
         bool RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet);
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
+        void FillIdlePackageAlias();
+        void ReleaseIdlePackageAlias(bool a_force = false);
         void LogRunningPackage();
 
         static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
@@ -73,25 +82,11 @@ namespace InTheirShoes {
         std::chrono::steady_clock::time_point _lastInputTime{ std::chrono::steady_clock::now() };
         bool _savedUserRunning{ true };
 
-        // A package target redirected from the player to the puppet while autonomous AI is active
-        struct RetargetedPackageTarget {
-            RE::PackageTarget* target{ nullptr };
-            std::int8_t origType{ 0 };
-            RE::ObjectRefHandle origHandle;
-            RE::TESForm* origObject{ nullptr };
-        };
+        // Package targets and locations redirected from the player to the puppet while autonomous AI is active
+        PackageUtil::PackageEdits _packageEdits;
 
-        // A package location redirected from the player to the puppet while autonomous AI is active
-        struct RetargetedPackageLocation {
-            RE::PackageLocation* location{ nullptr };
-            std::uint8_t origType{ 0 };
-            RE::ObjectRefHandle origHandle;
-            RE::TESForm* origObject{ nullptr };
-            std::uint32_t origRad{ 0 };
-        };
-
-        std::vector<RetargetedPackageTarget> _retargetedTargets;
-        std::vector<RetargetedPackageLocation> _retargetedLocations;
+        std::int32_t _idlePackageIndex{ 0 };
+        bool _idlePackageAliasFilled{ false };
     };
 
 }

@@ -2,6 +2,7 @@
 #include "Serialization.h"
 #include "AliasSwapManager.h"
 #include "FaceManager.h"
+#include "FactionManager.h"
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
@@ -184,10 +185,11 @@ namespace InTheirShoes::Serialization {
             WriteFormID(a_serde, spells.leftSpell);
             WriteFormID(a_serde, spells.rightSpell);
             WriteFormID(a_serde, spells.shout);
+            WriteList(a_serde, spells.abilities, [&](RE::FormID a_id) { Write(a_serde, a_id); });
         }
 
-        bool ReadBaseline(Serde* a_serde, Baseline& a_out) {
-            return ReadFaceSnapshot(a_serde, a_out.face) &&
+        bool ReadBaseline(Serde* a_serde, std::uint32_t a_version, Baseline& a_out) {
+            const bool ok = ReadFaceSnapshot(a_serde, a_out.face) &&
                    ReadList(a_serde, [&] {
                        std::uint32_t av = 0;
                        float value = 0.0f;
@@ -204,6 +206,15 @@ namespace InTheirShoes::Serialization {
                    ReadForm(a_serde, a_out.spells.leftSpell) &&
                    ReadForm(a_serde, a_out.spells.rightSpell) &&
                    ReadForm(a_serde, a_out.spells.shout);
+            // v1 has no abilities (and didn't give the player the donor's): revert leaves them alone
+            if (!ok || a_version < 2) return ok;
+            a_out.spells.abilitiesRecorded = true;
+            return ReadList(a_serde, [&] {
+                RE::FormID id = 0;
+                if (!ReadFormID(a_serde, id)) return false;
+                if (id != 0) a_out.spells.abilities.push_back(id);
+                return true;
+            });
         }
 
         // --- 'SESS': donor, puppet, swapped aliases and donor quest items carried by the player ---
@@ -277,6 +288,28 @@ namespace InTheirShoes::Serialization {
             ImpersonationManager::GetSingleton().RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
         }
 
+        // --- 'FACT': the Dragonborn's factions and the donor's the player was given ---
+
+        void WriteFactions(Serde* a_serde) {
+            auto& factions = FactionManager::GetSingleton();
+            if (!factions.IsActive() || !Session::GetSingleton().IsActive()) return;
+            if (!a_serde->OpenRecord(kFactionsRecord, kFactionsVersion)) return;
+            WriteFactionRanks(a_serde, factions.GetDragonbornFactions());
+            WriteFactionRanks(a_serde, factions.GetGivenFactions());
+        }
+
+        void ReadFactions(Serde* a_serde) {
+            std::vector<FactionManager::FactionRank> dragonborn;
+            std::vector<FactionManager::FactionRank> given;
+            if (!ReadFactionRanks(a_serde, dragonborn) || !ReadFactionRanks(a_serde, given)) {
+                SKSE::log::warn("Factions record is truncated; ignoring it.");
+                return;
+            }
+            FactionManager::GetSingleton().Restore(std::move(dragonborn), std::move(given));
+            SKSE::log::info("Loaded session factions ({} Dragonborn, {} donor).",
+                FactionManager::GetSingleton().GetDragonbornFactions().size(), FactionManager::GetSingleton().GetGivenFactions().size());
+        }
+
         // Whether this build can read a record saved at a_version (it reads a_current and every older
         // version back to a_min)
         bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current,
@@ -310,6 +343,7 @@ namespace InTheirShoes::Serialization {
             WriteBaseline(a_serde, *baseline);
         }
         WriteSession(a_serde);
+        WriteFactions(a_serde);
         if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton().IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
@@ -332,7 +366,7 @@ namespace InTheirShoes::Serialization {
                 case kBaselineRecord: {
                     if (!IsReadableVersion(type, version, kBaselineVersion)) break;
                     Baseline baseline;
-                    if (ReadBaseline(a_serde, baseline)) {
+                    if (ReadBaseline(a_serde, version, baseline)) {
                         ImpersonationManager::GetSingleton().SetBaseline(std::move(baseline));
                         SKSE::log::info("Loaded Dragonborn baseline from co-save.");
                     } else {
@@ -357,6 +391,11 @@ namespace InTheirShoes::Serialization {
                     }
                     break;
                 }
+
+                case kFactionsRecord:
+                    if (!IsReadableVersion(type, version, kFactionsVersion)) break;
+                    ReadFactions(a_serde);
+                    break;
 
                 default:
                     SKSE::log::warn("Unknown record type {:08X} in co-save", type);

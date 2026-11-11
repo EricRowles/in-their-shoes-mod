@@ -2,12 +2,14 @@
 #include "Papyrus.h"
 #include "IdleAIManager.h"
 #include "DialogueManager.h"
+#include "GameUtil.h"
 #include "IdleChatter.h"
 #include "ImpersonationManager.h"
 #include "Session.h"
 #include "Version.h"
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
+#include <RE/F/FunctionArguments.h>
 
 namespace InTheirShoes::Papyrus {
 
@@ -28,6 +30,10 @@ namespace InTheirShoes::Papyrus {
             IdleAIManager::GetSingleton().SetIdleTimeout(a_seconds);
         }
 
+        void SetIdleAIPackage(RE::StaticFunctionTag*, std::int32_t a_index) {
+            IdleAIManager::GetSingleton().SetIdlePackage(a_index);
+        }
+
         void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
             IdleChatter::GetSingleton().SetInterval(a_seconds);
         }
@@ -40,6 +46,10 @@ namespace InTheirShoes::Papyrus {
 
         void SetNPCVoiceEnabled(RE::StaticFunctionTag*, bool a_enabled) {
             Session::GetSingleton().SetNPCVoiceEnabled(a_enabled);
+        }
+
+        void SetNativeRedirectEnabled(RE::StaticFunctionTag*, bool a_enabled) {
+            Session::GetSingleton().SetNativeRedirectEnabled(a_enabled);
         }
 
         void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
@@ -127,66 +137,59 @@ namespace InTheirShoes::Papyrus {
             return ImpersonationManager::IsPlayerTransformed();
         }
 
-        // --- Vanilla ObjectReference spatial natives, overridden ---
-        // Scripts check where the donor is (e.g. "is Remi in the player's cell?"), but the donor is parked in the
-        // holding cell. Like the spatial condition hooks, these answer for the parked donor (and the puppet during
-        // self-dialogue) as if it were the player. Everything else matches the vanilla callbacks, which are
-        // long-form natives that call the same engine functions (checked against the 1.6.1170 code).
-        // IsInInterior, IsInLocation and IsNearPlayer are Papyrus functions built on these, so they follow.
-
         using VM = RE::BSScript::IVirtualMachine;
 
-        RE::TESObjectREFR* Spatial(RE::TESObjectREFR* a_ref) {
-            return Session::GetSingleton().ResolveSpatialRef(a_ref);
+        // --- Trigger events ---
+        // When the player enters or leaves a trigger with a script property set to the donor,
+        // the trigger also gets the event for the donor.
+        // Runs on any thread: reads only Session and the VM's locked script table.
+
+        using SendEvent_t = void(VM*, RE::VMHandle, const RE::BSFixedString&, RE::BSScript::IFunctionArguments*);
+        REL::Relocation<SendEvent_t> _origSendEvent;
+
+        bool IsPlayerArgument(const RE::BSScript::IFunctionArguments* a_args) {
+            RE::BSScrapArray<RE::BSScript::Variable> args;
+            (*a_args)(args);
+            return !args.empty() && HoldsForm(args[0], RE::PlayerCharacter::GetSingleton());
         }
 
-        RE::TESObjectCELL* GetParentCell(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {
-            return Spatial(a_self)->GetParentCell();
-        }
-
-        RE::TESWorldSpace* GetWorldSpace(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {
-            return Spatial(a_self)->GetWorldspace();
-        }
-
-        RE::BGSLocation* GetCurrentLocation(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) {
-            return Spatial(a_self)->GetCurrentLocation();
-        }
-
-        float GetPositionX(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) { return Spatial(a_self)->GetPositionX(); }
-        float GetPositionY(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) { return Spatial(a_self)->GetPositionY(); }
-        float GetPositionZ(VM*, RE::VMStackID, RE::TESObjectREFR* a_self) { return Spatial(a_self)->GetPositionZ(); }
-
-        float GetDistance(VM* a_vm, RE::VMStackID a_stackID, RE::TESObjectREFR* a_self, RE::TESObjectREFR* a_other) {
-            if (!a_other) {
-                a_vm->TraceStack("Cannot get the distance to a None object", a_stackID);
-                return 0.0f;
+        // Whether any script on the object has a variable (auto properties included) holding a_donor
+        bool HasDonorProperty(VM* a_vm, RE::VMHandle a_handle, const RE::Actor* a_donor) {
+            auto* vm = static_cast<RE::BSScript::Internal::VirtualMachine*>(a_vm);
+            RE::BSSpinLockGuard locker(vm->attachedScriptsLock);
+            auto it = vm->attachedScripts.find(a_handle);
+            if (it == vm->attachedScripts.end()) return false;
+            for (auto& script : it->second) {
+                const auto* object = script.get();
+                const auto* type = object ? object->GetTypeInfo() : nullptr;
+                if (!type) continue;
+                for (std::uint32_t i = 0; i < type->GetTotalNumVariables(); ++i) {
+                    if (HoldsForm(object->variables[i], a_donor)) return true;
+                }
             }
-            return Spatial(a_self)->GetDistance(Spatial(a_other), true, false);
+            return false;
         }
 
-        float GetHeadingAngle(VM* a_vm, RE::VMStackID a_stackID, RE::TESObjectREFR* a_self, RE::TESObjectREFR* a_other) {
-            if (!a_other) {
-                a_vm->TraceStack("Cannot get the heading angle to a None object", a_stackID);
-                return 0.0f;
+        void SendEvent(VM* a_vm, RE::VMHandle a_handle, const RE::BSFixedString& a_eventName, RE::BSScript::IFunctionArguments* a_args) {
+            static const RE::BSFixedString onTriggerEnter{ "OnTriggerEnter" };
+            static const RE::BSFixedString onTriggerLeave{ "OnTriggerLeave" };
+            auto& session = Session::GetSingleton();
+            auto* donor = session.IsActive() ? session.GetDonor() : nullptr;
+            // The VM owns a_args once the event is sent, so they're read first
+            const bool sendForDonor = donor && a_args && (a_eventName == onTriggerEnter || a_eventName == onTriggerLeave) &&
+                                      IsPlayerArgument(a_args) && HasDonorProperty(a_vm, a_handle, donor);
+            _origSendEvent(a_vm, a_handle, a_eventName, a_args);
+            if (sendForDonor) {
+                SKSE::log::info("Sent {} for the donor to handle {:X}", a_eventName.c_str(), a_handle);
+                _origSendEvent(a_vm, a_handle, a_eventName, RE::MakeFunctionArguments(static_cast<RE::TESObjectREFR*>(donor)));
             }
-            auto* self = Spatial(a_self);
-            auto* other = Spatial(a_other);
-            // Both standing in for the player: facing (as the GetHeadingAngle condition hook answers)
-            if (self == other) return 0.0f;
-            return self->GetHeadingAngle(other->GetPosition(), false);
         }
 
-        void RegisterSpatialOverrides(VM* a_vm) {
-            constexpr std::string_view cls = "ObjectReference";
-            a_vm->RegisterFunction("GetParentCell", cls, GetParentCell);
-            a_vm->RegisterFunction("GetWorldSpace", cls, GetWorldSpace);
-            a_vm->RegisterFunction("GetCurrentLocation", cls, GetCurrentLocation);
-            a_vm->RegisterFunction("GetPositionX", cls, GetPositionX);
-            a_vm->RegisterFunction("GetPositionY", cls, GetPositionY);
-            a_vm->RegisterFunction("GetPositionZ", cls, GetPositionZ);
-            a_vm->RegisterFunction("GetDistance", cls, GetDistance);
-            a_vm->RegisterFunction("GetHeadingAngle", cls, GetHeadingAngle);
-            SKSE::log::info("Overrode ObjectReference spatial natives for the parked donor.");
+        void HookSendEvent() {
+            if (_origSendEvent.address()) return;
+            REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_BSScript__Internal__VirtualMachine[0] };
+            _origSendEvent = vtbl.write_vfunc(0x24, &SendEvent);
+            SKSE::log::info("Hooked VirtualMachine::SendEvent (0x24) to send trigger events for the donor.");
         }
     }
 
@@ -196,7 +199,7 @@ namespace InTheirShoes::Papyrus {
             return false;
         }
 
-        RegisterSpatialOverrides(a_vm);
+        HookSendEvent();
 
         constexpr std::string_view className = "ITS_NG";
 
@@ -204,9 +207,11 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("Revert", className, Revert);
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
+        a_vm->RegisterFunction("SetIdleAIPackage", className, SetIdleAIPackage);
         a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
         a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);
+        a_vm->RegisterFunction("SetNativeRedirectEnabled", className, SetNativeRedirectEnabled);
         a_vm->RegisterFunction("SetPuppetFollowsPlayer", className, SetPuppetFollowsPlayer);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
         a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);

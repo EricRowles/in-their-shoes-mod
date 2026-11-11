@@ -9,7 +9,7 @@ While impersonating, the **player** voices every line the donor would say, and t
 | Normal play | Donor | Dragonborn |
 | Self-dialogue (talking to the puppet) | Dragonborn (the listener) | Donor (the speaker) |
 
-The parked donor always counts as being where the player is. The player and puppet both use the donor's voice type, so lines resolve to the donor's voice files. With NPC voice off in the MCM, the player keeps the Dragonborn's voice type.
+The parked donor always counts as being where the player is. The player and puppet both use the donor's voice type, so lines resolve to the donor's voice files. With NPC voice off in the MCM, the player keeps the Dragonborn's voice type. Conditions never count the player as being in a scene, because it only joins scenes in the donor's place.
 
 ## Self-dialogue
 
@@ -17,15 +17,17 @@ Opens when the player activates the puppet, or when a donor package that would g
 
 ## Speech
 
-- **Donor lines** (self-dialogue, or lines the hidden donor is given): the engine's speaker runs the line silently while the player voices it, so the conversation waits for the player. Lines from the hidden donor get a subtitle.
+- **Self-dialogue lines:** the puppet runs the line silently while the player voices it, so the conversation waits for the player.
+- **Lines scripts give the donor** (e.g. a follower's reply to another follower) are spoken by the player when the MCM's script redirect is on.
 - **Scene lines** the player is given through the donor's aliases are voiced by the player.
 - **Skipping:** the usual skip input during a self-dialogue line ends the player's line.
+- **Ending a line:** after a self-dialogue line's last response, the conversation moves on as it would with an NPC: an Invisible Continue line plays its follow-up, a Goodbye line closes the menu, and otherwise the topics show. Each line's end fragment runs once, when it ends.
 - Outside self-dialogue the puppet says nothing.
 
 ## Idle chatter
 
-When the cooldown (MCM) has passed and the player is free, a random idle line the donor could say is picked from running quests and voiced by the player.
+When the cooldown (MCM) has passed and the player is free and not in a scene, a random idle line the donor could say is picked from running quests and voiced by the player. The line's fragments run with the donor as the speaker, so it can start a scene (e.g. another follower's reply).
 
 ## Follower recruitment
 
-Dialogue fragments act on the speaker, which in self-dialogue is the puppet. So during self-dialogue and just after it closes, faction changes on the puppet go to the donor, and any quest alias the puppet is put into (e.g. a follower alias) moves to the player and counts for the donor's conditions. If a quest later clears the alias (e.g. dismissal), the donor loses it; otherwise the donor gets it on revert like its other aliases. Other changes a fragment makes to the speaker (items, AI) still land on the puppet ([#6](https://github.com/EricRowles/in-their-shoes-mod/issues/6)).
+Dialogue fragments act on the speaker, which in self-dialogue is the puppet. So with the MCM's script redirect on, during self-dialogue and just after it closes, what a fragment does to the puppet goes to the player (items, AI, factions, killing it), except teammate status and relationships, which go to the donor. With it off, those changes stay on the puppet. The player holds the donor's factions for the session, so the donor gets them on revert. Any quest alias the puppet is put into (e.g. a follower alias) moves to the player and counts for the donor's conditions. If a quest later clears the alias (e.g. dismissal), the donor loses it; otherwise the donor gets it on revert like its other aliases.
