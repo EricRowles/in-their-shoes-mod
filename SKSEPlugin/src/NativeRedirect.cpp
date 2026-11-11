@@ -9,6 +9,7 @@
 #include <array>
 #include <mutex>
 #include <set>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 
@@ -151,33 +152,40 @@ namespace InTheirShoes::NativeRedirect {
             return _stricmp(name, "Actor") == 0 || _stricmp(name, "ObjectReference") == 0 ? name : nullptr;
         }
 
+        // a_what must be a string literal: it is kept as the key. Keyed by the native and the calling script's
+        // type, so a redirect that was already logged costs a lookup, not a formatted string.
         void LogOnce(const NativeFunction* a_native, const StackFrame& a_caller, std::string_view a_what) {
             static std::mutex lock;
-            static std::set<std::string> logged;
-            auto line = fmt::format("{}.{} from {}: {}", a_native->GetObjectTypeName().c_str(), a_native->GetName().c_str(),
-                a_caller.owningObjectType->GetName(), a_what);
-            std::scoped_lock guard(lock);
-            if (logged.insert(line).second) {
-                SKSE::log::info("Redirected {}", line);
+            static std::set<std::tuple<const void*, const void*, const char*>> logged;
+            {
+                std::scoped_lock guard(lock);
+                if (!logged.emplace(a_native, a_caller.owningObjectType.get(), a_what.data()).second) return;
             }
+            SKSE::log::info("Redirected {}.{} from {}: {}", a_native->GetObjectTypeName().c_str(), a_native->GetName().c_str(),
+                a_caller.owningObjectType->GetName(), a_what);
         }
 
-        // Swaps arguments that stand for the donor for the player while the native runs
+        // Swaps arguments that stand for the donor for the player while the native runs. For kDonor natives they
+        // mean the donor itself, as self does: "X.SetRelationshipRank(donor, n)" set X's relationship with the
+        // Dragonborn's record, and "PlayerRef.SetRelationshipRank(donor, n)" the player's with itself. So the
+        // donor is left alone, and the puppet speaking for it becomes the donor.
         class ArgumentSwap {
         public:
             ArgumentSwap(const NativeFunction* a_native, const StackFrame& a_frame, const StackFrame& a_caller, Kind a_kind,
                 VM& a_vm, const Session& a_session) {
+                const bool toDonor = a_kind == Kind::kDonor;
+                auto* target = toDonor ? a_session.GetDonor() : Session::GetPlayer();
                 const auto page = a_frame.GetPageForFrame();
                 for (std::uint32_t i = 0; i < a_native->GetParamCount(); ++i) {
                     auto& arg = a_frame.GetStackFrameVariable(i, page);
                     auto* standIn = GetStandIn(arg, a_session);
-                    const char* className = standIn ? GetNativeClass(arg) : nullptr;
+                    const char* className = standIn && standIn != target ? GetNativeClass(arg) : nullptr;
                     if (!className || (a_kind != Kind::kLocation && IsOnBody(a_caller, standIn))) continue;
-                    Variable player;
-                    if (!GetObjectFor(a_vm, Session::GetPlayer(), className, player)) continue;
+                    Variable replacement;
+                    if (!GetObjectFor(a_vm, target, className, replacement)) continue;
                     _swapped.emplace_back(&arg, arg);
-                    arg = player;
-                    LogOnce(a_native, a_caller, "argument to the player");
+                    arg = replacement;
+                    LogOnce(a_native, a_caller, toDonor ? "puppet argument to the donor" : "argument to the player");
                 }
             }
             ~ArgumentSwap() {

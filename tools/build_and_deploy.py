@@ -127,6 +127,16 @@ def compile_papyrus():
     print("All Papyrus scripts compiled successfully!")
 
 
+def remove_stale_scripts(folder, extension, script_names):
+    """Removes the mod's scripts (ITS_*) in a deploy folder that the repo no longer has."""
+    keep = {name.lower() for name in script_names}
+    for f in os.listdir(folder):
+        name, ext = os.path.splitext(f)
+        if ext.lower() == extension and name.lower().startswith("its_") and name.lower() not in keep:
+            os.remove(os.path.join(folder, f))
+            print(f"Removed stale script: {os.path.join(folder, f)}")
+
+
 def deploy():
     print("\n=== [3/3] Deploying to Mod Folders ===")
     targets = path_list(ENV.get("DEPLOY_TARGETS", ""))
@@ -134,33 +144,37 @@ def deploy():
         print("DEPLOY_TARGETS is empty in .env; skipping deployment.")
         return
 
+    dll_locked = []
     for target in targets:
         os.makedirs(target, exist_ok=True)
 
         dll_dir = os.path.join(target, "SKSE", "Plugins")
         os.makedirs(dll_dir, exist_ok=True)
 
-        old_dll = os.path.join(dll_dir, "InTheirShoes.dll")
-        if os.path.exists(old_dll):
-            try: os.remove(old_dll)
-            except: pass
-
         if os.path.exists(DLL_SRC):
-            shutil.copy2(DLL_SRC, os.path.join(dll_dir, "InTheirShoes.dll"))
-            print(f"Deployed DLL -> {dll_dir}")
+            try:
+                shutil.copy2(DLL_SRC, os.path.join(dll_dir, "InTheirShoes.dll"))
+                print(f"Deployed DLL -> {dll_dir}")
+            except PermissionError:
+                # The game is running from this folder
+                print(f"DLL locked by another process (NOT deployed): {dll_dir}")
+                dll_locked.append(target)
+
+        # The scripts the repo has now; the mod's scripts deleted from the repo are removed from the target
+        script_names = sorted(os.path.splitext(f)[0] for f in os.listdir(SCRIPTS_SRC) if f.endswith(".psc"))
 
         pex_dir = os.path.join(target, "scripts")
         os.makedirs(pex_dir, exist_ok=True)
-        for f in os.listdir(SCRIPTS_PEX_OUT):
-            if f.endswith(".pex"):
-                shutil.copy2(os.path.join(SCRIPTS_PEX_OUT, f), os.path.join(pex_dir, f))
+        for name in script_names:
+            shutil.copy2(os.path.join(SCRIPTS_PEX_OUT, name + ".pex"), os.path.join(pex_dir, name + ".pex"))
+        remove_stale_scripts(pex_dir, ".pex", script_names)
         print(f"Deployed PEX scripts -> {pex_dir}")
 
         src_dir = os.path.join(target, "source", "scripts")
         os.makedirs(src_dir, exist_ok=True)
-        for f in os.listdir(SCRIPTS_SRC):
-            if f.endswith(".psc"):
-                shutil.copy2(os.path.join(SCRIPTS_SRC, f), os.path.join(src_dir, f))
+        for name in script_names:
+            shutil.copy2(os.path.join(SCRIPTS_SRC, name + ".psc"), os.path.join(src_dir, name + ".psc"))
+        remove_stale_scripts(src_dir, ".psc", script_names)
         print(f"Deployed PSC sources -> {src_dir}")
 
         esp_src = os.path.join(REPO_ROOT, "InTheirShoes.esp")
@@ -171,6 +185,9 @@ def deploy():
             except PermissionError:
                 print(f"ESP locked by another process (skipping copy): {target}")
 
+    if dll_locked:
+        print(f"\nDeployment incomplete: the DLL wasn't copied to {', '.join(dll_locked)}. Close the game and run again.")
+        sys.exit(1)
     print("\nDeployment complete!")
 
 

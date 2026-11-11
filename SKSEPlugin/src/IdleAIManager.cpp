@@ -276,7 +276,8 @@ namespace InTheirShoes {
                 isUserAction = button->IsPressed() || button->IsDown() || button->IsHeld();
             } else if (event->GetEventType() == RE::INPUT_EVENT_TYPE::kThumbstick) {
                 const auto* stick = static_cast<const RE::ThumbstickEvent*>(event);
-                isUserAction = std::abs(stick->xValue) > 0.25f || std::abs(stick->yValue) > 0.25f;
+                // Only the left stick: the right stick, like mouse movement, just moves the camera
+                isUserAction = stick->IsLeft() && (std::abs(stick->xValue) > 0.25f || std::abs(stick->yValue) > 0.25f);
             }
             if (isUserAction) {
                 OnUserInput();
