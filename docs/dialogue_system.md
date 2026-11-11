@@ -19,7 +19,7 @@ Opens when the player activates the puppet, or when a donor package that would g
 
 - **Self-dialogue lines:** the puppet runs the line silently while the player voices it, so the conversation waits for the player.
 - **Lines scripts give the donor** (e.g. a follower's reply to another follower) are spoken by the player when the MCM's script redirect is on.
-- **Scene lines** the player is given through the donor's aliases are voiced by the player.
+- **Scene lines** the player is given through the donor's aliases are voiced by the player. Idle AI keeps running during scenes and runs the scene's package actions for the player. While idle AI moves the player, the player's scene lines wait until it stops.
 - **Skipping:** the usual skip input during a self-dialogue line ends the player's line.
 - **Ending a line:** after a self-dialogue line's last response, the conversation moves on as it would with an NPC: an Invisible Continue line plays its follow-up, a Goodbye line closes the menu, and otherwise the topics show. Each line's end fragment runs once, when it ends.
 - Outside self-dialogue the puppet says nothing.

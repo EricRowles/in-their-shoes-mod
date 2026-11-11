@@ -1,6 +1,8 @@
 #include "PCH.h"
 #include "Papyrus.h"
 #include "IdleAIManager.h"
+#include "AliasSwapManager.h"
+#include "FactionManager.h"
 #include "DialogueManager.h"
 #include "GameUtil.h"
 #include "IdleChatter.h"
@@ -32,6 +34,26 @@ namespace InTheirShoes::Papyrus {
 
         void SetIdleAIPackage(RE::StaticFunctionTag*, std::int32_t a_index) {
             IdleAIManager::GetSingleton().SetIdlePackage(a_index);
+        }
+
+        void SetIdleTravelDestination(RE::StaticFunctionTag*, std::int32_t a_index) {
+            IdleAIManager::GetSingleton().SetTravelDestination(a_index);
+        }
+
+        RE::BSFixedString GetCurrentSceneName(RE::StaticFunctionTag*) {
+            auto* scene = GetPlayingScene(RE::PlayerCharacter::GetSingleton());
+            if (!scene) return ""sv;
+            // Editor IDs are only kept in memory with a mod such as powerofthree's Tweaks
+            const std::string_view editorID = scene->GetFormEditorID();
+            return editorID.empty() ? fmt::format("{:08X}", scene->GetFormID()) : std::string(editorID);
+        }
+
+        std::int32_t GetTemporaryFactionCount(RE::StaticFunctionTag*) {
+            return static_cast<std::int32_t>(FactionManager::GetSingleton().GetGivenFactions().size());
+        }
+
+        std::int32_t GetTemporaryAliasCount(RE::StaticFunctionTag*) {
+            return static_cast<std::int32_t>(AliasSwapManager::GetSingleton().GetSwappedAliasCount());
         }
 
         void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
@@ -208,6 +230,10 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
         a_vm->RegisterFunction("SetIdleAIPackage", className, SetIdleAIPackage);
+        a_vm->RegisterFunction("SetIdleTravelDestination", className, SetIdleTravelDestination);
+        a_vm->RegisterFunction("GetCurrentSceneName", className, GetCurrentSceneName);
+        a_vm->RegisterFunction("GetTemporaryFactionCount", className, GetTemporaryFactionCount);
+        a_vm->RegisterFunction("GetTemporaryAliasCount", className, GetTemporaryAliasCount);
         a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
         a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);
