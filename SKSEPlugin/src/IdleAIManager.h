@@ -31,6 +31,8 @@ namespace InTheirShoes {
         // The MCM's idle package: 0 runs the donor's own packages, n puts the player in ITS_PackageManager's
         // alias n - 1 while idle AI runs, whose package outranks the donor's (its quests' too)
         void SetIdlePackage(std::int32_t a_index);
+        // Where the Travel package goes: an index into Forms::travelDestinations
+        void SetTravelDestination(std::int32_t a_index);
         void OnPostLoadGame();
         bool IsAIActive() const { return _aiActive; }
 
@@ -53,6 +55,8 @@ namespace InTheirShoes {
         bool RetargetPackageToPuppet(RE::TESPackage* a_pkg, RE::Actor* a_player, RE::Actor* a_puppet);
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
+        bool CombatStopsIdleAI(RE::PlayerCharacter* a_player) const;
+        void CheckTravelArrival();
         void FillIdlePackageAlias();
         void ReleaseIdlePackageAlias();
         void LogRunningPackage();
@@ -84,6 +88,8 @@ namespace InTheirShoes {
         PackageUtil::PackageEdits _packageEdits;
 
         std::int32_t _idlePackageIndex{ 0 };
+        std::int32_t _travelDestinationIndex{ 0 };
+        bool _travelArrived{ false };  // The Travel package reached its city, so the player sandboxes there
         bool _idlePackageAliasFilled{ false };
     };
 

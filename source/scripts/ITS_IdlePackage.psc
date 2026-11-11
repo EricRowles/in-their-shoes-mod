@@ -3,12 +3,19 @@
 ; quests' alias packages, such as a follower's Follow.
 Scriptname ITS_IdlePackage Hidden
 
-; Puts the player in alias a_aliasID only
-Function Fill(Quest a_quest, Int a_aliasID) Global
+; Puts the player in alias a_aliasID only. a_destination goes in alias a_destinationAliasID (TravelDestination),
+; which the Travel package travels to; pass None or -1 to leave it empty.
+Function Fill(Quest a_quest, Int a_aliasID, ObjectReference a_destination, Int a_destinationAliasID) Global
 	If !a_quest.IsRunning()
 		a_quest.Start()
 	EndIf
 	ClearAliases(a_quest)
+	If a_destination && a_destinationAliasID >= 0
+		ReferenceAlias destinationAlias = a_quest.GetAlias(a_destinationAliasID) as ReferenceAlias
+		If destinationAlias
+			destinationAlias.ForceRefTo(a_destination)
+		EndIf
+	EndIf
 	ReferenceAlias chosen = a_quest.GetAlias(a_aliasID) as ReferenceAlias
 	If chosen
 		chosen.ForceRefTo(Game.GetPlayer())

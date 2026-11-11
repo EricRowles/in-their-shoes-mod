@@ -20,6 +20,10 @@ Function SetIdleAITimeout(Float a_seconds) Global Native
 ; ITS_PackageManager's alias n - 1, whose package outranks the donor's (a follower's Follow too).
 Function SetIdleAIPackage(Int a_index) Global Native
 
+; Where the Travel idle package goes: 0 Whiterun, 1 Solitude, 2 Windhelm, 3 Riften, 4 Markarth, 5 Falkreath,
+; 6 Morthal, 7 Dawnstar, 8 Winterhold (Forms::travelDestinations in the plugin).
+Function SetIdleTravelDestination(Int a_index) Global Native
+
 ; Sets the idle chatter cooldown in seconds between ambient dialogue lines while impersonating an NPC (default 60.0s).
 Function SetIdleChatterTime(Float a_seconds) Global Native
 

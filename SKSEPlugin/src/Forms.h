@@ -26,6 +26,18 @@ namespace InTheirShoes::Forms {
     // Dawnguard.esm
     inline RE::TESQuest* dlc1PlayerVampireQuest{ nullptr };  // Vampire Lord transformation
 
+    // Where the Travel idle package can go: the hold capitals, in the MCM's order (ITS_MCMScript.GetTravelDestinationNames)
+    struct TravelDestinationForms {
+        RE::BGSLocation* location{ nullptr };  // The city, to tell when the player has arrived
+        RE::TESObjectREFR* marker{ nullptr };  // Its LocationCenterMarker, which the package travels to
+    };
+    inline std::array<TravelDestinationForms, 9> travelDestinations{};
+
+    // Null when a_index is out of range
+    inline const TravelDestinationForms* TravelDestination(std::int32_t a_index) {
+        return a_index >= 0 && static_cast<std::size_t>(a_index) < travelDestinations.size() ? &travelDestinations[a_index] : nullptr;
+    }
+
     void Resolve();
 
     // The mod's own quests, which are never swapped to the player or used for idle chatter
