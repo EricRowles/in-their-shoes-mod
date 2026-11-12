@@ -16,7 +16,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 - **Switch donor:** the first donor gets the player's current state back and takes the player's place, then the new donor is applied. The puppet is unchanged.
 - **Revert:** the donor gets the player's current items, spells and stats. The player gets the Dragonborn back, with the puppet's items and the chest's.
 - **While impersonating:**
-  - The player answers the donor's conditions and holds its quest aliases, so the donor's quests, scenes and idle lines play through the player.
+  - The player answers the donor's conditions and holds its quest aliases, so the donor's quests, scenes and idle lines play through the player. This includes aliases that a quest fills with the donor during the session, such as a follower mod's quest that starts on a location change.
   - The player is in the donor's factions instead of the Dragonborn's (the Dragonborn keeps PlayerFaction). The donor's faction allies and enemies react to the player as they would to the donor, and faction-owned beds and goods are the player's to use. When the session ends, the donor gets the player's factions as they are then.
   - Relationship conditions treat the player as the donor and the puppet as the Dragonborn, so the donor's family, friends and enemies treat the player as the donor. Class checks answer with the donor's class.
   - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM comes from a high-priority quest alias, so it outranks the donor's packages, its quest packages (such as a follower's Follow) included.

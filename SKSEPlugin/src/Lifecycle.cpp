@@ -29,6 +29,7 @@ namespace InTheirShoes::Lifecycle {
 
         Forms::Resolve();
         DialogueManager::GetSingleton().Initialize();
+        AliasSwapManager::GetSingleton().Initialize();
         ActorHooks::Install();
         ConditionHooks::Install();
         FaceManager::GetSingleton().InstallHook();
@@ -40,6 +41,8 @@ namespace InTheirShoes::Lifecycle {
         ImpersonationManager::GetSingleton().OnPostLoadGame();
         IdleAIManager::GetSingleton().OnPostLoadGame();
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
+            // Before FactionManager, which leaves the aliases' factions out of the ones it moves
+            AliasSwapManager::GetSingleton().SwapNewDonorAliases();
             FactionManager::GetSingleton().OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
             IdleAIManager::GetSingleton().OnImpersonationChanged(true);
             PackageRetarget::GetSingleton().RetargetDonorToPlayer(session.GetDonor(), Session::GetPlayer());
