@@ -36,6 +36,8 @@ namespace InTheirShoes {
     // A gap between line ticks longer than this counts as paused, not played: ticks stop while the game is
     // paused, and so does the voice
     constexpr float kMaxSoundTickSeconds = 0.25f;
+    // A stand-in's own voice plays at this volume: the engine times the line by it, and nobody hears it
+    constexpr float kStandInVolume = 0.0f;
 
     namespace {
         std::span<RE::BSSoundHandle> GetSoundHandles(RE::Actor* a_actor) {
@@ -149,16 +151,6 @@ namespace InTheirShoes {
             return true;
         }
 
-        // The engine reads these to know whether a speaker's line is still playing
-        void SetLinePlaying(RE::Actor* a_actor, bool a_playing) {
-            auto& bits = a_actor->GetActorRuntimeData().boolBits;
-            if (a_playing) {
-                bits.reset(RE::Actor::BOOL_BITS::kSpeakingDone, RE::Actor::BOOL_BITS::kSoundFileDone, RE::Actor::BOOL_BITS::kVoiceFileDone);
-            } else {
-                bits.set(RE::Actor::BOOL_BITS::kSpeakingDone, RE::Actor::BOOL_BITS::kSoundFileDone, RE::Actor::BOOL_BITS::kVoiceFileDone);
-            }
-        }
-
         void CopyResponse(const RE::DialogueResponse* a_from, RE::DialogueResponse& a_to) {
             a_to.text = a_from->text;
             a_to.animFaceArchType = a_from->animFaceArchType;
@@ -171,11 +163,9 @@ namespace InTheirShoes {
             a_to.useEmotion = a_from->useEmotion;
         }
 
-        // Leaves the response's text (for subtitles and timing) but nothing to hear or mouth
-        void Silence(RE::DialogueResponse* a_response) {
-            a_response->voice = ""sv;
-            a_response->voiceSound = nullptr;
-            a_response->soundLip = false;
+        // Leaves the response's text and voice (the engine times the line by the voice) but no emotion or idles.
+        // Its lip sync comes with the voice file: see SilenceStandIn.
+        void StripPerformance(RE::DialogueResponse* a_response) {
             a_response->useEmotion = false;
             a_response->animFaceArchType = RE::EmotionType::kNeutral;
             a_response->percent = 0;
@@ -215,16 +205,35 @@ namespace InTheirShoes {
     }
 
     void PlayerVoice::TakeStandInLine(RE::DialogueResponse* a_engineResponse) {
-        // The player voices the line from its own copy. The stand-in still runs the engine's response object,
-        // silenced: the engine tracks which response the speaker is on by that object, and only moves to the
-        // next one if it matches. The response belongs to this one playing of the topic, so silencing it is safe.
+        // The player voices the line from its own copy. The stand-in runs the engine's response with its voice
+        // (unheard, see SilenceStandIn) but no emotion or idles, so the engine paces the conversation as it
+        // would for any NPC: when the line ends, skipping, moving to the next response, end fragments. The
+        // response belongs to this one playing of the topic, so changing it is safe.
         CopyResponse(a_engineResponse, _standInLine);
-        Silence(a_engineResponse);
+        StripPerformance(a_engineResponse);
     }
 
-    void PlayerVoice::SpeakForStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_engineResponse, bool a_unused) {
+    void PlayerVoice::SpeakForStandIn(RE::Actor* a_standIn, bool a_unused) {
         SpeakLine(&_standInLine, a_unused, false);
-        HoldStandIn(a_standIn, a_engineResponse);
+        _line->standIn = a_standIn->GetHandle();
+        _line->followsStandIn = true;
+    }
+
+    void PlayerVoice::SilenceStandIn(RE::Actor* a_actor) {
+        for (auto& handle : GetSoundHandles(a_actor)) {
+            if (handle.IsValid()) {
+                handle.SetVolume(kStandInVolume);
+            }
+        }
+        // The engine loads the voice file's lip sync whatever the response says. Dropping it keeps the
+        // stand-in's mouth shut. (Not released, as in ResetFace.)
+        if (auto* faceData = a_actor->GetFaceGenAnimationData()) {
+            RE::BSSpinLockGuard locker(faceData->lock);
+            if (faceData->dialogueData) {
+                faceData->dialogueData = nullptr;
+                faceData->Reset(0.0f, true, true, true, false);
+            }
+        }
     }
 
     void PlayerVoice::SpeakLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
@@ -232,11 +241,6 @@ namespace InTheirShoes {
         StopSounds(player);
 
         Line line;
-        if (_line) {
-            // A line that replaces another keeps the other's stand-in held until this one ends
-            line.standIn = _line->standIn;
-            line.standInResponse = _line->standInResponse;
-        }
 
         if (a_response->useEmotion) {
             player->SetEmotionType(a_response->animFaceArchType.get());
@@ -265,7 +269,9 @@ namespace InTheirShoes {
         }
 
         line.start = std::chrono::steady_clock::now();
+        line.created = line.start;
         line.hadSound = IsSoundActive(player);
+        line.soundStart = line.start;
         line.lastSoundTick = line.start;
         line.pendingVoice = (!line.hadSound && HasVoice(a_response)) ? a_response : nullptr;
         if (line.hadSound) {
@@ -311,7 +317,28 @@ namespace InTheirShoes {
         AttachSoundsToHead(player);
         line.pendingVoice = nullptr;
         line.hadSound = true;
-        line.lastSoundTick = std::chrono::steady_clock::now();
+        line.soundStart = std::chrono::steady_clock::now();
+        line.lastSoundTick = line.soundStart;
+    }
+
+    // A stand-in's line ends when the engine says the stand-in has finished speaking. The player's voice may
+    // have started later than the stand-in's (waiting for the menu or for the voice file), so it gets that
+    // long to finish; a new line or the menu closing ends it sooner.
+    bool PlayerVoice::StandInLineDone() {
+        auto& line = *_line;
+        auto standIn = line.standIn.get();
+        if (!standIn) return true;
+        if (SecondsSince(line.created) < kLineStartGraceSeconds) return false;
+        if (!standIn->QSpeakingDone()) {
+            line.standInDoneAt.reset();
+            return false;
+        }
+        if (!line.hadSound) return true;
+        if (!line.standInDoneAt) {
+            line.standInDoneAt = std::chrono::steady_clock::now();
+        }
+        float lag = std::chrono::duration<float>(line.soundStart - line.created).count();
+        return SecondsSince(*line.standInDoneAt) >= lag || !IsSoundActive(RE::PlayerCharacter::GetSingleton());
     }
 
     // --- Playback ---
@@ -339,7 +366,9 @@ namespace InTheirShoes {
             StartVoiceLate();
         }
 
-        if (line.hadSound) {
+        if (line.followsStandIn) {
+            if (!StandInLineDone()) return;
+        } else if (line.hadSound) {
             // Timed from the sound's duration.
             // Timer is started once its file has loaded, and is paused while the game is paused
             auto now = std::chrono::steady_clock::now();
@@ -376,7 +405,6 @@ namespace InTheirShoes {
         _line.reset();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
-        ReleaseStandIn(line.standIn, line.standInResponse);
         StopSounds(player);
         player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSpeakingDone);
         player->GetActorRuntimeData().voiceTimer = 0.0f;
@@ -388,40 +416,6 @@ namespace InTheirShoes {
                 SendTopicInfoEvent(*line.item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd);
             }
             IdleChatter::GetSingleton().OnLineFinished();
-        }
-    }
-
-    // --- Stand-in speakers ---
-
-    void PlayerVoice::HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response) {
-        // The stand-in's silenced line would finish at once; the engine has to see it still speaking until
-        // the player's line ends
-        _line->standIn = a_standIn->GetHandle();
-        _line->standInResponse = a_response;
-        SetLinePlaying(a_standIn, true);
-        a_standIn->GetActorRuntimeData().voiceTimer = 0.0f;
-    }
-
-    void PlayerVoice::KeepStandInSpeaking(RE::Actor* a_actor) const {
-        if (_line && _line->standIn.get().get() == a_actor) {
-            SetLinePlaying(a_actor, true);
-        }
-    }
-
-    bool PlayerVoice::IsSkippableStandInLine() const {
-        return _line && _line->standIn && SecondsSince(_line->start) >= kLineStartGraceSeconds;
-    }
-
-    void PlayerVoice::ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response) {
-        auto standIn = a_standIn.get();
-        if (!standIn) return;
-
-        SetLinePlaying(standIn.get(), false);
-        standIn->GetActorRuntimeData().voiceTimer = 0.0f;
-        standIn->SetSpeakingDone(true);
-
-        if (_standInDone) {
-            _standInDone(standIn.get(), a_response);
         }
     }
 

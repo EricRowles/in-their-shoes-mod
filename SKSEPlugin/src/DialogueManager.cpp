@@ -15,8 +15,6 @@
 #include "RE/S/SubtitleManager.h"
 #include "RE/A/AIProcess.h"
 #include "RE/H/HighProcessData.h"
-#include "RE/U/UserEvents.h"
-#include "RE/C/ControlMap.h"
 
 namespace InTheirShoes {
 
@@ -38,80 +36,6 @@ namespace InTheirShoes {
             subMgr->subtitles.push_back(info);
         }
 
-        // Shows the puppet's current self-dialogue line as its subtitle (#25). The engine queues no subtitle
-        // for the puppet's silenced lines and never removes the first one, so it stayed on screen. Replacing
-        // the entry's text isn't enough: SubtitleManager's update (ID 52637) only sends text to the HUD when
-        // the front entry's speaker differs from currentSpeaker, which the engine resets when a line ends
-        // (52627) but never does for the puppet. Clearing currentSpeaker makes the next update show it.
-        void RefreshPuppetSubtitle(RE::Actor* a_puppet, const RE::DialogueResponse* a_response) {
-            auto* subMgr = RE::SubtitleManager::GetSingleton();
-            if (!subMgr || a_response->text.empty()) return;
-
-            std::string_view text = a_response->text.c_str();
-            auto handle = a_puppet->GetHandle();
-            RE::BSSpinLockGuard locker(subMgr->lock);
-            bool shown = false;
-            for (std::uint32_t i = 0; i < subMgr->subtitles.size();) {
-                auto& entry = subMgr->subtitles[i];
-                if (entry.speaker == handle && (entry.subtitle.c_str() ? entry.subtitle.c_str() : "") != text) {
-                    subMgr->subtitles.erase(subMgr->subtitles.begin() + i);
-                    continue;
-                }
-                shown = shown || entry.speaker == handle;
-                ++i;
-            }
-            if (shown) return;
-
-            RE::SubtitleInfo info;
-            info.speaker = handle;
-            info.subtitle = a_response->text;
-            info.targetDistance = 0.0f;
-            info.forceDisplay = true;
-            subMgr->subtitles.push_back(info);
-            if (subMgr->currentSpeaker == handle) {
-                subMgr->currentSpeaker = RE::ObjectRefHandle{};
-            }
-        }
-
-        // Calls a_visit(eventID) for every user event the key is bound to, in any input context
-        template <class Visit>
-        void ForEachBinding(RE::INPUT_DEVICE a_device, std::uint32_t a_key, Visit a_visit) {
-            const auto* controlMap = RE::ControlMap::GetSingleton();
-            if (!controlMap || a_device >= RE::INPUT_DEVICE::kTotal) return;
-            for (const auto* context : controlMap->controlMap) {
-                if (!context) continue;
-                for (const auto& mapping : context->deviceMappings[a_device]) {
-                    if (mapping.inputKey == a_key) {
-                        a_visit(mapping.eventID);
-                    }
-                }
-            }
-        }
-
-        // Whether a press is one the Dialogue Menu uses to skip a line: a left click, or a key bound to
-        // Click/Accept/Activate. While the menu is open, keyboard presses carry no user event name, and
-        // control map mods bind Accept in different input contexts, so every context's bindings are checked.
-        bool IsSkipPress(const RE::ButtonEvent* a_button) {
-            auto device = a_button->GetDevice();
-            auto key = a_button->GetIDCode();
-            if (device == RE::INPUT_DEVICE::kMouse && key == 0) {
-                return true;
-            }
-
-            const auto* userEvents = RE::UserEvents::GetSingleton();
-            if (!userEvents) return false;
-            auto isSkipEvent = [&](const RE::BSFixedString& a_event) {
-                return a_event == userEvents->click || a_event == userEvents->accept || a_event == userEvents->activate;
-            };
-            if (isSkipEvent(a_button->QUserEvent())) {
-                return true;
-            }
-
-            bool bound = false;
-            ForEachBinding(device, key, [&](const RE::BSFixedString& a_event) { bound = bound || isSkipEvent(a_event); });
-            return bound;
-        }
-
         // The engine leaves the puppet as MenuTopicManager's speaker after self-dialogue, which blocks
         // activating it again
         void ClearPuppetAsSpeaker() {
@@ -125,6 +49,45 @@ namespace InTheirShoes {
             if (topicMgr->lastSpeaker == handle) {
                 topicMgr->lastSpeaker.reset();
             }
+        }
+
+        // Finds the engine's call that plays a speaker's talking idle: where a line's voice starts, a call to
+        // AIProcess::SetupSpecialIdle with kActionTalkingIdle (92), loaded by "lea r8d, [reg+0x5C]" just before
+        // it. The game's code is searched for those bytes, so no per-version offset is needed. A call another
+        // plugin has already redirected is recognised by the instructions before it (1.6.1170's), and our hook
+        // chains to theirs. Returns 0 unless exactly one call matches.
+        std::uintptr_t FindTalkingIdleCall() {
+            constexpr std::uint8_t kArgSetup[] = { 0x44, 0x8D, 0x46, 0x5C, 0x49, 0x8B, 0xD6, 0x49, 0x8B, 0x8E, 0xF8, 0x00, 0x00, 0x00 };
+            constexpr std::size_t kLookBack = 16;
+            const auto text = REL::Module::get().segment(REL::Segment::textx);
+            const auto setupSpecialIdle = REL::RelocationID(38290, 39256).address();
+            const auto* code = reinterpret_cast<const std::uint8_t*>(text.address());
+
+            std::uintptr_t direct = 0, redirected = 0;
+            int directCount = 0, redirectedCount = 0;
+            for (std::size_t i = kLookBack; i + 5 <= text.size(); ++i) {
+                if (code[i] != 0xE8) continue;
+                bool loadsAction = false;
+                for (std::size_t back = kLookBack; back >= 3 && !loadsAction; --back) {
+                    loadsAction = code[i - back] == 0x8D && code[i - back + 2] == 0x5C;
+                }
+                if (!loadsAction) continue;
+
+                const auto at = text.address() + i;
+                std::int32_t rel;
+                std::memcpy(&rel, code + i + 1, sizeof(rel));
+                if (at + 5 + rel == setupSpecialIdle) {
+                    direct = at;
+                    ++directCount;
+                } else if (std::memcmp(code + i - sizeof(kArgSetup), kArgSetup, sizeof(kArgSetup)) == 0) {
+                    redirected = at;
+                    ++redirectedCount;
+                }
+            }
+            if (directCount == 1) return direct;
+            if (directCount == 0 && redirectedCount == 1) return redirected;
+            SKSE::log::warn("Talking idle call search: {} direct, {} redirected by another plugin", directCount, redirectedCount);
+            return 0;
         }
 
         // The puppet in self-dialogue speaks the donor's lines. (Lines scripts give the parked donor go to the
@@ -144,24 +107,11 @@ namespace InTheirShoes {
         } else {
             SKSE::log::warn("DialogueManager failed to get UI singleton.");
         }
-        if (auto* input = RE::BSInputDeviceManager::GetSingleton()) {
-            input->AddEventSink<RE::InputEvent*>(this);
-        } else {
-            SKSE::log::warn("DialogueManager failed to get BSInputDeviceManager singleton.");
-        }
-        if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
-            // First, so it can stop the engine's late end event for an info we already ended (EndPuppetInfo)
-            // before SkyrimVM's sink runs its end fragment again
-            events->GetEventSource<RE::TESTopicInfoEvent>()->PrependEventSink(this);
-        }
         InstallHooks();
         auto& voice = PlayerVoice::GetSingleton();
         voice.SetEngineCalls({
             [](RE::Actor* a_actor, RE::DialogueResponse* a_response, bool a_unused) { _origCharUpdateInDialogue(a_actor, a_response, a_unused); },
             [](RE::Actor* a_actor, bool a_set) { _origPlayerSetSpeakingDone(a_actor, a_set); } });
-        voice.SetStandInDoneHandler([this](RE::Actor* a_standIn, const RE::DialogueResponse* a_response) {
-            OnStandInLineDone(a_standIn, a_response);
-        });
         _initialized = true;
     }
 
@@ -169,14 +119,21 @@ namespace InTheirShoes {
         REL::Relocation<std::uintptr_t> charVtbl{ RE::VTABLE_Character[0] };
         _origSetDialogueWithPlayer = charVtbl.write_vfunc(0x41, &Hook_SetDialogueWithPlayer);
         _origCharUpdateInDialogue = charVtbl.write_vfunc(0x4C, &Hook_Character_UpdateInDialogue);
-        _origCharQSpeakingDone = charVtbl.write_vfunc(0x107, &Hook_Character_QSpeakingDone);
 
         REL::Relocation<std::uintptr_t> playerVtbl{ RE::VTABLE_PlayerCharacter[0] };
         _origPlayerUpdateInDialogue = playerVtbl.write_vfunc(0x4C, &Hook_Player_UpdateInDialogue);
         _origPlayerQSpeakingDone = playerVtbl.write_vfunc(0x107, &Hook_Player_QSpeakingDone);
         _origPlayerSetSpeakingDone = playerVtbl.write_vfunc(0x108, &Hook_Player_SetSpeakingDone);
 
-        SKSE::log::info("Hooked Character (0x41, 0x4C, 0x107) and PlayerCharacter (0x4C, 0x107, 0x108) dialogue vfuncs");
+        SKSE::log::info("Hooked Character (0x41, 0x4C) and PlayerCharacter (0x4C, 0x107, 0x108) dialogue vfuncs");
+
+        if (auto call = FindTalkingIdleCall()) {
+            SKSE::AllocTrampoline(14);
+            _origTalkingIdle = SKSE::GetTrampoline().write_call<5>(call, &Hook_TalkingIdle);
+            SKSE::log::info("Hooked the speaker's talking idle call");
+        } else {
+            SKSE::log::warn("Talking idle call not found; the puppet will gesture during self-dialogue");
+        }
     }
 
     void DialogueManager::Update() {
@@ -208,9 +165,6 @@ namespace InTheirShoes {
         Session::GetSingleton().SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
         PlayerVoice::GetSingleton().Clear();
-        std::scoped_lock guard(_puppetInfoLock);
-        _puppetInfosOpen.clear();
-        _puppetInfosEndedByUs.clear();
     }
 
     // --- Self-dialogue ---
@@ -220,53 +174,6 @@ namespace InTheirShoes {
         RE::BSTEventSource<RE::MenuOpenCloseEvent>* /*a_eventSource*/) {
         if (a_event && !a_event->opening && a_event->menuName == RE::DialogueMenu::MENU_NAME && Session::GetSingleton().IsInSelfDialogue()) {
             EndSelfDialogue();
-        }
-        return RE::BSEventNotifyControl::kContinue;
-    }
-
-    RE::BSEventNotifyControl DialogueManager::ProcessEvent(
-        const RE::TESTopicInfoEvent* a_event,
-        RE::BSTEventSource<RE::TESTopicInfoEvent>* /*a_eventSource*/) {
-        auto& session = Session::GetSingleton();
-        if (a_event && session.IsActive() && a_event->speakerRef && a_event->speakerRef.get() == session.GetPuppet()) {
-            bool ended = a_event->type == RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd;
-            const auto id = a_event->topicInfoFormID;
-            std::scoped_lock guard(_puppetInfoLock);
-            if (!ended) {
-                _puppetInfosOpen.insert(id);
-                _puppetInfosEndedByUs.erase(id);
-            } else if (_puppetInfosEndedByUs.erase(id)) {
-                SKSE::log::info("Puppet topic info {:08X} ended again; already ended, so its fragment doesn't run twice", id);
-                return RE::BSEventNotifyControl::kStop;
-            } else {
-                _puppetInfosOpen.erase(id);
-            }
-            SKSE::log::info("Puppet topic info {:08X} {}", id, ended ? "ended" : "began");
-        }
-        return RE::BSEventNotifyControl::kContinue;
-    }
-
-    // A skip press during a self-dialogue line skips it, as it would an NPC's line; that includes
-    // clicking another topic. The engine's own skip handling never reaches the player's line.
-    RE::BSEventNotifyControl DialogueManager::ProcessEvent(
-        RE::InputEvent* const* a_event,
-        RE::BSTEventSource<RE::InputEvent*>* /*a_eventSource*/) {
-        if (!a_event || !PlayerVoice::GetSingleton().IsSkippableStandInLine() || !Session::GetSingleton().IsInSelfDialogue()) {
-            return RE::BSEventNotifyControl::kContinue;
-        }
-        auto* ui = RE::UI::GetSingleton();
-        if (!ui || !ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
-            return RE::BSEventNotifyControl::kContinue;
-        }
-
-        for (auto* event = *a_event; event; event = event->next) {
-            if (event->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) continue;
-            const auto* button = static_cast<const RE::ButtonEvent*>(event);
-            if (button->IsDown() && IsSkipPress(button)) {
-                SKSE::log::info("Player line skipped");
-                PlayerVoice::GetSingleton().Finish();
-                break;
-            }
         }
         return RE::BSEventNotifyControl::kContinue;
     }
@@ -359,7 +266,7 @@ namespace InTheirShoes {
     void DialogueManager::EndSelfDialogue() {
         SKSE::log::info("Self-dialogue ended");
         Session::GetSingleton().SetInSelfDialogue(false);
-        // Leaving mid-line ends the line, so the engine sees the puppet finish speaking
+        // Leaving mid-line ends the player's line
         PlayerVoice::GetSingleton().Finish();
         // The engine still needs the puppet as its (last) speaker while the menu closes: a Goodbye info's
         // end fragment runs then, and clearing it at once skipped the fragment. Update() clears it shortly after.
@@ -409,74 +316,6 @@ namespace InTheirShoes {
         ClearPuppetAsSpeaker();
     }
 
-    // --- Stand-in speakers ---
-
-    void DialogueManager::OnStandInLineDone(RE::Actor* a_standIn, const RE::DialogueResponse* a_response) {
-        // In the Dialogue Menu the engine doesn't move to a topic's next response by itself here, and an
-        // advance request replays the current response. So step the current response forward first;
-        // the advance request then plays the next one.
-        //
-        // That includes stepping past the last response. MenuTopicManager's advance (ID 35285) speaks
-        // currentResponse while it has one; once it is null it ends the info the engine's way: an Invisible
-        // Continue info (TESTopicInfo +0x3C bit 6) plays its follow-up topic, a Goodbye info closes the menu,
-        // and any other rebuilds and shows the topic list. Leaving the last response current made Invisible
-        // Continue lines replay forever, and left a greeting with no topics whenever the engine hadn't
-        // already moved past it by itself (#30).
-        auto* ui = RE::UI::GetSingleton();
-        auto* topicMgr = RE::MenuTopicManager::GetSingleton();
-        if (!topicMgr || !ui || !ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) return;
-
-        if (topicMgr->isGreetingPlayer) {
-            // The engine waits for the greeting to end before showing the topic list, and doesn't notice
-            // a silenced greeting ending
-            topicMgr->isGreetingPlayer = false;
-            SKSE::log::info("Greeting finished; showing topics");
-        }
-
-        auto* dialogue = topicMgr->lastSelectedDialogue;
-        auto* node = dialogue ? dialogue->currentResponse : nullptr;
-        if (!node || node->item != a_response) {
-            SKSE::log::info("Stand-in's line isn't the selected topic's current response; not advancing");
-            return;
-        }
-        if (!node->next) {
-            EndPuppetInfo(a_standIn, dialogue->parentTopicInfo);
-        }
-        dialogue->currentResponse = node->next;
-        // MenuTopicManager's update (ID 35289) runs the advance only while canSkip (+0xBA) is set. Starting a
-        // line clears it, and within MenuTopicManager only the advance itself sets it again; for a line the
-        // engine voices, its voice-finished callback runs the advance directly. Our lines aren't the engine's,
-        // so a greeting or Goodbye line that came after canSkip was cleared never advanced: no topics, or a menu
-        // that didn't close (#30).
-        topicMgr->canSkip = true;
-        topicMgr->advanceRequested = true;
-        SKSE::log::info("{}", node->next ? "Advancing to the topic's next response" : "Last response done; ending the info");
-    }
-
-    // The engine sends a topic info's end event (which runs its end fragment) for an info the player picked, but
-    // not for one it moved to by itself (an Invisible Continue follow-up), and for the last info only when the
-    // menu closes. So the end fragment of e.g. There Is No Umbra's hug line (which advances its quest) never ran
-    // (#30). An info whose last response is done is ended here unless the engine already did; if the engine
-    // sends its end later, ProcessEvent stops it so the fragment doesn't run twice.
-    void DialogueManager::EndPuppetInfo(RE::Actor* a_puppet, RE::TESTopicInfo* a_info) {
-        if (!a_puppet || !a_info) return;
-        const auto id = a_info->GetFormID();
-        {
-            std::scoped_lock guard(_puppetInfoLock);
-            if (!_puppetInfosOpen.contains(id)) return;
-        }
-        auto* events = RE::ScriptEventSourceHolder::GetSingleton();
-        if (!events) return;
-        RE::TESTopicInfoEvent event;
-        event.speakerRef.reset(a_puppet);
-        event.topicInfoFormID = id;
-        event.type = RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd;
-        event.stage = 0;
-        events->SendEvent(&event);  // ProcessEvent sees it and marks the info closed
-        std::scoped_lock guard(_puppetInfoLock);
-        _puppetInfosEndedByUs.insert(id);
-    }
-
     // --- Hooks ---
 
     bool DialogueManager::Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
@@ -487,19 +326,21 @@ namespace InTheirShoes {
         auto& voice = PlayerVoice::GetSingleton();
 
         if (!a_response) {
-            // The engine ticks the speaker's line every frame; keep the stand-in "speaking" meanwhile
+            // The engine ticks the speaker's line every frame. The puppet's voice may only just have started.
             bool ret = _origCharUpdateInDialogue(a_this, nullptr, a_unused);
-            voice.KeepStandInSpeaking(a_this);
+            if (a_this == session.GetPuppet()) {
+                PlayerVoice::SilenceStandIn(a_this);
+            }
             return ret;
         }
 
         if (IsPuppetStandIn(a_this)) {
-            // The player voices the line from its own copy; the puppet runs the engine's response silenced
-            // (see PlayerVoice::TakeStandInLine)
+            // The puppet runs the engine's line unheard, so the engine paces the conversation; the player voices
+            // its own copy (see PlayerVoice::TakeStandInLine)
             voice.TakeStandInLine(a_response);
             bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
-            RefreshPuppetSubtitle(a_this, a_response);
-            voice.SpeakForStandIn(a_this, a_response, a_unused);
+            PlayerVoice::SilenceStandIn(a_this);
+            voice.SpeakForStandIn(a_this, a_unused);
             return ret;
         }
 
@@ -512,12 +353,16 @@ namespace InTheirShoes {
         return _origCharUpdateInDialogue(a_this, a_response, a_unused);
     }
 
-    bool DialogueManager::Hook_Character_QSpeakingDone(const RE::Actor* a_this) {
-        if (!IsPuppetStandIn(a_this)) {
-            return _origCharQSpeakingDone(a_this);
+    // The engine plays a talking idle (gestures) on whoever starts a voiced line. The puppet's line is voiced
+    // only so the engine can time it, so the puppet doesn't gesture. Runs wherever lines start: reads only
+    // Session.
+    bool DialogueManager::Hook_TalkingIdle(RE::AIProcess* a_process, RE::Actor* a_actor, RE::DEFAULT_OBJECT a_action,
+        RE::TESIdleForm* a_idle, bool a_arg5, bool a_arg6, RE::TESObjectREFR* a_target) {
+        auto& session = Session::GetSingleton();
+        if (a_actor && session.IsActive() && a_actor == session.GetPuppet()) {
+            return false;
         }
-        // The stand-in is done when the player has finished voicing its line
-        return !PlayerVoice::GetSingleton().IsPlaying();
+        return _origTalkingIdle(a_process, a_actor, a_action, a_idle, a_arg5, a_arg6, a_target);
     }
 
     bool DialogueManager::Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {

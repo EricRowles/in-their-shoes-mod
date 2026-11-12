@@ -35,8 +35,8 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `ConditionHooks` | Identity, relationship and location conditions answer for the right actor |
 | `ActorHooks` | Voice type, editor location and per-frame player update hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |
-| `DialogueManager` | Self-dialogue, routing the engine's lines to the player, advancing the Dialogue Menu |
-| `PlayerVoice` | The player voicing one line at a time, including holding a stand-in as speaking |
+| `DialogueManager` | Self-dialogue, routing the engine's lines to the player |
+| `PlayerVoice` | The player voicing one line at a time, including keeping a stand-in silent while the player voices its line |
 | `IdleChatter` | Picks the donor's idle lines for the player to say |
 | `QuestConditions` | Evaluates a condition list in its quest's context |
 | `IdleAIManager` | Runs the donor's packages, or the package picked in the MCM, on the idle player |
