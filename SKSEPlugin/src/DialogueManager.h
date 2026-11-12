@@ -40,6 +40,8 @@ namespace InTheirShoes {
         bool OpenSelfDialogueDirect(RE::Actor* a_speaker, RE::TESTopic* a_forceGreetTopic = nullptr);
         void EndSelfDialogue();
         void UpdatePuppetSpeakerClear();
+        // Moves the menu past a puppet line that has no voice file (#37)
+        void AdvancePastUnvoicedLine();
 
         static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
         using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
@@ -71,6 +73,14 @@ namespace InTheirShoes {
         // After self-dialogue ends (Session::IsPuppetSpeakerPending), the puppet is cleared as the engine's speaker
         // shortly after the menu closes. When the menu was first seen closed, once it has
         std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
+        // The menu line waiting on a voice file that doesn't exist (see AdvancePastUnvoicedLine)
+        struct UnvoicedLine {
+            const RE::TESTopicInfo* info{ nullptr };
+            std::chrono::steady_clock::time_point since{};
+            bool advanced{ false };
+        };
+        std::optional<UnvoicedLine> _unvoicedLine;
+        static constexpr float kUnvoicedLineMinSeconds = 1.5f;
     };
 
 }

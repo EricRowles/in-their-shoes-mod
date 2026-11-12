@@ -194,6 +194,10 @@ namespace InTheirShoes {
 
     // --- Speaking ---
 
+    bool PlayerVoice::HasVoiceSound(RE::Actor* a_actor) {
+        return GetSoundSeconds(a_actor) > 0.0f;
+    }
+
     void PlayerVoice::Speak(RE::DialogueResponse* a_response, bool a_unused) {
         SpeakLine(a_response, a_unused, false);
     }

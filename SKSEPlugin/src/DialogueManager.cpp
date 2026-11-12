@@ -144,6 +144,7 @@ namespace InTheirShoes {
             }
         }
         PlayerVoice::GetSingleton().Update();
+        AdvancePastUnvoicedLine();
         if (Session::GetSingleton().IsPuppetSpeakingForDonor()) {
             // Topic fragments (run by the VM, a frame or more after their line) may put the speaker, the puppet,
             // into quest aliases. The next topics' conditions test the donor, so those are moved as they happen,
@@ -297,6 +298,39 @@ namespace InTheirShoes {
             session.SetPuppetSpeakerPending(true);
         }
         return ret;
+    }
+
+    void DialogueManager::AdvancePastUnvoicedLine() {
+        // A puppet line with no voice file for the donor's voice type (e.g. Ashe's force-greet, which shares
+        // Dawnguard's SharedSilence) never finishes: starting it cleared MenuTopicManager::canSkip, and only the
+        // voice-finished callback sets it again, so the menu's update never ran the advance and picking a topic
+        // did nothing (#37). Once the line has shown as long as its text would, request the advance as that
+        // callback would; the update only runs it while canSkip is set (#30).
+        auto& session = Session::GetSingleton();
+        auto* topicMgr = RE::MenuTopicManager::GetSingleton();
+        auto* puppet = session.GetPuppet();
+        auto* info = topicMgr ? topicMgr->currentTopicInfo : nullptr;
+        const bool waiting = session.IsInSelfDialogue() && puppet && info && topicMgr->menuOpen &&
+                             !topicMgr->canSkip && !topicMgr->advanceRequested && !topicMgr->advanceInProgress;
+        if (!waiting || PlayerVoice::HasVoiceSound(puppet)) {
+            _unvoicedLine.reset();
+            return;
+        }
+        if (!_unvoicedLine || _unvoicedLine->info != info) {
+            _unvoicedLine = UnvoicedLine{ info, std::chrono::steady_clock::now() };
+            return;
+        }
+        if (_unvoicedLine->advanced) return;
+
+        auto& voice = PlayerVoice::GetSingleton();
+        const float wait = std::max(voice.GetUnvoicedSeconds(), kUnvoicedLineMinSeconds);
+        if (SecondsSince(_unvoicedLine->since) < wait) return;
+
+        SKSE::log::info("Puppet line {:08X} has no voice file; advancing after {:.1f}s", info->GetFormID(), wait);
+        _unvoicedLine->advanced = true;
+        voice.Finish();
+        topicMgr->canSkip = true;
+        topicMgr->advanceRequested = true;
     }
 
     void DialogueManager::UpdatePuppetSpeakerClear() {

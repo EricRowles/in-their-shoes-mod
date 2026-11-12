@@ -34,6 +34,10 @@ namespace InTheirShoes {
 
         // Whether a line is playing. Read from the engine's speaking hooks.
         bool IsPlaying() const { return _line.has_value(); }
+        // How long the playing line would show without a voice file (0 when no line is playing)
+        float GetUnvoicedSeconds() const { return _line ? _line->unvoicedDuration : 0.0f; }
+        // Whether the actor is playing a voice file whose length is known (it was found and loaded)
+        static bool HasVoiceSound(RE::Actor* a_actor);
 
         // A line for the player to voice (a scene line on a swapped alias)
         void Speak(RE::DialogueResponse* a_response, bool a_unused);
