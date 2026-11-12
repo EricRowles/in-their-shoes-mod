@@ -24,5 +24,7 @@ namespace InTheirShoes::Lifecycle {
     // stands in for the donor, into quest aliases. Those go to the player, who holds the donor's aliases.
     // (What fragments' natives do to the puppet is redirected by NativeRedirect.)
     void OnPuppetChangedInSelfDialogue();
+    // DialogueManager, when self-dialogue ends
+    void OnSelfDialogueEnded();
 
 }

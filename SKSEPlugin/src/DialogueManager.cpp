@@ -276,6 +276,7 @@ namespace InTheirShoes {
         // player standing in for the donor. Update() moves them every frame during self-dialogue; this catches
         // the last frame's.
         Lifecycle::OnPuppetChangedInSelfDialogue();
+        Lifecycle::OnSelfDialogueEnded();
     }
 
     bool DialogueManager::Hook_SetDialogueWithPlayer(RE::Actor* a_this, bool a_flag, bool a_forceGreet, RE::TESTopicInfo* a_topic) {

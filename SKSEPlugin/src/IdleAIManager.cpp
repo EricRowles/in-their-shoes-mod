@@ -107,6 +107,19 @@ namespace InTheirShoes {
                    a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
         }
 
+        // Ends a procedure as succeeded, which ends its package. Mirrors the engine's own (AE ID 29479, 1.6.1170
+        // RVA 48F0C0), which BGSProcedureDialogueExecState's update (AE 28385) calls once the greet's conversation is
+        // over. ExecStateContext is longer than CommonLib declares: +0x10 done, +0x11 succeeded, +0x12 whether to
+        // also set the caller's ProcedureExecContext::unk20. (Setting continueFlag instead did nothing.)
+        void MarkProcedureSucceeded(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
+            auto* raw = reinterpret_cast<std::uint8_t*>(a_execState);
+            raw[0x10] = 1;
+            raw[0x11] = 1;
+            if (raw[0x12]) {
+                a_execState->context->unk20 = true;
+            }
+        }
+
         // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20) to the player's
         // handle, which makes the player spin in a circle targeting itself. Points it at the puppet; false if
         // there is no puppet.
@@ -149,6 +162,19 @@ namespace InTheirShoes {
 
     std::uint64_t IdleAIManager::Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
         const bool isPlayerForceGreet = IsPlayerForceGreet(a_execState);
+        if (isPlayerForceGreet) {
+            // The engine finishes a ForceGreet once its conversation with the target is over, which ends the
+            // package and lets a scene's package action complete. The player's conversation is self-dialogue
+            // opened by CheckForceGreetReachedPuppet, which the procedure never sees, so it greeted again whenever
+            // idle AI engaged and its scene never ended (#38). Once greeted, it succeeds as the engine would.
+            auto* context = a_execState->context;
+            auto* package = context->package ? context->package->package : nullptr;
+            const auto greeted = IdleAIManager::GetSingleton()._greetedPackage.load();
+            if (package && greeted && package->GetFormID() == greeted) {
+                MarkProcedureSucceeded(a_execState);
+                return 0;
+            }
+        }
         if (isPlayerForceGreet && RetargetForceGreetToPuppet(a_execState)) {
             IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
         }
@@ -181,6 +207,7 @@ namespace InTheirShoes {
         } else {
             CheckIdleAI();
         }
+        ReleaseGreetedPackage();
 
         if (!_aiActive || !player || !Session::GetSingleton().IsActive()) return;
 
@@ -238,7 +265,7 @@ namespace InTheirShoes {
             _forceGreetTriggered = false;
             return;
         }
-        if (_forceGreetTriggered) return;
+        if (_forceGreetTriggered || curPkg->GetFormID() == _greetedPackage.load()) return;
 
         float greetDist = isForceGreetPkg ? 300.0f : 250.0f;
         float dist = player->GetDistance(puppet, false, false);
@@ -247,8 +274,34 @@ namespace InTheirShoes {
             SKSE::log::info("Player package {:08X} reached puppet target (dist: {:.1f}, topic: {:08X}) - opening self-dialogue.",
                 curPkg->GetFormID(), dist, topic ? topic->GetFormID() : 0);
             _forceGreetTriggered = true;
-            DialogueManager::GetSingleton().OpenSelfDialogue(puppet, topic);
+            if (DialogueManager::GetSingleton().OpenSelfDialogue(puppet, topic) && isForceGreetPkg) {
+                _greetingPackage = curPkg->GetFormID();
+            }
         }
+    }
+
+    void IdleAIManager::OnSelfDialogueEnded() {
+        if (!_greetingPackage) return;
+        auto* scene = GetPlayingScene(RE::PlayerCharacter::GetSingleton());
+        _greetedScene = scene ? scene->GetFormID() : 0;
+        _greetedPackage = _greetingPackage;
+        _greetingPackage = 0;
+        SKSE::log::info("ForceGreet package {:08X} has greeted (scene {:08X}); it now reports done",
+            _greetedPackage.load(), _greetedScene);
+    }
+
+    void IdleAIManager::ReleaseGreetedPackage() {
+        const auto greeted = _greetedPackage.load();
+        if (!greeted) return;
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* scene = GetPlayingScene(player);
+        auto* pkg = player ? player->GetCurrentPackage() : nullptr;
+        const bool done = _greetedScene ? (!scene || scene->GetFormID() != _greetedScene)
+                                        : (pkg && pkg->GetFormID() != greeted);
+        if (!done) return;
+        SKSE::log::info("Released greeted ForceGreet package {:08X}", greeted);
+        _greetedPackage = 0;
+        _greetedScene = 0;
     }
 
     RE::BSEventNotifyControl IdleAIManager::ProcessEvent(
@@ -529,6 +582,9 @@ namespace InTheirShoes {
         ClearPlayerPackages();
         _travelArrived = false;
         _sentState = {};
+        _greetingPackage = 0;
+        _greetedPackage = 0;
+        _greetedScene = 0;
         std::scoped_lock lock(_appliedLock);
         _appliedAIDriven.reset();
     }

@@ -86,6 +86,11 @@ namespace InTheirShoes::Lifecycle {
         }
     }
 
+    void OnSelfDialogueEnded() {
+        // Called from the menu event or the dialogue hook; IdleAIManager's state belongs to the main thread
+        SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnSelfDialogueEnded(); });
+    }
+
     void OnSessionEnd() {
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);

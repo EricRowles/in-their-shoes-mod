@@ -12,7 +12,7 @@
 namespace InTheirShoes {
 
     // Drives the player with the donor's AI packages after a period without input.
-    // The force-greet hooks may run on AI threads; they only set _forceGreetProcedureActive.
+    // The force-greet hooks may run on AI threads; they only set _forceGreetProcedureActive and read _greetedPackage.
     class IdleAIManager : public Singleton<IdleAIManager>,
         public RE::BSTEventSink<RE::InputEvent*> {
     public:
@@ -24,6 +24,8 @@ namespace InTheirShoes {
 
         void StopIdleAI();
         void OnImpersonationChanged(bool a_active);
+        // A ForceGreet package that opened the conversation has greeted: its procedure now reports done
+        void OnSelfDialogueEnded();
 
         // The MCM's idle package (Settings::GetIdlePackage): 0 runs the donor's own packages, n puts the player in
         // ITS_PackageManager's alias n - 1 while idle AI runs, whose package outranks the donor's (its quests' too)
@@ -53,6 +55,7 @@ namespace InTheirShoes {
         void SyncDonorPackagesToPlayer();
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
+        void ReleaseGreetedPackage();
         bool CombatStopsIdleAI(RE::PlayerCharacter* a_player) const;
         void CheckTravelArrival();
         void LogRunningPackage();
@@ -82,6 +85,12 @@ namespace InTheirShoes {
         bool _aiActive{ false };
         bool _forceGreetTriggered{ false };
         std::atomic<bool> _forceGreetProcedureActive{ false };
+        // The ForceGreet package whose arrival opened the current self-dialogue
+        RE::FormID _greetingPackage{ 0 };
+        // A ForceGreet package that has had its conversation, and the scene it runs in (0 for none). Its
+        // procedure reports done until the scene ends or the player runs another package. The hooks read it.
+        std::atomic<RE::FormID> _greetedPackage{ 0 };
+        RE::FormID _greetedScene{ 0 };
         PlayerBusy _blockedBy{ PlayerBusy::kNo };
         RE::TESPackage* _loggedPackage{ nullptr };
         bool _runningPackageLogged{ false };
