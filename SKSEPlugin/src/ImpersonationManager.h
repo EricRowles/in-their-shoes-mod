@@ -45,7 +45,8 @@ namespace InTheirShoes {
         // Impersonate and Revert refuse while it is true.
         static bool IsPlayerTransformed();
 
-        void SetPuppetFollowsPlayer(bool a_follows);
+        // Applies Settings::DoesPuppetFollowPlayer to the puppet, bringing it to the player if it now follows
+        void OnPuppetFollowsChanged();
 
         // Gives the puppet the Dragonborn's name back if a quest alias renamed it
         void RestorePuppetName();
@@ -91,7 +92,6 @@ namespace InTheirShoes {
 
         RE::NiPointer<RE::Actor> _donorKeepAlive;
         RE::NiPointer<RE::Actor> _puppetKeepAlive;
-        bool _puppetFollows{ true };
         bool _leashQueued{ false };
         // What the puppet still needs once its 3D is loaded (see ConfigurePuppet)
         enum class PuppetRefresh { kNone, kReapply, kReloadThenReapply, kEnableThenReapply };

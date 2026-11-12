@@ -2,6 +2,7 @@
 #include "NativeRedirect.h"
 #include "GameUtil.h"
 #include "Session.h"
+#include "Settings.h"
 
 #include <RE/A/ActiveEffect.h>
 #include <RE/B/BSScriptObjectBindPolicy.h>
@@ -206,7 +207,7 @@ namespace InTheirShoes::NativeRedirect {
             auto call = [&](Variable& a_callSelf) { return orig(a_this, a_callSelf, a_vm, a_stackID, a_result, a_frame); };
 
             const auto& session = Session::GetSingleton();
-            if (!session.IsNativeRedirectEnabled() || !session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) {
+            if (!Settings::GetSingleton().IsNativeRedirectEnabled() || !session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) {
                 return call(a_self);
             }
             const auto* caller = GetCallingFrame(a_this, a_frame);

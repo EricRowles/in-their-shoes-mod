@@ -3,6 +3,7 @@
 #include "FactionManager.h"
 #include "Forms.h"
 #include "Session.h"
+#include "Settings.h"
 
 #include <optional>
 #include <utility>
@@ -63,7 +64,7 @@ namespace InTheirShoes::ConditionHooks {
         bool IsVoiceTypeAsDonor(const Query& a_q, double& a_result) {
             auto* targetVoice = static_cast<RE::BGSVoiceType*>(a_q.param1);
             auto* donorVoice = a_q.session.GetDonorVoiceType();
-            auto* voice = ((a_q.session.IsInSelfDialogue() || a_q.session.IsNPCVoiceEnabled()) && donorVoice) ?
+            auto* voice = ((a_q.session.IsInSelfDialogue() || Settings::GetSingleton().IsNPCVoiceEnabled()) && donorVoice) ?
                               donorVoice :
                               a_q.session.GetOrigPlayerVoiceType();
             a_result = (voice && targetVoice == voice) ? 1.0 : 0.0;

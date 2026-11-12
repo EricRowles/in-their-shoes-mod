@@ -32,8 +32,8 @@ Int Function GetVersion()
 	Return 1
 EndFunction
 
-; Pushes every MCM setting to the native plugin. The settings are not saved natively, so this runs
-; on first init, on version update and on every game load (via ITS_QuestScript.ITS_Maintenance).
+; Pushes every MCM setting to the native plugin, which saves them in its co-save. Runs on first init, on version
+; update and on every game load (via ITS_QuestScript.ITS_Maintenance), for saves made before the plugin saved them.
 Function PushConfig()
 	; Below the slider's minimum, from an old save
 	If IdleChatterTime < 10.0
@@ -143,7 +143,7 @@ Event OnPageReset(String page)
 
 	; Top row: Mod Version (left), Return to Body (right)
 	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
-	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
+	If ITS_NG.IsImpersonating()
 		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
 	Else
 		_oid_revert = AddTextOption("Return to Body", "Already in Body", OPTION_FLAG_DISABLED)
@@ -208,7 +208,7 @@ Event OnOptionSelect(Int option)
 		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
 		ApplyPuppetFollows()
 	ElseIf option == _oid_revert
-		If ITS_Quest.Alias_OriginalDonor.GetActorReference()
+		If ITS_NG.IsImpersonating()
 			Debug.Notification("Close the menu to return to your body.")
 			_pendingRevert = True
 			SetTextOptionValue(_oid_revert, "Pending Menu Close...")
@@ -224,7 +224,7 @@ Event OnConfigClose()
 EndEvent
 
 Event OnUpdate()
-	If ITS_Quest.Alias_OriginalDonor.GetActorReference()
+	If ITS_NG.IsImpersonating()
 		ITS_Quest.ITS_Revert()
 	EndIf
 EndEvent

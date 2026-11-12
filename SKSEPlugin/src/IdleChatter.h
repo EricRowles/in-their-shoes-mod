@@ -8,12 +8,11 @@
 
 namespace InTheirShoes {
 
-    // Picks idle lines for the impersonating player to say as the donor, and decides when.
-    // DialogueManager voices them. Not thread-safe.
+    // Picks idle lines for the impersonating player to say as the donor, and decides when (the interval is
+    // Settings::GetIdleChatterInterval).
+    // PlayerVoice voices them. Not thread-safe.
     class IdleChatter : public Singleton<IdleChatter> {
     public:
-        // Seconds between lines (MCM)
-        void SetInterval(float a_seconds) { _intervalSeconds = a_seconds < 10.0f ? 60.0f : a_seconds; }
         // The idle topic list is rebuilt the next time a line is picked
         void InvalidateTopicCache() { _topicsCached = false; }
         void Clear();
@@ -38,7 +37,6 @@ namespace InTheirShoes {
         };
         bool _topicsCached{ false };
         std::vector<IdleTopic> _topics;
-        float _intervalSeconds{ 60.0f };
         PlayerBusy _blockedBy{ PlayerBusy::kNo };
         bool _foundNothing{ false };
         std::chrono::steady_clock::time_point _lastLineTime{ std::chrono::steady_clock::now() };

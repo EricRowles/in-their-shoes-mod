@@ -4,6 +4,7 @@
 #include "GameUtil.h"
 #include "QuestConditions.h"
 #include "Session.h"
+#include "Settings.h"
 
 #include <random>
 
@@ -99,8 +100,9 @@ namespace InTheirShoes {
 
     RE::BSTSmartPointer<RE::DialogueItem> IdleChatter::Poll() {
         auto& session = Session::GetSingleton();
-        if (!session.IsActive() || !session.IsNPCVoiceEnabled()) return nullptr;
-        if (SecondsSince(_lastLineTime) < _intervalSeconds || SecondsSince(_lastEvalTime) < kEvalIntervalSeconds) return nullptr;
+        const auto& settings = Settings::GetSingleton();
+        if (!session.IsActive() || !settings.IsNPCVoiceEnabled()) return nullptr;
+        if (SecondsSince(_lastLineTime) < settings.GetIdleChatterInterval() || SecondsSince(_lastEvalTime) < kEvalIntervalSeconds) return nullptr;
         _lastEvalTime = std::chrono::steady_clock::now();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
@@ -116,16 +118,11 @@ namespace InTheirShoes {
             blockedBy = PlayerBusy::kCombat;
         } else if (IsBlockingMenuOpen()) {
             blockedBy = PlayerBusy::kMenu;
-        } else if (auto* scene = player->GetCurrentScene(); scene && scene->isPlaying) {
+        } else if (GetPlayingScene(player)) {
             // Conditions can't rule this out: IsInScene answers no for the player (ConditionHooks)
             blockedBy = PlayerBusy::kScene;
         }
-        if (blockedBy != _blockedBy) {
-            if (blockedBy != PlayerBusy::kNo) {
-                SKSE::log::info("Idle chatter waiting: {}", ToString(blockedBy));
-            }
-            _blockedBy = blockedBy;
-        }
+        LogPlayerBusy(_blockedBy, blockedBy, "Idle chatter"sv);
         if (blockedBy != PlayerBusy::kNo) return nullptr;
 
         auto item = PickLine(player, donor);

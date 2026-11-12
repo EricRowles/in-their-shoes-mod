@@ -7,6 +7,7 @@
 #include "Forms.h"
 #include "GameUtil.h"
 #include "Lifecycle.h"
+#include "Settings.h"
 
 namespace InTheirShoes {
 
@@ -255,7 +256,7 @@ namespace InTheirShoes {
     void ImpersonationManager::ApplyPuppetFollowState(RE::Actor* a_puppet) {
         // The follow package itself lives on the PlayerPuppet alias, gated by the ITS_PuppetFollows global.
         // Teammate status lets the puppet travel through load doors with the player.
-        if (_puppetFollows) {
+        if (Settings::GetSingleton().DoesPuppetFollowPlayer()) {
             a_puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
         } else {
             a_puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
@@ -277,7 +278,7 @@ namespace InTheirShoes {
         a_puppet->AllowBleedoutDialogue(true);
         a_puppet->StopCombat();
         a_puppet->EvaluatePackage(true, true);
-        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), _puppetFollows);
+        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), Settings::GetSingleton().DoesPuppetFollowPlayer());
     }
 
     void ImpersonationManager::ReleasePuppet() {
@@ -288,20 +289,20 @@ namespace InTheirShoes {
         AttachPuppet(nullptr);
     }
 
-    void ImpersonationManager::SetPuppetFollowsPlayer(bool a_follows) {
-        _puppetFollows = a_follows;
+    void ImpersonationManager::OnPuppetFollowsChanged() {
         auto* puppet = GetPuppet();
         if (!puppet || !IsActive()) return;
 
+        const bool follows = Settings::GetSingleton().DoesPuppetFollowPlayer();
         ApplyPuppetFollowState(puppet);
         auto* player = RE::PlayerCharacter::GetSingleton();
-        if (a_follows && player &&
+        if (follows && player &&
             (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f)) {
             puppet->MoveTo(player);
             SKSE::log::info("Teleported the puppet to the player.");
         }
         puppet->EvaluatePackage(true, true);
-        SKSE::log::info("Updated puppet follows player: {}", a_follows);
+        SKSE::log::info("Updated puppet follows player: {}", follows);
     }
 
     void ImpersonationManager::RefreshPuppetAppearanceWhenLoaded() {

@@ -6,6 +6,7 @@
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
+#include "Settings.h"
 
 #include <type_traits>
 
@@ -310,6 +311,48 @@ namespace InTheirShoes::Serialization {
                 FactionManager::GetSingleton().GetDragonbornFactions().size(), FactionManager::GetSingleton().GetGivenFactions().size());
         }
 
+        // --- 'SETT': the MCM's settings ---
+
+        void WriteSettings(Serde* a_serde) {
+            if (!a_serde->OpenRecord(kSettingsRecord, kSettingsVersion)) return;
+            const auto& settings = Settings::GetSingleton();
+            Write(a_serde, settings.IsIdleAIEnabled());
+            Write(a_serde, settings.GetIdleTimeout());
+            Write(a_serde, settings.GetIdlePackage());
+            Write(a_serde, settings.GetTravelDestination());
+            Write(a_serde, settings.IsNPCVoiceEnabled());
+            Write(a_serde, settings.GetIdleChatterInterval());
+            Write(a_serde, settings.IsNativeRedirectEnabled());
+            Write(a_serde, settings.DoesPuppetFollowPlayer());
+        }
+
+        void ReadSettings(Serde* a_serde) {
+            bool idleAIEnabled = false;
+            float idleTimeout = 0.0f;
+            std::int32_t idlePackage = 0;
+            std::int32_t travelDestination = 0;
+            bool npcVoiceEnabled = false;
+            float idleChatterInterval = 0.0f;
+            bool nativeRedirectEnabled = false;
+            bool puppetFollows = false;
+            if (!Read(a_serde, idleAIEnabled) || !Read(a_serde, idleTimeout) || !Read(a_serde, idlePackage) ||
+                !Read(a_serde, travelDestination) || !Read(a_serde, npcVoiceEnabled) || !Read(a_serde, idleChatterInterval) ||
+                !Read(a_serde, nativeRedirectEnabled) || !Read(a_serde, puppetFollows)) {
+                SKSE::log::warn("Settings record is truncated; ignoring it.");
+                return;
+            }
+            auto& settings = Settings::GetSingleton();
+            settings.SetIdleAIEnabled(idleAIEnabled);
+            settings.SetIdleTimeout(idleTimeout);
+            settings.SetIdlePackage(idlePackage);
+            settings.SetTravelDestination(travelDestination);
+            settings.SetNPCVoiceEnabled(npcVoiceEnabled);
+            settings.SetIdleChatterInterval(idleChatterInterval);
+            settings.SetNativeRedirectEnabled(nativeRedirectEnabled);
+            settings.SetPuppetFollowsPlayer(puppetFollows);
+            SKSE::log::info("Loaded settings from co-save.");
+        }
+
         // Whether this build can read a record saved at a_version (it reads a_current and every older
         // version back to a_min)
         bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current,
@@ -338,6 +381,7 @@ namespace InTheirShoes::Serialization {
     void SaveCallback(SKSE::SerializationInterface* a_serde) {
         if (!a_serde) return;
 
+        WriteSettings(a_serde);
         auto& mgr = ImpersonationManager::GetSingleton();
         if (const auto& baseline = mgr.GetBaseline()) {
             WriteBaseline(a_serde, *baseline);
@@ -395,6 +439,11 @@ namespace InTheirShoes::Serialization {
                 case kFactionsRecord:
                     if (!IsReadableVersion(type, version, kFactionsVersion)) break;
                     ReadFactions(a_serde);
+                    break;
+
+                case kSettingsRecord:
+                    if (!IsReadableVersion(type, version, kSettingsVersion)) break;
+                    ReadSettings(a_serde);
                     break;
 
                 default:

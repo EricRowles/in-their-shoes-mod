@@ -12,11 +12,12 @@ namespace InTheirShoes {
 
     // Routes dialogue so the impersonating player speaks the donor's lines.
     //
-    // Every line is voiced once, by the player. In self-dialogue the engine's speaker is the puppet, standing in
-    // for the donor: it runs the line silenced and is held "speaking" until the player's line ends, so the
-    // engine waits for the player. The player's own lines (scenes on swapped aliases, and lines scripts give the
-    // donor, which NativeRedirect sends to the player) and idle chatter (picked by IdleChatter) are voiced the
-    // same way.
+    // Every line is voiced once, by the player (PlayerVoice does the playing). In self-dialogue the engine's
+    // speaker is the puppet, standing in for the donor: it runs the line silenced and is held "speaking" until
+    // the player's line ends, so the engine waits for the player. The player's own lines (scenes on swapped
+    // aliases, and lines scripts give the donor, which NativeRedirect sends to the player) and idle chatter
+    // (picked by IdleChatter) are voiced the same way. This class routes the engine's lines to PlayerVoice and
+    // moves the Dialogue Menu on when a stand-in's line ends.
     //
     // Whether self-dialogue is on is published in Session, which condition hooks read from AI threads.
     class DialogueManager :
@@ -51,15 +52,8 @@ namespace InTheirShoes {
         void EndSelfDialogue();
         void UpdatePuppetSpeakerClear();
 
-        // Player voice
-        void SpeakAsPlayer(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
-        void StartPlayerVoiceLate();
-        void TickPlayerLine();
-        void FinishPlayerLine();
-
-        // The stand-in speaker (the puppet in self-dialogue)
-        void HoldStandIn(RE::Actor* a_standIn, RE::DialogueResponse* a_response);
-        static void ReleaseStandIn(RE::ActorHandle a_standIn, const RE::DialogueResponse* a_response);
+        // The stand-in's line ended (PlayerVoice released it): advances the Dialogue Menu past the response
+        void OnStandInLineDone(RE::Actor* a_standIn, const RE::DialogueResponse* a_response);
         void EndPuppetInfo(RE::Actor* a_puppet, RE::TESTopicInfo* a_info);
 
         static bool Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
@@ -90,35 +84,6 @@ namespace InTheirShoes {
         // After self-dialogue ends (Session::IsPuppetSpeakerPending), the puppet is cleared as the engine's speaker
         // shortly after the menu closes. When the menu was first seen closed, once it has
         std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
-
-        // The line the player is voicing. It exists only while the line plays, and is dropped as a whole
-        // when it ends.
-        struct PlayerLine {
-            // The stand-in whose line it is (if any), and the engine's response the stand-in runs
-            RE::ActorHandle standIn;
-            RE::DialogueResponse* standInResponse{ nullptr };
-            // Set while the line's voice hasn't started yet (see StartPlayerVoiceLate)
-            RE::DialogueResponse* pendingVoice{ nullptr };
-            // Owns the response of a line we built ourselves (idle chatter)
-            RE::BSTSmartPointer<RE::DialogueItem> item;
-            bool isIdleChatter{ false };
-            bool hadSound{ false };
-            bool waitsForMenu{ false };
-            float unvoicedDuration{ 0.0f };
-            float soundSeconds{ 0.0f };
-            // Time the sound could be heard since it started, and since its length became known (see TickPlayerLine)
-            float soundActive{ 0.0f };
-            float soundPlayed{ 0.0f };
-            // Time between ticks not counted as playback (game paused, loading screens, long frames)
-            float soundPaused{ 0.0f };
-            std::chrono::steady_clock::time_point start{};
-            std::chrono::steady_clock::time_point lastSoundTick{};
-            std::chrono::steady_clock::time_point lastVoiceRetry{};
-        };
-        std::optional<PlayerLine> _line;
-        // The player's copy of a stand-in's line (the stand-in's own response is silenced). Kept outside
-        // PlayerLine: the line being voiced points at it, and replacing a line must not free it.
-        RE::DialogueResponse _standInLine;
 
         // The puppet's topic infos that began and haven't ended, and those we ended ourselves (EndPuppetInfo).
         // Topic info events come from any thread.

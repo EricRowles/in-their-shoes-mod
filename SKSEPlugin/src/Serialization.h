@@ -23,6 +23,9 @@ namespace InTheirShoes::Serialization {
     // The Dragonborn's factions, and the donor's factions the player was given (FactionManager)
     inline constexpr std::uint32_t kFactionsRecord = 'FACT';
     inline constexpr std::uint32_t kFactionsVersion = 1;
+    // The MCM's settings (Settings)
+    inline constexpr std::uint32_t kSettingsRecord = 'SETT';
+    inline constexpr std::uint32_t kSettingsVersion = 1;
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);

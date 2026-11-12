@@ -104,6 +104,15 @@ namespace InTheirShoes {
         }
     }
 
+    // Logs when what keeps a_who from acting changes, and remembers it in a_last
+    inline void LogPlayerBusy(PlayerBusy& a_last, PlayerBusy a_now, std::string_view a_who) {
+        if (a_now == a_last) return;
+        if (a_now != PlayerBusy::kNo) {
+            SKSE::log::info("{} waiting: {}", a_who, ToString(a_now));
+        }
+        a_last = a_now;
+    }
+
     // Real time, which keeps running while the game is paused
     inline float SecondsSince(std::chrono::steady_clock::time_point a_time) {
         return std::chrono::duration<float>(std::chrono::steady_clock::now() - a_time).count();

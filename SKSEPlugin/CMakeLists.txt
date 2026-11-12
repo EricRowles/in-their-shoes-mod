@@ -23,6 +23,7 @@ add_library(${PROJECT_NAME} SHARED
     src/Forms.cpp
     src/GameUtil.h
     src/Session.h
+    src/Settings.h
     src/Singleton.h
     src/Lifecycle.h
     src/Lifecycle.cpp
@@ -47,6 +48,8 @@ add_library(${PROJECT_NAME} SHARED
     src/PackageRetarget.cpp
     src/DialogueManager.h
     src/DialogueManager.cpp
+    src/PlayerVoice.h
+    src/PlayerVoice.cpp
     src/IdleChatter.h
     src/IdleChatter.cpp
     src/QuestConditions.h

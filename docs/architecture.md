@@ -22,7 +22,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
   - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM comes from a high-priority quest alias, so it outranks the donor's packages, its quest packages (such as a follower's Follow) included.
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
   - RaceMenu won't open.
-- **Saving:** the session is stored in the SKSE co-save and restored on load.
+- **Saving:** the session and the MCM's settings are stored in the SKSE co-save and restored on load.
 
 ## Code map (`SKSEPlugin/src/`)
 
@@ -30,15 +30,17 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | `ImpersonationManager` | Impersonate, switch and revert; keeps the donor parked and the puppet configured |
 | `Lifecycle` | Passes plugin, game and session events to the managers in a fixed order |
-| `Session` | Who is who (donor, puppet, self-dialogue), readable from any thread |
+| `Session` | Who is who (donor, puppet, self-dialogue), readable from any thread. Source of truth for whether the player is impersonating |
+| `Settings` | The MCM's settings, saved in the co-save, readable from any thread |
 | `ConditionHooks` | Identity, relationship and location conditions answer for the right actor |
 | `ActorHooks` | Voice type, editor location and per-frame player update hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |
-| `DialogueManager` | Self-dialogue, the player voicing lines |
+| `DialogueManager` | Self-dialogue, routing the engine's lines to the player, advancing the Dialogue Menu |
+| `PlayerVoice` | The player voicing one line at a time, including holding a stand-in as speaking |
 | `IdleChatter` | Picks the donor's idle lines for the player to say |
 | `QuestConditions` | Evaluates a condition list in its quest's context |
 | `IdleAIManager` | Runs the donor's packages, or the package picked in the MCM, on the idle player |
-| `PackageRetarget` | Other actors' packages that target the donor (e.g. a companion following it) target the player |
+| `PackageRetarget` | Owns every runtime package edit: other actors' packages that target the donor (e.g. a companion following it) target the player, and packages the idle player runs that target the player target the puppet |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `FactionManager` | Moves the donor's factions to the player for the session and hands them back |
 | `Forms` | Every form looked up by ID |
@@ -47,7 +49,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `NativeRedirect` | When enabled in the MCM, natives other mods' scripts call on the donor (or on the puppet in self-dialogue) run on the player |
 
 Rules the code relies on:
-- Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session` and locked state.
+- Hooks that run in parallel with the game (conditions, voice types, AI procedures) read only `Session`, `Settings` and locked state.
 - Managers don't call each other for lifecycle work; that goes through `Lifecycle`.
 - Base records aren't changed permanently; per-actor runtime state and hooks are used instead. (One exception: unique donors' outfits, see `ImpersonationManager.cpp`.)
 
