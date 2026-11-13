@@ -13,6 +13,13 @@ Function Apply(Quest a_quest, Bool a_aiDriven, Int a_aliasID, ObjectReference a_
 		Return
 	EndIf
 
+	; Control goes back to the player before the aliases change: each alias call waits a frame, and the plugin
+	; has already cleared aiControlledPackage, so in between the AI's slope pitch drove the camera (straight up
+	; or down when stopping on a slope). Engaging switches over last, once the package is in place.
+	If check == 2 && !a_aiDriven
+		Game.SetPlayerAIDriven(False)
+	EndIf
+
 	Actor player = Game.GetPlayer()
 	If a_quest
 		If a_aliasID >= 0 && !a_quest.IsRunning()
@@ -33,8 +40,8 @@ Function Apply(Quest a_quest, Bool a_aiDriven, Int a_aliasID, ObjectReference a_
 		EndIf
 	EndIf
 	; Only when it changes: the plugin tracks what was last passed
-	If check == 2
-		Game.SetPlayerAIDriven(a_aiDriven)
+	If check == 2 && a_aiDriven
+		Game.SetPlayerAIDriven(True)
 	EndIf
 	player.EvaluatePackage()
 EndFunction
