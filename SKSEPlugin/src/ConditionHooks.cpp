@@ -262,9 +262,10 @@ namespace InTheirShoes::ConditionHooks {
         }
 
         // --- Relationships: who an actor is to another ---
-        // Relationships are between base records, so the player's are the donor's: the donor's spouse, friends
-        // and enemies treat the player as the donor. The puppet keeps the Dragonborn's (marriage, followers).
-        // In self-dialogue the puppet is the donor and the player the Dragonborn.
+        // Relationships are between base records. The player keeps the Dragonborn's (a follower's friendship, a
+        // spouse), and where the Dragonborn has none with an actor, the donor's apply: the donor's family, friends
+        // and enemies treat the player as the donor. The puppet keeps the Dragonborn's too. In self-dialogue the
+        // puppet is the donor and the player the Dragonborn.
 
         constexpr std::string_view kRelationshipConditions[] = {
             "GetRelationshipRank"sv,
@@ -295,8 +296,22 @@ namespace InTheirShoes::ConditionHooks {
             if (!session.IsActive()) {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             }
-            return orig(ResolveRelationshipRef(session, a_thisObj),
-                ResolveRelationshipRef(session, static_cast<RE::TESObjectREFR*>(a_p1)), a_p2, a_result);
+            auto* ref = static_cast<RE::TESObjectREFR*>(a_p1);
+            auto* evalThis = ResolveRelationshipRef(session, a_thisObj);
+            auto* evalRef = ResolveRelationshipRef(session, ref);
+            // The Dragonborn's own relationship first: the player's side asked as the player rather than the donor.
+            // A rank of 0 (acquaintance) or false means the Dragonborn has none, so the donor's answers.
+            auto* player = session.GetPlayer();
+            const bool thisIsDonor = a_thisObj == player && evalThis != player;
+            const bool refIsDonor = ref == player && evalRef != player;
+            if (thisIsDonor != refIsDonor) {
+                auto* ownThis = thisIsDonor ? player : evalThis;
+                auto* ownRef = refIsDonor ? player : evalRef;
+                if (ownThis != ownRef && orig(ownThis, ownRef, a_p2, a_result) && a_result != 0.0) {
+                    return true;
+                }
+            }
+            return orig(evalThis, evalRef, a_p2, a_result);
         }
 
         // --- The PC: outside self-dialogue the PC is the donor. GetPCIsRace and GetPCIsSex follow the player's

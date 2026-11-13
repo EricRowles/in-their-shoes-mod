@@ -40,7 +40,7 @@ Conditions that require the player to be nearby will still target the impersonat
 ### Impersonation - social identity
 While impersonating, the world shall treat the impersonator as the donor:
 - The impersonator shall be a member of the donor's factions, at the donor's ranks, and not of the Dragonborn's (except PlayerFaction). On revert, the donor shall get the impersonator's factions as they are then, and the Dragonborn's factions shall be restored.
-- Other actors' relationships with the donor shall apply to the impersonator, and the Dragonborn's relationships to the puppet.
+- The impersonator shall keep the Dragonborn's relationships. Where the Dragonborn has no relationship with an actor, that actor's relationship with the donor shall apply to the impersonator. The Dragonborn's relationships shall also apply to the puppet.
 
 ### Impersonation - packages
 The donor's original packages shall apply to the player as configured in the MCM menu.
