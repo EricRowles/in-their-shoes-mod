@@ -292,6 +292,16 @@ namespace InTheirShoes {
 
         // 1. Race, Skin & Face NPC
         if (a_snapshot.race) {
+            // The player's race goes through Actor::SwitchRace, the function Papyrus SetRace calls: it dispels the
+            // old race's abilities (e.g. a Breton's magic resistance) and casts the new race's, which setting the
+            // fields alone doesn't. Racial powers need nothing more, since the game reads them from the current race.
+            // Other actors (the puppet) keep the direct assignment: SwitchRace resets their 3D, which the puppet's
+            // own reload handles (#22). Without a_update3D only the record is restored (on game revert, before
+            // another save loads), so no magic is touched. The fields are still set afterwards, as SwitchRace
+            // returns early in some states (e.g. a knocked-down actor), and it doesn't set originalRace.
+            if (a_update3D && a_targetActor->IsPlayerRef() && a_targetActor->GetRace() != a_snapshot.race) {
+                a_targetActor->SwitchRace(a_snapshot.race, true);
+            }
             targetNPC->race = a_snapshot.race;
             targetNPC->originalRace = a_snapshot.race;
             a_targetActor->GetActorRuntimeData().race = a_snapshot.race;
