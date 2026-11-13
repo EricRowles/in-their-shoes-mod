@@ -39,6 +39,26 @@ namespace InTheirShoes {
             a_out.blue = ToByte(a_from.blue);
         }
 
+        // Dispels the permanent magic of the actor's current race: its abilities, diseases and addictions, the spell
+        // types the game's own removal loop in SwitchRace (ID 38754) dispels.
+        //
+        // SwitchRace itself isn't used: for the player it also rebuilds the base record's head parts for the new
+        // race and records a stored race on PlayerCharacter, which left the player with no head (#39).
+        void DispelRaceMagic(RE::Actor* a_actor) {
+            auto* race = a_actor->GetRace();
+            if (!race || !race->actorEffects || !race->actorEffects->spells) return;
+            RE::BSPointerHandle<RE::Actor> anyCaster{};
+            for (std::uint32_t i = 0; i < race->actorEffects->numSpells; ++i) {
+                auto* spell = race->actorEffects->spells[i];
+                if (!spell) continue;
+                using Type = RE::MagicSystem::SpellType;
+                const auto type = spell->GetSpellType();
+                if (type == Type::kAbility || type == Type::kDisease || type == Type::kAddiction) {
+                    a_actor->AsMagicTarget()->DispelEffect(spell, anyCaster);
+                }
+            }
+        }
+
         // A body tint of 0,0,0 means none was set
         bool IsBlack(const RE::Color& a_color) {
             return a_color.red == 0 && a_color.green == 0 && a_color.blue == 0;
@@ -292,28 +312,21 @@ namespace InTheirShoes {
 
         // 1. Race, Skin & Face NPC
         if (a_snapshot.race) {
-            // The player's race goes through Actor::SwitchRace, the function Papyrus SetRace calls: it dispels the
-            // old race's abilities (e.g. a Breton's magic resistance) and casts the new race's, which setting the
-            // fields alone doesn't. Racial powers need nothing more, since the game reads them from the current race.
-            // Other actors (the puppet) keep the direct assignment: SwitchRace resets their 3D, which the puppet's
-            // own reload handles (#22). Without a_update3D only the record is restored (on game revert, before
-            // another save loads), so no magic is touched. The fields are still set afterwards, as SwitchRace
-            // returns early in some states (e.g. a knocked-down actor), and it doesn't set originalRace.
-            // SwitchRace also queues a deferred head and skeleton update (kHead | kSkeleton). That head-only rebuild
-            // left the player with no head, so the queued flags are put back as they were: the full 3D reset below
-            // rebuilds the head and skeleton as it did before SwitchRace was used.
-            if (a_update3D && a_targetActor->IsPlayerRef() && a_targetActor->GetRace() != a_snapshot.race) {
-                auto* process = a_targetActor->GetActorRuntimeData().currentProcess;
-                auto* middleHigh = process ? process->middleHigh : nullptr;
-                const auto queued3D = middleHigh ? middleHigh->update3DModel : decltype(middleHigh->update3DModel){};
-                a_targetActor->SwitchRace(a_snapshot.race, true);
-                if (middleHigh) {
-                    middleHigh->update3DModel = queued3D;
-                }
+            // The player's racial abilities (e.g. a Breton's magic resistance) follow the race: the old race's are
+            // dispelled and the new race's cast, as the game's SwitchRace does (#39). Racial powers need nothing more,
+            // since the game reads them from the current race. Without a_update3D only the record is restored (on
+            // game revert, before another save loads), so no magic is touched. The puppet's abilities don't matter.
+            const bool switchRaceMagic = a_update3D && a_targetActor->IsPlayerRef() && a_targetActor->GetRace() != a_snapshot.race;
+            if (switchRaceMagic) {
+                DispelRaceMagic(a_targetActor);
             }
             targetNPC->race = a_snapshot.race;
             targetNPC->originalRace = a_snapshot.race;
             a_targetActor->GetActorRuntimeData().race = a_snapshot.race;
+            if (switchRaceMagic) {
+                // The race spells only
+                a_targetActor->CastPermanentMagic(false, false, true, false);
+            }
         }
         targetNPC->skin = a_snapshot.skin;
         targetNPC->farSkin = a_snapshot.farSkin;
