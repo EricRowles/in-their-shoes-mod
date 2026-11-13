@@ -299,8 +299,17 @@ namespace InTheirShoes {
             // own reload handles (#22). Without a_update3D only the record is restored (on game revert, before
             // another save loads), so no magic is touched. The fields are still set afterwards, as SwitchRace
             // returns early in some states (e.g. a knocked-down actor), and it doesn't set originalRace.
+            // SwitchRace also queues a deferred head and skeleton update (kHead | kSkeleton). That head-only rebuild
+            // left the player with no head, so the queued flags are put back as they were: the full 3D reset below
+            // rebuilds the head and skeleton as it did before SwitchRace was used.
             if (a_update3D && a_targetActor->IsPlayerRef() && a_targetActor->GetRace() != a_snapshot.race) {
+                auto* process = a_targetActor->GetActorRuntimeData().currentProcess;
+                auto* middleHigh = process ? process->middleHigh : nullptr;
+                const auto queued3D = middleHigh ? middleHigh->update3DModel : decltype(middleHigh->update3DModel){};
                 a_targetActor->SwitchRace(a_snapshot.race, true);
+                if (middleHigh) {
+                    middleHigh->update3DModel = queued3D;
+                }
             }
             targetNPC->race = a_snapshot.race;
             targetNPC->originalRace = a_snapshot.race;
