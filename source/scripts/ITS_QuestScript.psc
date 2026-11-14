@@ -101,15 +101,26 @@ Function FadeFromBlack()
 	ImageSpaceModifier.RemoveCrossFade(0.4)
 EndFunction
 
+; A swap waits (fades) partway through, which lets another call start; a second one is dropped while it runs
+Bool _swapping = False
+
 ; Morph Complete Function -----------------------------------------------------------------------------------
 Function ITS_ImpersonateComplete(Actor a_donor)
+	If !_swapping
+		_swapping = True
+		DoImpersonate(a_donor)
+		_swapping = False
+	EndIf
+EndFunction
+
+Function DoImpersonate(Actor a_donor)
 	If !a_donor || a_donor == PlayerRef
 		Return
 	EndIf
 
 	Bool firstImpersonation = !ITS_NG.IsImpersonating()
 	If !firstImpersonation && a_donor == ITS_NG.GetPuppet()
-		ITS_Revert()
+		DoRevert()
 		Return
 	EndIf
 
@@ -165,6 +176,14 @@ EndFunction
 
 ; Revert Function -----------------------------------------------------------------------------------
 Function ITS_Revert()
+	If !_swapping
+		_swapping = True
+		DoRevert()
+		_swapping = False
+	EndIf
+EndFunction
+
+Function DoRevert()
 	If !ITS_NG.IsImpersonating()
 		SyncWithPlugin()
 		Return
