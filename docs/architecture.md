@@ -21,6 +21,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
   - The player keeps the Dragonborn's relationships (followers, spouse). Where the Dragonborn has none with an actor, the donor's apply, so the donor's family, friends and enemies treat the player as the donor. The puppet keeps the Dragonborn's. Class checks answer with the donor's class.
   - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM comes from a high-priority quest alias, so it outranks the donor's packages, its quest packages (such as a follower's Follow) included.
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
+  - The donor starts with no bounty. Bounty run up as the donor is dropped when the session ends, and the Dragonborn's comes back.
   - RaceMenu won't open.
 - **Saving:** the session and the MCM's settings are stored in the SKSE co-save and restored on load. The MCM shows the donor's name, or Not Found if a saved session's donor no longer exists.
 
@@ -43,6 +44,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `PackageRetarget` | Owns every runtime package edit: other actors' packages that target the donor (e.g. a companion following it) target the player, and packages the idle player runs that target the player target the puppet |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `FactionManager` | Moves the donor's factions to the player for the session and hands them back |
+| `CrimeManager` | Sets the Dragonborn's bounty aside for the session and restores it |
 | `Forms` | Every form looked up by ID |
 | `Serialization` | Co-save records |
 | `Papyrus` | `ITS_NG` natives, and trigger events that fire for the parked donor |

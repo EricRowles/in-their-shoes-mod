@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "Serialization.h"
 #include "AliasSwapManager.h"
+#include "CrimeManager.h"
 #include "FaceManager.h"
 #include "FactionManager.h"
 #include "Forms.h"
@@ -311,6 +312,34 @@ namespace InTheirShoes::Serialization {
                 FactionManager::GetSingleton().GetDragonbornFactions().size(), FactionManager::GetSingleton().GetGivenFactions().size());
         }
 
+        // --- 'CRIM': the Dragonborn's bounty ---
+
+        void WriteCrime(Serde* a_serde) {
+            auto& crime = CrimeManager::GetSingleton();
+            if (!crime.IsActive() || !Session::GetSingleton().IsActive()) return;
+            if (!a_serde->OpenRecord(kCrimeRecord, kCrimeVersion)) return;
+            WriteList(a_serde, crime.GetDragonbornBounty(), [&](const CrimeManager::FactionBounty& a_entry) {
+                WriteFormID(a_serde, a_entry.faction);
+                Write(a_serde, a_entry.gold);
+            });
+        }
+
+        void ReadCrime(Serde* a_serde) {
+            std::vector<CrimeManager::FactionBounty> bounty;
+            const bool ok = ReadList(a_serde, [&] {
+                CrimeManager::FactionBounty entry;
+                if (!ReadForm(a_serde, entry.faction) || !Read(a_serde, entry.gold)) return false;
+                if (entry.faction) bounty.push_back(entry);
+                return true;
+            });
+            if (!ok) {
+                SKSE::log::warn("Bounty record is truncated; ignoring it.");
+                return;
+            }
+            CrimeManager::GetSingleton().Restore(std::move(bounty));
+            SKSE::log::info("Loaded the Dragonborn's bounty ({} crime factions).", CrimeManager::GetSingleton().GetDragonbornBounty().size());
+        }
+
         // --- 'SETT': the MCM's settings ---
 
         void WriteSettings(Serde* a_serde) {
@@ -388,6 +417,7 @@ namespace InTheirShoes::Serialization {
         }
         WriteSession(a_serde);
         WriteFactions(a_serde);
+        WriteCrime(a_serde);
         if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton().IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
@@ -439,6 +469,11 @@ namespace InTheirShoes::Serialization {
                 case kFactionsRecord:
                     if (!IsReadableVersion(type, version, kFactionsVersion)) break;
                     ReadFactions(a_serde);
+                    break;
+
+                case kCrimeRecord:
+                    if (!IsReadableVersion(type, version, kCrimeVersion)) break;
+                    ReadCrime(a_serde);
                     break;
 
                 case kSettingsRecord:

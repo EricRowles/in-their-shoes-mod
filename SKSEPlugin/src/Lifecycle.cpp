@@ -3,6 +3,7 @@
 #include "ActorHooks.h"
 #include "AliasSwapManager.h"
 #include "ConditionHooks.h"
+#include "CrimeManager.h"
 #include "DialogueManager.h"
 #include "FaceManager.h"
 #include "FactionManager.h"
@@ -54,6 +55,7 @@ namespace InTheirShoes::Lifecycle {
         ImpersonationManager::GetSingleton().OnRevert();
         AliasSwapManager::GetSingleton().Clear();
         FactionManager::GetSingleton().Clear();
+        CrimeManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
         IdleChatter::GetSingleton().Clear();
@@ -74,6 +76,7 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnSessionBegin() {
+        CrimeManager::GetSingleton().OnSessionBegin(RE::PlayerCharacter::GetSingleton());
         IdleAIManager::GetSingleton().ClearPlayerPackages();
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
@@ -95,6 +98,7 @@ namespace InTheirShoes::Lifecycle {
     void OnSessionEnd() {
         // The player stops voicing the donor's line on revert or a switch to another donor
         PlayerVoice::GetSingleton().Finish();
+        CrimeManager::GetSingleton().OnSessionEnd(RE::PlayerCharacter::GetSingleton());
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
         PackageRetarget::GetSingleton().RestoreDonorToPlayer();
