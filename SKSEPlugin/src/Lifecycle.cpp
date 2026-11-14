@@ -12,6 +12,7 @@
 #include "ImpersonationManager.h"
 #include "NativeRedirect.h"
 #include "PackageRetarget.h"
+#include "PlayerVoice.h"
 #include "Session.h"
 #include "Settings.h"
 
@@ -92,6 +93,8 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnSessionEnd() {
+        // The player stops voicing the donor's line on revert or a switch to another donor
+        PlayerVoice::GetSingleton().Finish();
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
         PackageRetarget::GetSingleton().RestoreDonorToPlayer();

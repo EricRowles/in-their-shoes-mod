@@ -203,9 +203,27 @@ namespace InTheirShoes {
     }
 
     void PlayerVoice::SpeakIdleChatter(RE::BSTSmartPointer<RE::DialogueItem> a_item) {
+        if (_line) Finish();
         SendTopicInfoEvent(*a_item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicBegin);
-        SpeakLine(a_item->responses.front(), false, true);
+        StartLine(a_item->responses.front(), false, true);
         _line->item = std::move(a_item);  // the response must outlive the line
+    }
+
+    bool PlayerVoice::SpeakNextIdleResponse() {
+        // An info's responses are spoken one after another, as the engine does (#34). The end event waits for
+        // the last.
+        auto item = _line->item;
+        const auto next = _line->responseIndex + 1;
+        std::size_t index = 0;
+        for (auto* response : item->responses) {
+            if (index++ == next && response) {
+                StartLine(response, false, true);
+                _line->item = std::move(item);
+                _line->responseIndex = next;
+                return true;
+            }
+        }
+        return false;
     }
 
     void PlayerVoice::TakeStandInLine(RE::DialogueResponse* a_engineResponse) {
@@ -241,6 +259,14 @@ namespace InTheirShoes {
     }
 
     void PlayerVoice::SpeakLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
+        // A line that takes over ends the one playing, so an idle line still sends its end event (its end fragment
+        // may start a scene) and reports back to IdleChatter. (The stand-in's copy was already taken into
+        // _standInLine; ending the old line doesn't touch it.)
+        if (_line) Finish();
+        StartLine(a_response, a_unused, a_isIdleChatter);
+    }
+
+    void PlayerVoice::StartLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StopSounds(player);
 
@@ -399,6 +425,7 @@ namespace InTheirShoes {
 
         SKSE::log::info("Player line finished after {:.2f}s (voiced={}, sound length {:.2f}s, played {:.2f}s, paused {:.2f}s)",
             SecondsSince(line.start), line.hadSound, line.soundSeconds, line.soundPlayed, line.soundPaused);
+        if (line.isIdleChatter && line.item && SpeakNextIdleResponse()) return;
         Finish();
     }
 

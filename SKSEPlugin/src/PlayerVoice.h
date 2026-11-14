@@ -42,8 +42,8 @@ namespace InTheirShoes {
         // A line for the player to voice (a scene line on a swapped alias)
         void Speak(RE::DialogueResponse* a_response, bool a_unused);
 
-        // A line IdleChatter picked: sends the topic info's begin event and its end event when the line ends,
-        // then reports back to IdleChatter. The item is kept for as long as the line plays.
+        // A line IdleChatter picked: sends the topic info's begin event, speaks each of its responses, and sends
+        // its end event when the last ends, then reports back to IdleChatter. The item is kept while it plays.
         void SpeakIdleChatter(RE::BSTSmartPointer<RE::DialogueItem> a_item);
 
         // A stand-in's line, in two steps around the stand-in running its own response:
@@ -65,7 +65,11 @@ namespace InTheirShoes {
         PlayerVoice() = default;
         ~PlayerVoice() = default;
 
+        // Ends any line playing, then starts this one
         void SpeakLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
+        void StartLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
+        // Starts the idle line's next response, keeping its item; false after the last
+        bool SpeakNextIdleResponse();
         void StartVoiceLate();
         bool StandInLineDone();
 
@@ -82,6 +86,7 @@ namespace InTheirShoes {
             RE::DialogueResponse* pendingVoice{ nullptr };
             // Owns the response of a line we built ourselves (idle chatter)
             RE::BSTSmartPointer<RE::DialogueItem> item;
+            std::size_t responseIndex{ 0 };
             bool isIdleChatter{ false };
             bool hadSound{ false };
             bool waitsForMenu{ false };
