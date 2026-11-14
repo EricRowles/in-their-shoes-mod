@@ -9,7 +9,7 @@ While impersonating, the **player** voices every line the donor would say, and t
 | Normal play | Donor | Dragonborn |
 | Self-dialogue (talking to the puppet) | Dragonborn (the listener) | Donor (the speaker) |
 
-The parked donor always counts as being where the player is. The player and puppet both use the donor's voice type, so lines resolve to the donor's voice files. With NPC voice off in the MCM, the player keeps the Dragonborn's voice type. Conditions never count the player as being in a scene, because it only joins scenes in the donor's place.
+This includes race and sex: in self-dialogue the donor's lines see the Dragonborn's race and sex as the listener's. The parked donor always counts as being where the player is. The player and puppet both use the donor's voice type, so lines resolve to the donor's voice files. With NPC voice off in the MCM, the player keeps the Dragonborn's voice type. Conditions never count the player as being in a scene, because it only joins scenes in the donor's place.
 
 ## Self-dialogue
 

@@ -124,6 +124,13 @@ namespace InTheirShoes::ConditionHooks {
             return a_q.Ask(a_q.subject, a_result);
         }
 
+        // The puppet's body has the Dragonborn's race and sex, as the player's has the donor's. In self-dialogue
+        // the bodies are the wrong way round, so race and sex are asked of the other body.
+        bool AskPuppet(const Query& a_q, double& a_result) {
+            auto* puppet = a_q.session.GetPuppet();
+            return a_q.Ask(puppet ? puppet : a_q.subject, a_result);
+        }
+
         bool IsIDAsDragonborn(const Query& a_q, double& a_result) {
             auto* targetForm = static_cast<RE::TESForm*>(a_q.param1);
             if (targetForm && (targetForm == a_q.player || targetForm == a_q.player->GetActorBase() ||
@@ -187,8 +194,20 @@ namespace InTheirShoes::ConditionHooks {
             { "GetIsClass"sv, &AskDonor, &AskPlayer },
             { "GetIsCrimeFaction"sv, &AskDonor, &AskPlayer },
             { "IsInScene"sv, &IsInSceneAsDonor, &AskSubject },
+            { "GetIsRace"sv, &AskPlayer, &AskPuppet },
+            { "GetIsSex"sv, &AskPlayer, &AskPuppet },
         };
         constexpr std::size_t kIdentityCount = std::size(kIdentityConditions);
+
+        constexpr std::size_t IdentityIndex(std::string_view a_name) {
+            for (std::size_t i = 0; i < kIdentityCount; ++i) {
+                if (kIdentityConditions[i].name == a_name) return i;
+            }
+            return kIdentityCount;
+        }
+        constexpr std::size_t kGetIsRace = IdentityIndex("GetIsRace"sv);
+        constexpr std::size_t kGetIsSex = IdentityIndex("GetIsSex"sv);
+        static_assert(kGetIsRace < kIdentityCount && kGetIsSex < kIdentityCount);
         std::array<Condition_t*, kIdentityCount> s_originalIdentity{};
 
         template <std::size_t I>
@@ -318,6 +337,30 @@ namespace InTheirShoes::ConditionHooks {
         // record, which has the donor's race and sex, but the class stays the Dragonborn's. GetPCInFaction follows
         // the player's real factions, which are the donor's; in self-dialogue the PC is the Dragonborn. ---
 
+        // In self-dialogue the PC is the Dragonborn, whose race and sex the puppet's body has. The PC conditions
+        // take the same parameter as GetIsRace and GetIsSex, so those are asked of the puppet.
+        template <std::size_t IsCondition>
+        bool PCIsAsPuppet(Condition_t* a_orig, RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            auto& session = Session::GetSingleton();
+            auto* puppet = session.GetPuppet();
+            auto* isCondition = s_originalIdentity[IsCondition];
+            if (session.IsActive() && session.IsInSelfDialogue() && puppet && isCondition) {
+                return isCondition(puppet, a_p1, a_p2, a_result);
+            }
+            return a_orig(a_thisObj, a_p1, a_p2, a_result);
+        }
+
+        Condition_t* s_originalPCIsRace{ nullptr };
+        Condition_t* s_originalPCIsSex{ nullptr };
+
+        bool PCIsRaceThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            return s_originalPCIsRace && PCIsAsPuppet<kGetIsRace>(s_originalPCIsRace, a_thisObj, a_p1, a_p2, a_result);
+        }
+
+        bool PCIsSexThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            return s_originalPCIsSex && PCIsAsPuppet<kGetIsSex>(s_originalPCIsSex, a_thisObj, a_p1, a_p2, a_result);
+        }
+
         Condition_t* s_originalPCIsClass{ nullptr };
 
         bool PCIsClassThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
@@ -387,9 +430,11 @@ namespace InTheirShoes::ConditionHooks {
                                         HookSpatialConditions(std::make_index_sequence<kSpatialCount>{}) +
                                         HookRelationshipConditions(std::make_index_sequence<kRelationshipCount>{}) +
                                         HookCondition(s_originalPCIsClass, "GetPCIsClass"sv, &PCIsClassThunk) +
-                                        HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk);
+                                        HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk) +
+                                        HookCondition(s_originalPCIsRace, "GetPCIsRace"sv, &PCIsRaceThunk) +
+                                        HookCondition(s_originalPCIsSex, "GetPCIsSex"sv, &PCIsSexThunk);
 
-        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 2;
+        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 4;
         if (hookedCount == kExpectedHooks) {
             SKSE::log::info("Installed all {} script condition hooks.", hookedCount);
         } else {
