@@ -101,6 +101,7 @@ namespace InTheirShoes::Papyrus {
             kMounted = 6,
             kGhost = 7,
             kPlayerTransformed = 8,
+            kSpawned = 9,
         };
 
         TargetValidation ValidateTarget(RE::Actor* a_target) {
@@ -125,6 +126,11 @@ namespace InTheirShoes::Papyrus {
             }
             if (a_target->IsGhost()) {
                 return TargetValidation::kGhost;
+            }
+            // A spawned actor (FF form ID, e.g. a leveled bandit) can be deleted while parked, and a session saved
+            // with a missing donor can't be restored or reverted
+            if (a_target->IsDynamicForm()) {
+                return TargetValidation::kSpawned;
             }
             auto* base = a_target->GetActorBase();
             if (!base) {
@@ -175,6 +181,16 @@ namespace InTheirShoes::Papyrus {
         RE::Actor* GetPuppet(RE::StaticFunctionTag*) {
             auto& session = Session::GetSingleton();
             return session.IsActive() ? session.GetPuppet() : nullptr;
+        }
+
+        // The donor's name for the MCM: "None" when not impersonating, "Not Found" when a saved session's donor no
+        // longer exists (the Dragonborn's baseline was loaded without a session)
+        RE::BSFixedString GetDonorName(RE::StaticFunctionTag*) {
+            auto& session = Session::GetSingleton();
+            if (auto* donor = session.IsActive() ? session.GetDonor() : nullptr) {
+                return donor->GetDisplayFullName();
+            }
+            return ImpersonationManager::GetSingleton().GetBaseline() ? "Not Found"sv : "None"sv;
         }
 
         bool IsPlayerTransformed(RE::StaticFunctionTag*) {
@@ -267,6 +283,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("IsImpersonating", className, IsImpersonating);
         a_vm->RegisterFunction("GetDonor", className, GetDonor);
         a_vm->RegisterFunction("GetPuppet", className, GetPuppet);
+        a_vm->RegisterFunction("GetDonorName", className, GetDonorName);
         a_vm->RegisterFunction("BeginIdlePackageApply", className, BeginIdlePackageApply);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");

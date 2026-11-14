@@ -79,6 +79,8 @@ String Function ValidationMessage(Int a_code)
 		Return "Cannot impersonate: target is a ghost."
 	ElseIf a_code == 8
 		Return "Cannot impersonate while transformed."
+	ElseIf a_code == 9
+		Return "Cannot impersonate: target is a temporary spawned actor."
 	EndIf
 	Return "Cannot impersonate this target."
 EndFunction

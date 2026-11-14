@@ -53,7 +53,7 @@ Function SetPuppetFollowsPlayer(Bool a_follows) Global Native
 
 ; Validates whether a_target can be impersonated by the player.
 ; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost,
-; 8 = Player is transformed (see IsPlayerTransformed).
+; 8 = Player is transformed (see IsPlayerTransformed), 9 = Spawned actor (a temporary FF reference).
 Int Function ValidateImpersonateTarget(Actor a_target) Global Native
 
 ; Whether the player is in Werewolf or Vampire Lord form, or changing into or out of it.
@@ -66,6 +66,9 @@ Bool Function IsImpersonating() Global Native
 ; The donor and puppet while impersonating, otherwise None
 Actor Function GetDonor() Global Native
 Actor Function GetPuppet() Global Native
+
+; The donor's name; "None" when not impersonating, "Not Found" when a saved session's donor no longer exists
+String Function GetDonorName() Global Native
 
 ; Used by ITS_IdlePackage.Apply: 0 if call a_sequence was superseded by a later one, 1 to apply it, 2 to apply it
 ; and call Game.SetPlayerAIDriven(a_aiDriven).

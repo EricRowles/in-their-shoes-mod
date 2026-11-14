@@ -12,7 +12,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 
 ## What happens
 
-- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and worn gear, the rest of the Dragonborn's items go into a chest in the holding cell, the player gets the donor's look and race (with the race's abilities and powers), items and abilities (e.g. a unique NPC's footstep trail), and the donor is parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
+- **Impersonate:** the Dragonborn's appearance, stats and spells are saved. The puppet gets the Dragonborn's look and worn gear, the rest of the Dragonborn's items go into a chest in the holding cell, the player gets the donor's look and race (with the race's abilities and powers), items and abilities (e.g. a unique NPC's footstep trail), and the donor is parked. Spawned actors (temporary `FF` references) can't be impersonated: they may be deleted while parked. The donor's outfit becomes ordinary items. A unique donor never gets its outfit again; others get it back when they next load.
 - **Switch donor:** the first donor gets the player's current state back and takes the player's place, then the new donor is applied. The puppet is unchanged.
 - **Revert:** the donor gets the player's current items, spells and stats. The player gets the Dragonborn back, with the puppet's items and the chest's.
 - **While impersonating:**
@@ -22,7 +22,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
   - With the player idle, the player runs the donor's AI packages. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM comes from a high-priority quest alias, so it outranks the donor's packages, its quest packages (such as a follower's Follow) included.
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
   - RaceMenu won't open.
-- **Saving:** the session and the MCM's settings are stored in the SKSE co-save and restored on load.
+- **Saving:** the session and the MCM's settings are stored in the SKSE co-save and restored on load. The MCM shows the donor's name, or Not Found if a saved session's donor no longer exists.
 
 ## Code map (`SKSEPlugin/src/`)
 

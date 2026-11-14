@@ -24,6 +24,7 @@ Int _oid_nativeRedirect
 Int _oid_puppetFollows
 Int _oid_revert
 Int _oid_scene
+Int _oid_donor
 Int _oid_tempFactions
 Int _oid_tempAliases
 Bool _pendingRevert = False
@@ -179,6 +180,7 @@ Event OnPageReset(String page)
 	; Read when the page opens; the game is paused while the menu is open
 	SetCursorPosition(17)
 	AddHeaderOption("Informational")
+	_oid_donor = AddTextOption("Donor", ITS_NG.GetDonorName(), OPTION_FLAG_DISABLED)
 	String sceneName = ITS_NG.GetCurrentSceneName()
 	If sceneName == ""
 		sceneName = "None"
@@ -300,6 +302,8 @@ Event OnOptionHighlight(Int option)
 		SetInfoText("Papyrus scripts target the player instead of the NPC. SKSE scripts are unaffected.\nDisabling may affect dialogue playback")
 	ElseIf option == _oid_puppetFollows
 		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
+	ElseIf option == _oid_donor
+		SetInfoText("The NPC you're impersonating. Not Found means a saved session's NPC no longer exists.")
 	ElseIf option == _oid_scene
 		SetInfoText("The scene you're in, if any.")
 	ElseIf option == _oid_tempFactions
