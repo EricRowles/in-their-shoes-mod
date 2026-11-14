@@ -14,6 +14,7 @@
 #include "RE/B/BSLightingShaderMaterialFacegenTint.h"
 #include "RE/E/ExtraScale.h"
 #include "RE/E/ExtraTextDisplayData.h"
+#include "RE/M/MiddleHighProcessData.h"
 
 namespace InTheirShoes {
 
@@ -310,6 +311,9 @@ namespace InTheirShoes {
         auto* targetNPC = skyrim_cast<RE::TESNPC*>(base);
         if (!targetNPC) return false;
 
+        // Read before the record changes: a new sex or race needs a new skeleton and behavior graph (below)
+        const bool bodyChanges = targetNPC->GetSex() != a_snapshot.sex || (a_snapshot.race && a_targetActor->GetRace() != a_snapshot.race);
+
         // 1. Race, Skin & Face NPC
         if (a_snapshot.race) {
             // The player's racial abilities (e.g. a Breton's magic resistance) follow the race: the old race's are
@@ -424,6 +428,15 @@ namespace InTheirShoes {
         ApplyTintColors(a_targetActor, targetNPC, a_snapshot, skinTint);
 
         if (a_update3D) {
+            // The reset keeps the loaded skeleton, and with it the behavior graph and animations chosen for the
+            // old sex and race, unless kSkeleton is queued. The sexchange console command (ID 22108) queues it the
+            // same way (ID 39907, 0x20) before its own DoReset3D. Without it a male Dragonborn impersonating a
+            // female donor kept male animations (#40).
+            if (bodyChanges) {
+                if (auto* process = a_targetActor->GetActorRuntimeData().currentProcess; process && process->middleHigh) {
+                    process->middleHigh->update3DModel.set(RE::RESET_3D_FLAGS::kSkeleton);
+                }
+            }
             a_targetActor->DoReset3D(true);
             a_targetActor->Update3DModel();
             a_targetActor->UpdateHairColor();
