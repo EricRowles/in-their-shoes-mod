@@ -18,6 +18,7 @@ namespace InTheirShoes {
         FaceSnapshot face;
         StatSnapshot stats;
         SpellSnapshot spells;
+        ProgressSnapshot progress;
     };
 
     // Owns the impersonation session: swapping appearance, stats, spells, items and aliases between the

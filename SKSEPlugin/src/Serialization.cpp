@@ -188,6 +188,12 @@ namespace InTheirShoes::Serialization {
             WriteFormID(a_serde, spells.rightSpell);
             WriteFormID(a_serde, spells.shout);
             WriteList(a_serde, spells.abilities, [&](RE::FormID a_id) { Write(a_serde, a_id); });
+            const auto& progress = a_baseline.progress;
+            Write(a_serde, progress.recorded);
+            Write(a_serde, progress.level);
+            Write(a_serde, progress.perkPoints);
+            Write(a_serde, progress.skills);
+            WriteList(a_serde, progress.perks, [&](RE::FormID a_id) { Write(a_serde, a_id); });
         }
 
         bool ReadBaseline(Serde* a_serde, std::uint32_t a_version, Baseline& a_out) {
@@ -211,12 +217,22 @@ namespace InTheirShoes::Serialization {
             // v1 has no abilities (and didn't give the player the donor's): revert leaves them alone
             if (!ok || a_version < 2) return ok;
             a_out.spells.abilitiesRecorded = true;
-            return ReadList(a_serde, [&] {
+            const bool abilitiesOk = ReadList(a_serde, [&] {
                 RE::FormID id = 0;
                 if (!ReadFormID(a_serde, id)) return false;
                 if (id != 0) a_out.spells.abilities.push_back(id);
                 return true;
             });
+            // v2 has no character progress: revert leaves the level alone
+            if (!abilitiesOk || a_version < 3) return abilitiesOk;
+            auto& progress = a_out.progress;
+            return Read(a_serde, progress.recorded) && Read(a_serde, progress.level) && Read(a_serde, progress.perkPoints) &&
+                   Read(a_serde, progress.skills) && ReadList(a_serde, [&] {
+                       RE::FormID id = 0;
+                       if (!ReadFormID(a_serde, id)) return false;
+                       if (id != 0) progress.perks.push_back(id);
+                       return true;
+                   });
         }
 
         // --- 'SESS': donor, puppet, swapped aliases and donor quest items carried by the player ---

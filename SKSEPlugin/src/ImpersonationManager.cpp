@@ -107,6 +107,7 @@ namespace InTheirShoes {
             baseline.stats = std::move(*stats);
         }
         InventoryManager::StashPlayerSpells(a_player, baseline.spells);
+        baseline.progress = StatManager::CaptureProgress(RE::PlayerCharacter::GetSingleton());
         SetBaseline(std::move(baseline));
         SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
     }
@@ -193,6 +194,7 @@ namespace InTheirShoes {
         if (_baseline) {
             FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face);
             StatManager::ApplySnapshot(player, _baseline->stats);
+            StatManager::RestoreProgress(player, _baseline->progress);
         }
         if (puppet) {
             InventoryManager::TransferAllItems(puppet, player, _donorQuestItems);
