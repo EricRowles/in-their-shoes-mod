@@ -173,9 +173,7 @@ namespace InTheirShoes {
             a_response->listenIdle = nullptr;
         }
 
-        // Idle chatter skips the engine's speech path, which is what sends this event. SkyrimVM's sink runs the
-        // info's begin or end fragment from it, so sending it runs them for idle lines too (e.g. a follower's
-        // "Marco" whose end fragment starts the reply's scene, #5).
+        // Idle chatter skips the speech path that sends this event; sending it runs the info's fragments (#5).
         void SendTopicInfoEvent(const RE::DialogueItem& a_item, RE::TESTopicInfoEvent::TopicInfoEventType a_type) {
             auto* events = RE::ScriptEventSourceHolder::GetSingleton();
             if (!events || !a_item.info) return;
@@ -227,10 +225,8 @@ namespace InTheirShoes {
     }
 
     void PlayerVoice::TakeStandInLine(RE::DialogueResponse* a_engineResponse) {
-        // The player voices the line from its own copy. The stand-in runs the engine's response with its voice
-        // (unheard, see SilenceStandIn) but no emotion or idles, so the engine paces the conversation as it
-        // would for any NPC: when the line ends, skipping, moving to the next response, end fragments. The
-        // response belongs to this one playing of the topic, so changing it is safe.
+        // The player voices its own copy; the stand-in runs the engine's response unheard, without emotion or idles,
+        // so the engine paces the conversation.
         CopyResponse(a_engineResponse, _standInLine);
         StripPerformance(a_engineResponse);
     }
@@ -259,9 +255,7 @@ namespace InTheirShoes {
     }
 
     void PlayerVoice::SpeakLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
-        // A line that takes over ends the one playing, so an idle line still sends its end event (its end fragment
-        // may start a scene) and reports back to IdleChatter. (The stand-in's copy was already taken into
-        // _standInLine; ending the old line doesn't touch it.)
+        // End the playing line first, so it still sends its end event and reports to IdleChatter.
         if (_line) Finish();
         StartLine(a_response, a_unused, a_isIdleChatter);
     }

@@ -200,8 +200,7 @@ namespace InTheirShoes::Papyrus {
         using VM = RE::BSScript::IVirtualMachine;
 
         // --- Trigger events ---
-        // When the player enters or leaves a trigger with a script property set to the donor,
-        // the trigger also gets the event for the donor.
+        // A trigger with a script property set to the donor also gets the player's enter/leave events for the donor.
         // Runs on any thread: reads only Session and the VM's locked script table.
 
         using SendEvent_t = void(VM*, RE::VMHandle, const RE::BSFixedString&, RE::BSScript::IFunctionArguments*);

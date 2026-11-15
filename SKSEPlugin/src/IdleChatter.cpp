@@ -70,9 +70,8 @@ namespace InTheirShoes {
 
     RE::TESTopicInfo* IdleChatter::PickInfo(RE::TESQuest* a_quest, RE::TESTopic* a_topic, RE::TESObjectREFR* a_subject,
         RE::TESObjectREFR* a_target) const {
-        // The engine's rule for one topic: the first info (in order) whose conditions pass. Consecutive Random
-        // infos form a group, ended by a Random End info or a non-random one, and one of its passing infos is
-        // picked at random (#34).
+        // The engine's rule: the first passing info, except a run of Random infos (ended by Random End or a non-random
+        // info) picks one of its passing infos at random (#34).
         using Flag = RE::TOPIC_INFO_DATA::TOPIC_INFO_FLAGS;
         static std::mt19937 rng(std::random_device{}());
         std::vector<RE::TESTopicInfo*> group;

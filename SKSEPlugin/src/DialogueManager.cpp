@@ -20,6 +20,8 @@ namespace InTheirShoes {
 
     // The puppet stays the engine's speaker this long after self-dialogue's menu closes (see EndSelfDialogue)
     constexpr float kPuppetSpeakerClearSeconds = 1.0f;
+    // 1.6.1170 has three start-speech calls outside UpdateInDialogue; more would mean the search went wrong
+    constexpr std::size_t kMaxStartSpeechCalls = 6;
 
     namespace {
         void QueueSubtitle(RE::Actor* a_speaker, const RE::DialogueResponse* a_response) {
@@ -51,11 +53,9 @@ namespace InTheirShoes {
             }
         }
 
-        // Finds the engine's call that plays a speaker's talking idle: where a line's voice starts, a call to
-        // AIProcess::SetupSpecialIdle with kActionTalkingIdle (92), loaded by "lea r8d, [reg+0x5C]" just before
-        // it. The game's code is searched for those bytes, so no per-version offset is needed. A call another
-        // plugin has already redirected is recognised by the instructions before it (1.6.1170's), and our hook
-        // chains to theirs. Returns 0 unless exactly one call matches.
+        // Finds the call that plays a speaker's talking idle (SetupSpecialIdle with kActionTalkingIdle, loaded by
+        // "lea r8d, [reg+0x5C]") by searching the code, so no per-version offset. A call another plugin already
+        // redirected also matches, and our hook chains to it. Returns 0 unless exactly one call matches.
         std::uintptr_t FindTalkingIdleCall() {
             constexpr std::uint8_t kArgSetup[] = { 0x44, 0x8D, 0x46, 0x5C, 0x49, 0x8B, 0xD6, 0x49, 0x8B, 0x8E, 0xF8, 0x00, 0x00, 0x00 };
             constexpr std::size_t kLookBack = 16;
@@ -88,6 +88,13 @@ namespace InTheirShoes {
             if (directCount == 0 && redirectedCount == 1) return redirected;
             SKSE::log::warn("Talking idle call search: {} direct, {} redirected by another plugin", directCount, redirectedCount);
             return 0;
+        }
+
+        // Where the game function holding a_address starts, from the exe's unwind table; 0 if none
+        std::uintptr_t FunctionStart(std::uintptr_t a_address) {
+            DWORD64 imageBase = 0;
+            const auto* entry = RtlLookupFunctionEntry(a_address, &imageBase, nullptr);
+            return entry ? static_cast<std::uintptr_t>(imageBase + entry->BeginAddress) : 0;
         }
 
         // The puppet in self-dialogue speaks the donor's lines. (Lines scripts give the parked donor go to the
@@ -127,13 +134,64 @@ namespace InTheirShoes {
 
         SKSE::log::info("Hooked Character (0x41, 0x4C) and PlayerCharacter (0x4C, 0x107, 0x108) dialogue vfuncs");
 
+        // Allocated once (later calls are ignored): the talking idle call and the start-speech calls
+        SKSE::AllocTrampoline(14 * (1 + kMaxStartSpeechCalls));
         if (auto call = FindTalkingIdleCall()) {
-            SKSE::AllocTrampoline(14);
             _origTalkingIdle = SKSE::GetTrampoline().write_call<5>(call, &Hook_TalkingIdle);
             SKSE::log::info("Hooked the speaker's talking idle call");
+            InstallStartSpeechHooks(call);
         } else {
             SKSE::log::warn("Talking idle call not found; the puppet will gesture during self-dialogue");
         }
+    }
+
+    void DialogueManager::InstallStartSpeechHooks(std::uintptr_t a_talkingIdleCall) {
+        // The talking idle call sits in the start-speech function, so this finds it on any game version. Its
+        // calls from Character::UpdateInDialogue are left alone: those lines are already routed there.
+        const auto startSpeech = FunctionStart(a_talkingIdleCall);
+        const auto updateInDialogue = FunctionStart(_origCharUpdateInDialogue.address());
+        if (!startSpeech || !updateInDialogue) {
+            SKSE::log::warn("Start-speech function not found; one-line greetings from the puppet stay on the puppet");
+            return;
+        }
+        const auto text = REL::Module::get().segment(REL::Segment::textx);
+        const auto* code = reinterpret_cast<const std::uint8_t*>(text.address());
+        std::vector<std::uintptr_t> calls;
+        for (std::size_t i = 0; i + 5 <= text.size(); ++i) {
+            if (code[i] != 0xE8) continue;
+            std::int32_t rel;
+            std::memcpy(&rel, code + i + 1, sizeof(rel));
+            const auto at = text.address() + i;
+            if (at + 5 + rel == startSpeech && FunctionStart(at) != updateInDialogue) {
+                calls.push_back(at);
+            }
+        }
+        if (calls.empty() || calls.size() > kMaxStartSpeechCalls) {
+            SKSE::log::warn("Start-speech hook skipped: {} calls found", calls.size());
+            return;
+        }
+        for (auto at : calls) {
+            _origStartSpeech = SKSE::GetTrampoline().write_call<5>(at, &Hook_StartSpeech);
+        }
+        SKSE::log::info("Hooked {} start-speech calls outside UpdateInDialogue", calls.size());
+    }
+
+    // One-line greetings open no Dialogue Menu and start their voice here, not in UpdateInDialogue, so the puppet
+    // spoke them. Voices them on the player instead; the engine still times the line by the return value. (#43)
+    float DialogueManager::Hook_StartSpeech(RE::Actor* a_speaker, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4,
+        std::uint64_t a5, std::uint64_t a6, std::uint64_t a7, std::uint64_t a8, std::uint64_t a9, std::uint64_t a10,
+        std::uint64_t a11, std::uint64_t a12, std::uint64_t a13, std::uint64_t a14) {
+        auto& session = Session::GetSingleton();
+        auto* ui = RE::UI::GetSingleton();
+        if (a_speaker && session.IsActive() && a_speaker == session.GetPuppet() && session.IsPuppetSpeakingForDonor() &&
+            !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
+            if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+                SKSE::log::info("Puppet line outside a conversation: voicing it on the player");
+                PlayerVoice::GetSingleton().Finish();
+                a_speaker = player;
+            }
+        }
+        return _origStartSpeech(a_speaker, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
     }
 
     void DialogueManager::Update() {
@@ -144,11 +202,11 @@ namespace InTheirShoes {
             }
         }
         PlayerVoice::GetSingleton().Update();
+        EndSelfDialogueWithoutMenu();
         AdvancePastUnvoicedLine();
         if (Session::GetSingleton().IsPuppetSpeakingForDonor()) {
-            // Topic fragments (run by the VM, a frame or more after their line) may put the speaker, the puppet,
-            // into quest aliases. The next topics' conditions test the donor, so those are moved as they happen,
-            // and until the puppet stops being the speaker: the last line's fragment runs after the menu closes.
+            // Topic fragments may put the puppet into quest aliases; move them to the player until it stops being the
+            // speaker (the last fragment runs after the menu closes).
             Lifecycle::OnPuppetChangedInSelfDialogue();
         }
         UpdatePuppetSpeakerClear();
@@ -165,7 +223,23 @@ namespace InTheirShoes {
         _pendingSelfDialogueTopic.store(nullptr, std::memory_order_release);
         Session::GetSingleton().SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
+        _awaitingMenuSince.reset();
         PlayerVoice::GetSingleton().Clear();
+    }
+
+    void DialogueManager::EndSelfDialogueWithoutMenu() {
+        // A one-line greeting opens no Dialogue Menu, so no menu close ended self-dialogue, and the player kept
+        // testing as the Dragonborn (and idle chatter kept waiting) until the next conversation
+        if (!_awaitingMenuSince) return;
+        auto* ui = RE::UI::GetSingleton();
+        if (!Session::GetSingleton().IsInSelfDialogue() || (ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
+            _awaitingMenuSince.reset();
+            return;
+        }
+        if (SecondsSince(*_awaitingMenuSince) < kNoMenuSeconds) return;
+        _awaitingMenuSince.reset();
+        SKSE::log::info("Self-dialogue opened no menu (a one-line greeting)");
+        EndSelfDialogue();
     }
 
     // --- Self-dialogue ---
@@ -206,21 +280,16 @@ namespace InTheirShoes {
         IdleAIManager::GetSingleton().StopIdleAI();
         PlayerVoice::GetSingleton().Finish();
 
-        // The player's dialogue update ends the conversation while the player's high-process dialogue
-        // timer (CommonLib's awarePlayerTimer, +0x340) is negative. Starting a line sets it to 30s only
-        // when it is above 1s, and otherwise adds 30s. The timer keeps counting down while the player
-        // isn't in dialogue, so after a while the first line left it negative and the conversation
-        // closed at once.
+        // The conversation ends while the player's dialogue timer (awarePlayerTimer, +0x340) is negative, and it keeps
+        // counting down outside dialogue.
         if (auto* process = player->GetActorRuntimeData().currentProcess; process && process->high &&
             process->high->awarePlayerTimer < 0.0f) {
             SKSE::log::info("Reset the player's dialogue timer from {:.1f}", process->high->awarePlayerTimer);
             process->high->awarePlayerTimer = 0.0f;
         }
 
-        // BGSProcedureForceGreet sets MenuTopicManager::forceGoodbye (+0xB2) while approaching its target.
-        // If forceGoodbye is still true when StartConversation runs, MenuTopicManager immediately sets
-        // shutMenu (+0xB3 = true), which causes Character::UpdateInDialogue to close the conversation on
-        // the very next frame.
+        // A forceGoodbye (+0xB2) left by BGSProcedureForceGreet makes StartConversation set shutMenu, closing the
+        // conversation next frame.
         if (auto* topicMgr = RE::MenuTopicManager::GetSingleton()) {
             topicMgr->forceGoodbye = false;
             topicMgr->shutMenu = false;
@@ -256,6 +325,7 @@ namespace InTheirShoes {
             a_speaker->SetDialogueWithPlayer(true, false, nullptr) ||
             a_speaker->SetDialogueWithPlayer(true, true, nullptr)) {
             SKSE::log::info("Opened self-dialogue with puppet {:08X}", a_speaker->GetFormID());
+            _awaitingMenuSince = std::chrono::steady_clock::now();
             return true;
         }
 
@@ -272,9 +342,7 @@ namespace InTheirShoes {
         // The engine still needs the puppet as its (last) speaker while the menu closes: a Goodbye info's
         // end fragment runs then, and clearing it at once skipped the fragment. Update() clears it shortly after.
         Session::GetSingleton().SetPuppetSpeakerPending(true);
-        // Quest aliases topic fragments put the speaker (the puppet) into (e.g. a follower alias) go to the
-        // player standing in for the donor. Update() moves them every frame during self-dialogue; this catches
-        // the last frame's.
+        // Moves aliases the last frame's fragments put the puppet into to the player (see Update).
         Lifecycle::OnPuppetChangedInSelfDialogue();
         Lifecycle::OnSelfDialogueEnded();
     }
@@ -302,11 +370,8 @@ namespace InTheirShoes {
     }
 
     void DialogueManager::AdvancePastUnvoicedLine() {
-        // A puppet line with no voice file for the donor's voice type (e.g. Ashe's force-greet, which shares
-        // Dawnguard's SharedSilence) never finishes: starting it cleared MenuTopicManager::canSkip, and only the
-        // voice-finished callback sets it again, so the menu's update never ran the advance and picking a topic
-        // did nothing (#37). Once the line has shown as long as its text would, request the advance as that
-        // callback would; the update only runs it while canSkip is set (#30).
+        // A puppet line with no voice file never sets canSkip again, so picking a topic did nothing (#37). Once its
+        // text's duration has passed, request the advance the voice-finished callback would (#30).
         auto& session = Session::GetSingleton();
         auto* topicMgr = RE::MenuTopicManager::GetSingleton();
         auto* puppet = session.GetPuppet();
@@ -388,9 +453,7 @@ namespace InTheirShoes {
         return _origCharUpdateInDialogue(a_this, a_response, a_unused);
     }
 
-    // The engine plays a talking idle (gestures) on whoever starts a voiced line. The puppet's line is voiced
-    // only so the engine can time it, so the puppet doesn't gesture. Runs wherever lines start: reads only
-    // Session.
+    // The puppet's lines are voiced only for timing, so it doesn't gesture. Reads only Session.
     bool DialogueManager::Hook_TalkingIdle(RE::AIProcess* a_process, RE::Actor* a_actor, RE::DEFAULT_OBJECT a_action,
         RE::TESIdleForm* a_idle, bool a_arg5, bool a_arg6, RE::TESObjectREFR* a_target) {
         auto& session = Session::GetSingleton();

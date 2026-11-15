@@ -105,10 +105,7 @@ namespace InTheirShoes::ConditionHooks {
             return a_q.Ask(a_q.donor ? a_q.donor : a_q.player, a_result);
         }
 
-        // The player only joins the donor's scenes through its swapped aliases, which doesn't put the Dragonborn in
-        // them. A banter quest's "IsInScene == 0 on the player" dialogue condition failed all of its lines, so a
-        // scene's actions finished at once with nothing said (#1). The condition can't tell which aliases put the
-        // player in the scene, so scenes it's really in answer no as well.
+        // IsInScene on the player answers for the donor, so banter lines requiring "IsInScene == 0" don't fail (#1).
         bool IsInSceneAsDonor(const Query& a_q, double& a_result) {
             a_result = a_q.IsTrueFor(a_q.donor) ? 1.0 : 0.0;
             return true;
@@ -238,9 +235,7 @@ namespace InTheirShoes::ConditionHooks {
 
         struct SpatialCondition {
             std::string_view name;
-            // The parameter is a reference, resolved like the subject. When both resolve to the player, the
-            // answer is this: per requirements.md ("Conditions that require the player to be nearby will still
-            // target the impersonator"), checks between the donor and the player pass.
+            // When both resolve to the player, checks between the donor and the player pass (requirements.md).
             std::optional<double> resultWhenBothPlayer;
         };
 
@@ -280,11 +275,8 @@ namespace InTheirShoes::ConditionHooks {
             return orig(evalThis, evalP1, a_p2, a_result);
         }
 
-        // --- Relationships: who an actor is to another ---
-        // Relationships are between base records. The player keeps the Dragonborn's (a follower's friendship, a
-        // spouse), and where the Dragonborn has none with an actor, the donor's apply: the donor's family, friends
-        // and enemies treat the player as the donor. The puppet keeps the Dragonborn's too. In self-dialogue the
-        // puppet is the donor and the player the Dragonborn.
+        // --- Relationships: the Dragonborn's apply first, then the donor's. The puppet keeps the Dragonborn's;
+        // in self-dialogue the puppet is the donor and the player the Dragonborn. ---
 
         constexpr std::string_view kRelationshipConditions[] = {
             "GetRelationshipRank"sv,
@@ -333,9 +325,7 @@ namespace InTheirShoes::ConditionHooks {
             return orig(evalThis, evalRef, a_p2, a_result);
         }
 
-        // --- The PC: outside self-dialogue the PC is the donor. GetPCIsRace and GetPCIsSex follow the player's
-        // record, which has the donor's race and sex, but the class stays the Dragonborn's. GetPCInFaction follows
-        // the player's real factions, which are the donor's; in self-dialogue the PC is the Dragonborn. ---
+        // --- The PC: the donor's race, sex and factions, the Dragonborn's class; the Dragonborn in self-dialogue ---
 
         // In self-dialogue the PC is the Dragonborn, whose race and sex the puppet's body has. The PC conditions
         // take the same parameter as GetIsRace and GetIsSex, so those are asked of the puppet.

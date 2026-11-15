@@ -10,8 +10,7 @@ namespace InTheirShoes {
     // The one owner of runtime edits to AI package targets and locations. Packages are base records shared by
     // every actor that runs them, so edits are runtime only (package data isn't saved, but stays in memory until
     // they are put back). Two rules decide where an edited target points:
-    //  - Donor to player: while impersonating, other actors' packages that target or travel to the donor (e.g. a
-    //    companion's follow package) target the player, so they follow the player instead of the parked donor.
+    //  - Donor to player: other actors' packages that target or travel to the donor target the player.
     //  - Player to puppet: packages the idle player runs (IdleAIManager) that target the player would make it
     //    target itself, so they target the puppet.
     // Each edited target's original value is kept and its current value computed from the rules, so dropping a

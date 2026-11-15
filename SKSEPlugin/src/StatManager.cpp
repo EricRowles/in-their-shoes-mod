@@ -58,9 +58,7 @@ namespace InTheirShoes {
             avOwner->SetBaseActorValue(av, val);
         }
 
-        // Restore pool values (damage modifier = 0) so actor doesn't suffer broken health/stamina/magicka pools.
-        // Restoring with a large positive float clears any accumulated damage modifier (e.g., when a high-health
-        // player morphs into a low-health NPC), preventing negative health calculation and instant death.
+        // Restore the pools to clear damage modifiers, so a smaller donor's pools don't go negative (instant death).
         for (auto poolAV : { RE::ActorValue::kHealth, RE::ActorValue::kMagicka, RE::ActorValue::kStamina }) {
             avOwner->RestoreActorValue(poolAV, 99999.0f);
         }

@@ -35,8 +35,7 @@ namespace InTheirShoes {
         void StashPlayerSpells(RE::Actor* a_player, SpellSnapshot& a_outSnapshot);
         void RestorePlayerSpells(RE::Actor* a_player, const SpellSnapshot& a_snapshot);
 
-        // Grants the donor's added and base spells and abilities to the player (e.g. a unique NPC's footstep
-        // trail or speed boost ability, whose effect scripts then run on the player)
+        // Grants the donor's added and base spells and abilities to the player (their effect scripts then run on it)
         void CopyDonorSpells(RE::Actor* a_donor, RE::Actor* a_player);
 
         // Removes every castable added spell, and every ability the Dragonborn didn't have, from the player,

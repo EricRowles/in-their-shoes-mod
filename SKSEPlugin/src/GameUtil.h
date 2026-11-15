@@ -92,6 +92,7 @@ namespace InTheirShoes {
         kMenu,
         kScene,
         kSelfDialogue,
+        kFurniture,
     };
 
     constexpr std::string_view ToString(PlayerBusy a_busy) {
@@ -100,6 +101,7 @@ namespace InTheirShoes {
             case PlayerBusy::kMenu: return "menu"sv;
             case PlayerBusy::kScene: return "scene"sv;
             case PlayerBusy::kSelfDialogue: return "self-dialogue"sv;
+            case PlayerBusy::kFurniture: return "furniture"sv;
             default: return "not busy"sv;
         }
     }

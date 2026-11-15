@@ -18,13 +18,9 @@
 
 namespace InTheirShoes::NativeRedirect {
 
-    // Mods reach an actor through properties filled with its reference, not only aliases (e.g. a follower mod's
-    // "k101DaegonRef.Say(...)" after the other follower's line, #1), and topic fragments act on the speaker, which
-    // in self-dialogue is the puppet. Both mean the donor, whom the player plays.
-    // Every native's NativeFunctionBase::MarshallAndDispatch (vfunc 0x16) gets self as a Variable and reads its
-    // arguments from the stack frame, so one thunk swaps them whatever the signature. That vfunc is implemented
-    // once per native signature (and plugin), so each vtable keeps its own original.
-    // Script variables keep holding the donor, so nothing is saved or restored.
+    // Natives called on the donor (through aliases or properties, #1), or on the puppet speaking for it, run on the
+    // player. One thunk on NativeFunctionBase::MarshallAndDispatch (vfunc 0x16) swaps self and arguments whatever
+    // the signature; each vtable keeps its own original. Nothing is saved or restored.
 
     namespace {
         using Variable = RE::BSScript::Variable;
@@ -53,25 +49,20 @@ namespace InTheirShoes::NativeRedirect {
                 { "GetCurrentLocation", Kind::kLocation }, { "GetPositionX", Kind::kLocation },
                 { "GetPositionY", Kind::kLocation }, { "GetPositionZ", Kind::kLocation },
                 { "GetDistance", Kind::kLocation }, { "GetHeadingAngle", Kind::kLocation },
-                // Teammate status and relationships belong to the donor (relationships are between base records,
-                // and the relationship condition hooks ask the donor's). Faction natives run on the player, who
-                // holds the donor's factions for the session and hands them back on revert (FactionManager): a
-                // recruitment that takes the speaker out of DismissedFollowerFaction must hide the recruit topic.
+                // Teammate status and relationships stay on the donor (relationships are between base records). Faction
+                // natives run on the player, which holds the donor's factions for the session.
                 { "SetPlayerTeammate", Kind::kDonor }, { "IsPlayerTeammate", Kind::kDonor },
                 { "GetRelationshipRank", Kind::kDonor }, { "SetRelationshipRank", Kind::kDonor },
                 // Which actor it is
                 { "GetActorBase", Kind::kKept }, { "GetLeveledActorBase", Kind::kKept }, { "GetBaseObject", Kind::kKept },
-                // Where it is and whether it exists (e.g. a follower mod's "flee" moved its follower to a holding
-                // cell, which would have taken the player there)
+                // Where it is and whether it exists (a script parking the donor mustn't move the player)
                 { "MoveTo", Kind::kKept }, { "MoveToNode", Kind::kKept }, { "MoveToInteractionLocation", Kind::kKept },
                 { "MoveToMyEditorLocation", Kind::kKept }, { "MoveToPackageLocation", Kind::kKept },
                 { "SetPosition", Kind::kKept }, { "SetAngle", Kind::kKept }, { "TranslateTo", Kind::kKept },
                 { "SplineTranslateTo", Kind::kKept }, { "Enable", Kind::kKept }, { "Disable", Kind::kKept },
                 { "EnableNoWait", Kind::kKept }, { "DisableNoWait", Kind::kKept }, { "Delete", Kind::kKept },
-                // Whether it lives. A fragment that kills its speaker kills the donor the player is playing (e.g.
-                // There Is No Umbra's "May I wield you" kills Daumbra's host), so it kills the player, not the
-                // puppet, which is the Dragonborn's body (#30). Scripts that kill the parked donor still leave the
-                // player alone.
+                // Whether it lives: killing the speaker kills the player, not the puppet (#30); killing the parked
+                // donor leaves the player alone.
                 { "Kill", Kind::kLife }, { "KillEssential", Kind::kLife }, { "KillSilent", Kind::kLife },
             } };
             for (const auto& [name, kind] : kinds) {
@@ -95,17 +86,14 @@ namespace InTheirShoes::NativeRedirect {
             return nullptr;
         }
 
-        // The calling script's frame: the native's frame, or the one before if the native has its own. None for
-        // calls from C++.
-        // Actor.psc and ObjectReference.psc define some functions in Papyrus that call natives on themselves
-        // (KillEssential calls Kill, ModAV calls ModActorValue). Their frames run on the actor, so they looked
-        // like a script on its body and were never redirected; the script that called the wrapper is the caller
-        // (#30: a fragment's akSpeaker.KillEssential() killed the puppet, not the player).
+        // Actor/ObjectReference/Form functions written in Papyrus that call natives on self (KillEssential calls Kill)
+        // aren't the caller; the script that called them is (#30).
         bool IsBaseClassWrapper(const StackFrame& a_frame) {
             const char* name = a_frame.owningObjectType->GetName();
             return _stricmp(name, "Actor") == 0 || _stricmp(name, "ObjectReference") == 0 || _stricmp(name, "Form") == 0;
         }
 
+        // The calling script's frame; none for calls from C++
         const StackFrame* GetCallingFrame(const NativeFunction* a_native, const StackFrame& a_frame) {
             const auto* caller = a_frame.owningFunction.get() == a_native ? a_frame.previousFrame : &a_frame;
             while (caller && caller->owningObjectType && IsBaseClassWrapper(*caller) && caller->previousFrame &&
@@ -120,9 +108,7 @@ namespace InTheirShoes::NativeRedirect {
             return _strnicmp(a_caller.owningObjectType->GetName(), "ITS_", 4) == 0;
         }
 
-        // Whether the calling script is on a_actor's own body: attached to it, or a magic effect on it (e.g. a
-        // speed boost effect on the donor set the player's SpeedMult; heels and helmet mods' effects changed the
-        // player's spells)
+        // Whether the calling script is attached to a_actor or is a magic effect on it
         bool IsOnBody(const StackFrame& a_caller, const RE::Actor* a_actor) {
             if (HoldsForm(a_caller.self, a_actor)) return true;
             auto object = a_caller.self.IsObject() ? a_caller.self.GetObject() : nullptr;
@@ -168,10 +154,8 @@ namespace InTheirShoes::NativeRedirect {
                 a_caller.owningObjectType->GetName(), a_what);
         }
 
-        // Swaps arguments that stand for the donor for the player while the native runs. For kDonor natives they
-        // mean the donor itself, as self does: "X.SetRelationshipRank(donor, n)" set X's relationship with the
-        // Dragonborn's record, and "PlayerRef.SetRelationshipRank(donor, n)" the player's with itself. So the
-        // donor is left alone, and the puppet speaking for it becomes the donor.
+        // Swaps donor arguments for the player while the native runs. For kDonor natives the donor itself is meant,
+        // so it stays, and the puppet speaking for it becomes the donor.
         class ArgumentSwap {
         public:
             ArgumentSwap(const NativeFunction* a_native, const StackFrame& a_frame, const StackFrame& a_caller, Kind a_kind,
@@ -203,20 +187,15 @@ namespace InTheirShoes::NativeRedirect {
             std::vector<std::pair<Variable*, Variable>> _swapped;
         };
 
-        // MoveToPackageLocation on the player (#41). A fragment that gets the donor through its alias gets the
-        // player, which holds the alias (e.g. Maids II's SMSKQ01 "Kasia.MoveToPackageLocation()" before
-        // re-dressing her). The engine's version (1.6.1170: Actor at 673D20) starts a path search to the package
-        // location for the player, which isn't AI-driven, and the frame's job list then waits on it forever:
-        // the game froze. So the player moves to the package's location with a plain MoveTo instead.
+        // MoveToPackageLocation on the player (not AI-driven) starts a path search the frame waits on forever: the
+        // game froze (#41). The player moves to the package's location with MoveTo instead.
         const RE::BSFixedString& MoveToPackageLocationName() {
             static const RE::BSFixedString name{ "MoveToPackageLocation" };
             return name;
         }
 
-        // Whether the donor would run a_pkg. Conditions on one of the donor's aliases, which the player now holds,
-        // ask about the donor: SMSKQ01's package checks "IsTalking == 0" on Kasia's alias, and the player is
-        // still talking just after the line. Those are evaluated on a copy that runs on the donor (the shared
-        // condition can't be edited: other threads evaluate it). OR binds tighter than AND, as in the engine.
+        // Whether the donor would run a_pkg. Conditions on the donor's aliases (held by the player) are evaluated on a
+        // copy run on the donor; the shared condition can't be edited. OR binds tighter than AND, as in the engine.
         bool DonorWouldRunPackage(RE::TESPackage* a_pkg, RE::TESQuest* a_quest, RE::Actor* a_donor, RE::Actor* a_player) {
             RE::ConditionCheckParams params(a_donor, a_donor);
             params.quest = a_quest;
@@ -313,9 +292,7 @@ namespace InTheirShoes::NativeRedirect {
             }
         }
 
-        // Set while a move waits for the dialogue menu to close: the player is talking until then, which fails
-        // the donor's packages' IsTalking == 0 conditions (the donor itself wouldn't be talking), and a move
-        // belongs after the line anyway
+        // Set while a move waits for the dialogue menu to close: the talking player fails the donor's IsTalking == 0
         std::atomic<bool> s_packageMovePending{ false };
 
         class DialogueCloseSink : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
@@ -345,9 +322,8 @@ namespace InTheirShoes::NativeRedirect {
             });
         }
 
-        // SetOutfit meant for the donor (#41): through its alias it reaches the player, through a property the
-        // donor or the puppet. On the player it would set the Dragonborn's base record's outfit, and didn't redraw
-        // the player either. So the donor gets the outfit, and the player puts on its items as it would by hand.
+        // SetOutfit meant for the donor goes to the donor, and the player puts on its items, instead of changing the
+        // Dragonborn's base outfit (#41).
         const RE::BSFixedString& SetOutfitName() {
             static const RE::BSFixedString name{ "SetOutfit" };
             return name;

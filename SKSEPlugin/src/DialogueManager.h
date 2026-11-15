@@ -52,6 +52,19 @@ namespace InTheirShoes {
             RE::TESIdleForm* a_idle, bool a_arg5, bool a_arg6, RE::TESObjectREFR* a_target);
         inline static REL::Relocation<decltype(Hook_TalkingIdle)> _origTalkingIdle;
 
+        // The engine's function that starts a line's voice, lip sync and talking idle on a speaker. Hooked at its
+        // calls outside Character::UpdateInDialogue, which say lines without a conversation (see the definition).
+        // Its arguments past the speaker are passed through untouched.
+        using StartSpeech_t = float(RE::Actor*, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
+            std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t);
+        static float Hook_StartSpeech(RE::Actor* a_speaker, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4, std::uint64_t a5,
+            std::uint64_t a6, std::uint64_t a7, std::uint64_t a8, std::uint64_t a9, std::uint64_t a10, std::uint64_t a11,
+            std::uint64_t a12, std::uint64_t a13, std::uint64_t a14);
+        inline static REL::Relocation<StartSpeech_t> _origStartSpeech;
+        void InstallStartSpeechHooks(std::uintptr_t a_talkingIdleCall);
+        // Ends a self-dialogue whose Dialogue Menu never opened (a one-line greeting)
+        void EndSelfDialogueWithoutMenu();
+
         static bool Hook_Player_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused);
         inline static REL::Relocation<UpdateInDialogue_t> _origPlayerUpdateInDialogue;
 
@@ -80,6 +93,9 @@ namespace InTheirShoes {
             bool advanced{ false };
         };
         std::optional<UnvoicedLine> _unvoicedLine;
+        // When self-dialogue was opened, until its Dialogue Menu opens (main thread)
+        std::optional<std::chrono::steady_clock::time_point> _awaitingMenuSince;
+        static constexpr float kNoMenuSeconds = 2.0f;
         static constexpr float kUnvoicedLineMinSeconds = 1.5f;
     };
 

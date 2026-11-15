@@ -81,8 +81,15 @@ namespace InTheirShoes {
         using ForceGreet_Execute_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
         inline static REL::Relocation<ForceGreet_Execute_t> _origForceGreetExecute;
 
+        // The player's alias packages (the donor's swapped aliases) only count while idle AI drives it; see the definition
+        static RE::TESPackage* Hook_Player_CheckForCurrentAliasPackage(RE::Actor* a_this);
+        using CheckForCurrentAliasPackage_t = RE::TESPackage*(RE::Actor*);
+        inline static REL::Relocation<CheckForCurrentAliasPackage_t> _origPlayerCheckForCurrentAliasPackage;
+
         bool _initialized{ false };
         bool _aiActive{ false };
+        // Whether the player is set AI-driven (ApplyIdlePackage). Read by the alias package hook on AI threads.
+        std::atomic<bool> _playerAIDriven{ false };
         bool _forceGreetTriggered{ false };
         std::atomic<bool> _forceGreetProcedureActive{ false };
         // The ForceGreet package whose arrival opened the current self-dialogue

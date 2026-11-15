@@ -40,11 +40,8 @@ namespace InTheirShoes {
             a_out.blue = ToByte(a_from.blue);
         }
 
-        // Dispels the permanent magic of the actor's current race: its abilities, diseases and addictions, the spell
-        // types the game's own removal loop in SwitchRace (ID 38754) dispels.
-        //
-        // SwitchRace itself isn't used: for the player it also rebuilds the base record's head parts for the new
-        // race and records a stored race on PlayerCharacter, which left the player with no head (#39).
+        // Dispels the current race's abilities, diseases and addictions, as SwitchRace (ID 38754) does. SwitchRace
+        // itself left the player with no head (#39).
         void DispelRaceMagic(RE::Actor* a_actor) {
             auto* race = a_actor->GetRace();
             if (!race || !race->actorEffects || !race->actorEffects->spells) return;
@@ -124,10 +121,8 @@ namespace InTheirShoes {
             }
         }
 
-        // The player's face and body are tinted from PlayerCharacter's own skin tone tint mask as well as the
-        // base record's bodyTintColor, so the two have to agree. Sets the mask in both of the player's tint lists
-        // (base and overlay), as SKSE's Game.SetNthTintMaskColor does. CommonLib's GetTintList() returns only
-        // one of them.
+        // The player is tinted from its own skin tone mask as well as bodyTintColor, so set the mask in both tint
+        // lists (base and overlay), as Game.SetNthTintMaskColor does.
         void SetPlayerSkinTone(RE::PlayerCharacter* a_player, const RE::Color& a_color) {
             if (!a_player || REL::Module::IsVR()) return;
             auto& data = a_player->GetPlayerRuntimeData();
@@ -185,13 +180,9 @@ namespace InTheirShoes {
     }
 
     RE::UI_MESSAGE_RESULTS FaceManager::Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message) {
-        // RaceSexMenu's show handler builds its tint sliders from the current race's tint assets and reads the
-        // player's own tint mask at each asset's index (ID 52412, called from ProcessMessage 52345 via 52409).
-        // PlayerCharacter's tint masks were built for the Dragonborn's race and aren't swapped with the record,
-        // so with a donor of another race the index runs past them and the menu crashes on a null mask.
-        // Returning kIgnore to kShow is the UI's own refusal path (UI message processing, ID 82082): the menu
-        // is dropped before it joins the menu stack, so no open/close event is sent and RaceMenu's script
-        // doesn't save the donor's tints as the Dragonborn's.
+        // RaceSexMenu reads the player's tint masks at the race's tint indices (ID 52412); with a donor of another race
+        // they run past the Dragonborn's masks and crash. kIgnore on kShow drops the menu before it opens (ID 82082),
+        // so RaceMenu doesn't save the donor's tints either.
         if (a_message.type == RE::UI_MESSAGE_TYPE::kShow && Session::GetSingleton().IsActive() && !a_this->AlwaysOpen()) {
             SKSE::log::info("Refused to open RaceMenu while impersonating");
             RE::SendHUDMessage::ShowHUDMessage("You can't change your appearance while impersonating.");
@@ -316,10 +307,7 @@ namespace InTheirShoes {
 
         // 1. Race, Skin & Face NPC
         if (a_snapshot.race) {
-            // The player's racial abilities (e.g. a Breton's magic resistance) follow the race: the old race's are
-            // dispelled and the new race's cast, as the game's SwitchRace does (#39). Racial powers need nothing more,
-            // since the game reads them from the current race. Without a_update3D only the record is restored (on
-            // game revert, before another save loads), so no magic is touched. The puppet's abilities don't matter.
+            // Racial abilities follow the race, as in SwitchRace (#39). Skipped without a_update3D (game revert).
             const bool switchRaceMagic = a_update3D && a_targetActor->IsPlayerRef() && a_targetActor->GetRace() != a_snapshot.race;
             if (switchRaceMagic) {
                 DispelRaceMagic(a_targetActor);
@@ -428,10 +416,8 @@ namespace InTheirShoes {
         ApplyTintColors(a_targetActor, targetNPC, a_snapshot, skinTint);
 
         if (a_update3D) {
-            // The reset keeps the loaded skeleton, and with it the behavior graph and animations chosen for the
-            // old sex and race, unless kSkeleton is queued. The sexchange console command (ID 22108) queues it the
-            // same way (ID 39907, 0x20) before its own DoReset3D. Without it a male Dragonborn impersonating a
-            // female donor kept male animations (#40).
+            // Queue kSkeleton so the reset loads animations for the new sex and race, as the sexchange command does
+            // (IDs 22108, 39907). (#40)
             if (bodyChanges) {
                 if (auto* process = a_targetActor->GetActorRuntimeData().currentProcess; process && process->middleHigh) {
                     process->middleHigh->update3DModel.set(RE::RESET_3D_FLAGS::kSkeleton);

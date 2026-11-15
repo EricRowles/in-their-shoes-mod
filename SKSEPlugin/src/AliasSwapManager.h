@@ -35,9 +35,8 @@ namespace InTheirShoes {
         void SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
         // Puts the donor back into the swapped aliases, except any another actor has taken since
         void RestoreSwappedAliases(RE::Actor* a_donor);
-        // Moves any outside quest alias the puppet was forced into (e.g. by a recruitment fragment that
-        // calls ForceRefTo(speaker) during self-dialogue) to the player, tracked as a swapped alias so
-        // the donor gets it on revert
+        // Moves outside quest aliases the puppet was forced into during self-dialogue to the player, tracked as swapped
+        // so the donor gets them on revert
         void AdoptPuppetAliases(RE::Actor* a_puppet, RE::Actor* a_player);
         // Moves aliases a quest filled with the donor during the session (or before a save that lacks them) to
         // the player, tracked as swapped aliases

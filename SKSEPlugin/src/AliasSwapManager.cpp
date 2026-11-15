@@ -108,9 +108,7 @@ namespace InTheirShoes {
     }
 
     void AliasSwapManager::SwapNewDonorAliases() {
-        // Aliases are only swapped when the session begins. A quest that starts later and fills a Unique Actor
-        // alias with the donor (e.g. a follower mod's banter quest started by a Change Location event) gives the
-        // parked donor its scenes, packages and force-greets, so they never reach the player.
+        // Aliases are only swapped at session start; this catches donor aliases filled by quests started later.
         auto& session = Session::GetSingleton();
         auto* donor = session.GetDonor();
         auto* player = Session::GetPlayer();
@@ -154,8 +152,7 @@ namespace InTheirShoes {
     }
 
     void AliasSwapManager::DropReleasedAliases() {
-        // A quest that clears or refills a swapped alias (e.g. dismissing a follower) takes it, and its factions,
-        // from the donor; restoring it on revert would undo that
+        // A quest that clears or refills a swapped alias takes it from the donor; restoring it on revert undoes that
         auto* player = Session::GetPlayer();
         auto released = std::ranges::remove_if(_swappedAliases, [&](const SwappedAlias& a_entry) {
             auto* quest = RE::TESForm::LookupByID<RE::TESQuest>(a_entry.questFormID);

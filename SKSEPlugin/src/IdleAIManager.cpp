@@ -101,16 +101,21 @@ namespace InTheirShoes {
             return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
         }
 
+        // Sitting, sleeping, or using a crafting station, or getting in or out of one (not riding, which uses the
+        // sitting state too)
+        bool IsInFurniture(RE::PlayerCharacter* a_player) {
+            const auto* state = a_player->AsActorState();
+            return state && state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal && !a_player->IsOnMount();
+        }
+
         // Whether this ForceGreet procedure is the impersonating player's
         bool IsPlayerForceGreet(const RE::IProcedureTreeItem::ExecStateContext* a_execState) {
             return Session::GetSingleton().IsActive() && a_execState && a_execState->context &&
                    a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
         }
 
-        // Ends a procedure as succeeded, which ends its package. Mirrors the engine's own (AE ID 29479, 1.6.1170
-        // RVA 48F0C0), which BGSProcedureDialogueExecState's update (AE 28385) calls once the greet's conversation is
-        // over. ExecStateContext is longer than CommonLib declares: +0x10 done, +0x11 succeeded, +0x12 whether to
-        // also set the caller's ProcedureExecContext::unk20. (Setting continueFlag instead did nothing.)
+        // Ends a procedure as succeeded, ending its package, as the engine does (AE ID 29479). ExecStateContext extends
+        // past CommonLib's: +0x10 done, +0x11 succeeded, +0x12 also set ProcedureExecContext::unk20.
         void MarkProcedureSucceeded(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
             auto* raw = reinterpret_cast<std::uint8_t*>(a_execState);
             raw[0x10] = 1;
@@ -120,9 +125,8 @@ namespace InTheirShoes {
             }
         }
 
-        // BGSProcedureForceGreet hardcodes BGSProcedureDialogueExecState::targetHandle (+0x20) to the player's
-        // handle, which makes the player spin in a circle targeting itself. Points it at the puppet; false if
-        // there is no puppet.
+        // BGSProcedureForceGreet targets the player (+0x20), which spun in place targeting itself. Points it at the
+        // puppet; false if there is none.
         bool RetargetForceGreetToPuppet(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
             constexpr std::uintptr_t kTargetHandleOffset = 0x20;
             auto* puppet = Session::GetSingleton().GetPuppet();
@@ -150,6 +154,19 @@ namespace InTheirShoes {
         _origForceGreetInitExecState = forceGreetVtbl.write_vfunc(0x09, &Hook_ForceGreet_InitExecState);
         _origForceGreetExecute = forceGreetVtbl.write_vfunc(0x0C, &Hook_ForceGreet_Execute);
         SKSE::log::info("Hooked BGSProcedureForceGreet (0x09, 0x0C) vfuncs");
+
+        REL::Relocation<std::uintptr_t> playerVtbl{ RE::VTABLE_PlayerCharacter[0] };
+        _origPlayerCheckForCurrentAliasPackage = playerVtbl.write_vfunc(0x49, &Hook_Player_CheckForCurrentAliasPackage);
+        SKSE::log::info("Hooked PlayerCharacter::CheckForCurrentAliasPackage (0x49)");
+    }
+
+    // Swapped aliases' packages made a player using furniture stand up while not AI-driven (#42), so none is
+    // picked then. Runs on AI threads: reads only Session and an atomic.
+    RE::TESPackage* IdleAIManager::Hook_Player_CheckForCurrentAliasPackage(RE::Actor* a_this) {
+        if (Session::GetSingleton().IsActive() && !IdleAIManager::GetSingleton()._playerAIDriven.load()) {
+            return nullptr;
+        }
+        return _origPlayerCheckForCurrentAliasPackage(a_this);
     }
 
     std::uint64_t IdleAIManager::Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
@@ -163,10 +180,8 @@ namespace InTheirShoes {
     std::uint64_t IdleAIManager::Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
         const bool isPlayerForceGreet = IsPlayerForceGreet(a_execState);
         if (isPlayerForceGreet) {
-            // The engine finishes a ForceGreet once its conversation with the target is over, which ends the
-            // package and lets a scene's package action complete. The player's conversation is self-dialogue
-            // opened by CheckForceGreetReachedPuppet, which the procedure never sees, so it greeted again whenever
-            // idle AI engaged and its scene never ended (#38). Once greeted, it succeeds as the engine would.
+            // The procedure never sees the self-dialogue, so it greeted again and its scene never ended (#38). Once
+            // greeted, succeed as the engine would.
             auto* context = a_execState->context;
             auto* package = context->package ? context->package->package : nullptr;
             const auto greeted = IdleAIManager::GetSingleton()._greetedPackage.load();
@@ -180,10 +195,7 @@ namespace InTheirShoes {
         }
         auto ret = _origForceGreetExecute(a_this, a_execState);
         if (isPlayerForceGreet) {
-            // BGSProcedureForceGreet::Execute sets MenuTopicManager::forceGoodbye (+0xB2 = true) every
-            // frame while pathing toward its target, and only clears it if the engine's internal NPC->player
-            // ForceGreet start completes. Leaving forceGoodbye set causes MenuTopicManager::StartConversation
-            // to set shutMenu = true and immediately close self-dialogue on the next frame.
+            // ForceGreet sets forceGoodbye (+0xB2) while pathing, which would close self-dialogue next frame
             if (auto* topicMgr = RE::MenuTopicManager::GetSingleton()) {
                 topicMgr->forceGoodbye = false;
             }
@@ -246,10 +258,8 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::CheckForceGreetReachedPuppet() {
-        // A donor package that would ForceGreet or talk to the Dragonborn has been retargeted to the puppet.
-        // When the player arrives within greeting distance, open self-dialogue once for this approach.
-        // Packages that only travel to or follow the puppet (e.g. a follower's Follow package on a swapped
-        // alias) don't count: following stays in range, so they opened dialogue every time idle AI engaged.
+        // Opens self-dialogue once per approach when a retargeted greet package brings the player to the puppet.
+        // Travel and follow packages don't count: they stay in range, so they reopened it whenever idle AI engaged.
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = Session::GetSingleton().GetPuppet();
         auto* curPkg = player ? player->GetCurrentPackage() : nullptr;
@@ -348,13 +358,15 @@ namespace InTheirShoes {
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto blockedBy = PlayerBusy::kNo;
-        // Idle AI keeps running during scenes, so the player keeps travelling through follower banter and runs
-        // the scene's package actions. While AI-driven, the engine holds the player's scene lines until pathing
-        // ends (#2); that is accepted rather than stopping the player for its lines.
+        // Idle AI keeps running in scenes; the engine holds the AI-driven player's lines until pathing ends (#2).
         if (!player || CombatStopsIdleAI(player)) {
             blockedBy = PlayerBusy::kCombat;
         } else if (IsBlockingMenuOpen()) {
             blockedBy = PlayerBusy::kMenu;
+        } else if (!_aiActive && IsInFurniture(player)) {
+            // Furniture the player entered itself: idle AI engaged during the enter animation and an alias package
+            // walked it out (#42).
+            blockedBy = PlayerBusy::kFurniture;
         }
         LogPlayerBusy(_blockedBy, blockedBy, "Idle AI"sv);
         if (blockedBy != PlayerBusy::kNo) {
@@ -433,9 +445,7 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::RetargetAliasPackagesToPuppet() {
-        // Packages on the donor's swapped aliases apply to the player now. Any that target or locate
-        // relative to the player (force-greets, "approach the Dragonborn") would make the player target
-        // itself, so point their targets and locations at the puppet.
+        // Swapped aliases' packages that target the player would make it target itself; point them at the puppet.
         auto& session = Session::GetSingleton();
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = session.GetPuppet();
@@ -471,10 +481,8 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::CheckTravelArrival() {
-        // The Travel package only gets the player to the city's center marker, where it would then stand
-        // still, so once the player is anywhere in the city they sandbox there instead. Checked against the
-        // city's Location (or a child, such as a district) rather than distance to the marker, since walled
-        // cities are their own worldspaces.
+        // Travel only reaches the city's center marker, so sandbox anywhere in the city's Location (walled cities are
+        // their own worldspaces, so distance doesn't work).
         const auto& settings = Settings::GetSingleton();
         if (settings.GetIdlePackage() != kTravelPackage || _travelArrived) return;
         const auto* destination = Forms::TravelDestination(settings.GetTravelDestination());
@@ -526,9 +534,9 @@ namespace InTheirShoes {
         if (!vm || (state == _sentState && !a_force)) return;
         _sentState = state;
 
-        // Updated synchronously so immediate EvaluatePackage calls see the new state. Game.SetPlayerAIDriven (in
-        // ITS_IdlePackage.Apply) then switches the movement controller cleanly. (Calling PlayerCharacter::SetAIDriven
-        // by its CommonLib address left the player with no package.)
+        // Updated synchronously so immediate EvaluatePackage calls see it; Game.SetPlayerAIDriven (ITS_IdlePackage)
+        // then switches the movement controller.
+        _playerAIDriven = state.aiDriven;
         if (auto* player = RE::PlayerCharacter::GetSingleton()) {
             player->GetPlayerRuntimeData().playerFlags.aiControlledPackage = state.aiDriven;
         }
@@ -602,15 +610,9 @@ namespace InTheirShoes {
 
         RetargetAliasPackagesToPuppet();
 
-        // The donor's own (base record) packages go on the player's base record. The swapped aliases
-        // apply their packages to the player directly. ForceGreet packages on the donor's base record
-        // are also retargeted to the puppet and synced; non-ForceGreet player-targeted base packages
-        // (such as follower Follow packages) are skipped. A package picked in the MCM comes from an
-        // ITS_PackageManager alias, which outranks all of these.
-        //
-        // The scene's package actions for the player's aliases come first. The engine never gave them to the
-        // AI-driven player, so it stood still in quest scenes. While they run, the MCM's package alias is
-        // released so it doesn't outrank them. Packages on the donor's swapped aliases still do.
+        // The donor's base packages go on the player's base record (ForceGreets retargeted to the puppet, other
+        // player-targeted ones skipped); swapped aliases apply theirs directly; the MCM's package alias outranks both.
+        // The scene's package actions for the player's aliases come first, with the MCM alias released while they run.
         auto& retarget = PackageRetarget::GetSingleton();
         auto scenePkgs = GetScenePackagesInCurrentPhase(GetPlayingScene(player), player);
         for (auto* pkg : scenePkgs) {

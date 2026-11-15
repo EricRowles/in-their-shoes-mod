@@ -99,9 +99,8 @@ namespace InTheirShoes {
             std::int32_t count{ 0 };
         };
 
-        // Removes everything from a_actor except quest items. Skins (non-playable body armor) go too: they move
-        // with the rest of the items, and a non-unique donor may have been given its outfit's skin again while
-        // parked. Collected first: removing items while walking the inventory would invalidate it.
+        // Removes everything but quest items, skins included (a parked non-unique donor may have been re-given one).
+        // Collected first: removing while iterating would invalidate the inventory.
         void ClearInventory(RE::Actor* a_actor) {
             std::vector<ItemStack> toRemove;
             for (const auto& [object, entry] : a_actor->GetInventory()) {
@@ -173,9 +172,8 @@ namespace InTheirShoes {
             return toMove;
         }
 
-        // Makes a stack's outfit items ordinary items. The tag names the outfit an item came from, and the engine
-        // removes tagged items when that actor's outfit changes. The extra data lists are the inventory's own
-        // (GetInventory copies only the list of pointers), so this changes the items themselves.
+        // Clears outfit tags, so the engine doesn't remove the items when that outfit changes. Edits the items
+        // themselves (GetInventory copies only the pointers).
         void ClearOutfitTags(const RE::InventoryEntryData* a_data) {
             if (!a_data || !a_data->extraLists) return;
             for (auto* xList : *a_data->extraLists) {

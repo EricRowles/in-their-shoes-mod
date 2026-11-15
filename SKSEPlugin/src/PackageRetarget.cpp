@@ -11,9 +11,7 @@ namespace InTheirShoes {
     using namespace PackageUtil;
 
     namespace {
-        // ForceGreet packages often have a preliminary Travel branch whose Trigger Location radius is 500+ units
-        // around the player, while the ForceGreet branch only activates within 300 units. Retargeted to the
-        // puppet, the radius is clamped so the Travel branch brings the impersonator within greeting distance.
+        // Clamped radius for a retargeted ForceGreet's Travel branch, so it brings the player within greeting range
         constexpr std::uint32_t kPuppetLocationMaxRadius = 150;
 
         // Actors already running a changed package keep the target they resolved when it started; re-evaluating

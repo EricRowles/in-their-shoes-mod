@@ -13,7 +13,7 @@ This includes race and sex: in self-dialogue the donor's lines see the Dragonbor
 
 ## Self-dialogue
 
-Opens when the player activates the puppet, or when a donor package that would greet the Dragonborn reaches the puppet during idle AI. The menu shows the donor's topics.
+Opens when the player activates the puppet, or when a donor package that would greet the Dragonborn reaches the puppet during idle AI. The menu shows the donor's topics. When the donor has no topics, the game opens no menu and the player says the donor's greeting.
 
 ## Speech
 

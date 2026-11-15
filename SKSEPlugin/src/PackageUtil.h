@@ -45,10 +45,7 @@ namespace InTheirShoes::PackageUtil {
         }
     }
 
-    // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages.
-    // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
-    // Distance" Location input (radius 300) is near the player, so left alone the player is always within
-    // it and skips the Travel branch.
+    // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages
     template <typename Fn>
     void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
         if (!a_pkg) return;
