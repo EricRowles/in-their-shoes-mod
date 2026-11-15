@@ -70,9 +70,10 @@ Actor Function GetPuppet() Global Native
 ; The donor's name; "None" when not impersonating, "Not Found" when a saved session's donor no longer exists
 String Function GetDonorName() Global Native
 
-; Used by ITS_IdlePackage.Apply: 0 if call a_sequence was superseded by a later one, 1 to apply it, 2 to apply it
-; and call Game.SetPlayerAIDriven(a_aiDriven).
-Int Function BeginIdlePackageApply(Int a_sequence, Bool a_aiDriven) Global Native
+; Used by ITS_IdlePackage.Apply: False if call a_sequence was superseded by a later one
+Bool Function BeginIdlePackageApply(Int a_sequence) Global Native
+; Used by ITS_IdlePackage.Apply: call a_sequence has finished
+Function EndIdlePackageApply(Int a_sequence) Global Native
 
 ; The plugin's version, e.g. "0.5.0"
 String Function GetPluginVersion() Global Native

@@ -277,7 +277,7 @@ namespace InTheirShoes {
             return false;
         }
 
-        IdleAIManager::GetSingleton().StopIdleAI();
+        IdleAIManager::GetSingleton().StopForSelfDialogue();
         PlayerVoice::GetSingleton().Finish();
 
         // The conversation ends while the player's dialogue timer (awarePlayerTimer, +0x340) is negative, and it keeps

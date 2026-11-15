@@ -34,15 +34,15 @@ namespace InTheirShoes::Papyrus {
             Settings::GetSingleton().SetIdleTimeout(a_seconds);
         }
 
-        // IdleAIManager's state is the main thread's (its Update runs there), so the change is handled there
+        // IdleAIManager handles these in its next update, on the main thread
         void SetIdleAIPackage(RE::StaticFunctionTag*, std::int32_t a_index) {
             Settings::GetSingleton().SetIdlePackage(a_index);
-            SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnIdlePackageChanged(); });
+            IdleAIManager::GetSingleton().OnIdlePackageChanged();
         }
 
         void SetIdleTravelDestination(RE::StaticFunctionTag*, std::int32_t a_index) {
             Settings::GetSingleton().SetTravelDestination(a_index);
-            SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnTravelDestinationChanged(); });
+            IdleAIManager::GetSingleton().OnTravelDestinationChanged();
         }
 
         void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
@@ -63,8 +63,12 @@ namespace InTheirShoes::Papyrus {
         }
 
         // ITS_IdlePackage.Apply: see IdleAIManager::BeginIdlePackageApply
-        std::int32_t BeginIdlePackageApply(RE::StaticFunctionTag*, std::int32_t a_sequence, bool a_aiDriven) {
-            return std::to_underlying(IdleAIManager::GetSingleton().BeginIdlePackageApply(a_sequence, a_aiDriven));
+        bool BeginIdlePackageApply(RE::StaticFunctionTag*, std::int32_t a_sequence) {
+            return IdleAIManager::GetSingleton().BeginIdlePackageApply(a_sequence);
+        }
+
+        void EndIdlePackageApply(RE::StaticFunctionTag*, std::int32_t a_sequence) {
+            IdleAIManager::GetSingleton().EndIdlePackageApply(a_sequence);
         }
 
         RE::BSFixedString GetCurrentSceneName(RE::StaticFunctionTag*) {
@@ -284,6 +288,7 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("GetPuppet", className, GetPuppet);
         a_vm->RegisterFunction("GetDonorName", className, GetDonorName);
         a_vm->RegisterFunction("BeginIdlePackageApply", className, BeginIdlePackageApply);
+        a_vm->RegisterFunction("EndIdlePackageApply", className, EndIdlePackageApply);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;

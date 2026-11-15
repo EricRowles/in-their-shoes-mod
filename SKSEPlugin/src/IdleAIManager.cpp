@@ -10,10 +10,14 @@
 #include "Settings.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
 
+#include "RE/C/ControlMap.h"
+#include "RE/M/Main.h"
 #include "RE/P/PlayerControls.h"
+#include "RE/U/UserEvents.h"
 #include "RE/P/PackageLocation.h"
 #include "RE/T/TESPackage.h"
 #include "RE/T/TESCustomPackageData.h"
@@ -29,8 +33,10 @@ namespace InTheirShoes {
 
     using namespace PackageUtil;
 
-    // Game.SetPlayerAIDriven runs through the script VM, so the package is evaluated a moment later
+    // The package is evaluated again a moment after AI-driven turns on, once the AI movement controller has taken over
     constexpr float kEvaluateAfterEngageSeconds = 0.25f;
+    // How long engaging waits for ITS_IdlePackage.Apply to put the player in its alias before going ahead anyway
+    constexpr float kEngageWaitSeconds = 2.0f;
     // How often the donor's packages are synced to the player while idle AI runs
     constexpr float kPackageSyncSeconds = 1.5f;
 
@@ -108,6 +114,18 @@ namespace InTheirShoes {
             return state && state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal && !a_player->IsOnMount();
         }
 
+        // Menus that stop running idle AI. Others (inventory, magic, map, journal, favorites, the console) only
+        // pause its countdown, so the player can manage equipment while idle AI walks (#45). The container, barter,
+        // crafting and book menus open from Activate, which already stops it, unless a script opens them.
+        bool IsMenuThatStopsIdleAI() {
+            static constexpr std::array kMenus = {
+                "Dialogue Menu"sv, "Loading Menu"sv, "RaceSex Menu"sv, "Barter Menu"sv, "Container Menu"sv,
+                "Crafting Menu"sv, "Lockpicking Menu"sv, "Training Menu"sv, "Sleep/Wait Menu"sv, "Book Menu"sv,
+            };
+            auto* ui = RE::UI::GetSingleton();
+            return ui && std::ranges::any_of(kMenus, [ui](std::string_view a_menu) { return ui->IsMenuOpen(a_menu); });
+        }
+
         // Whether this ForceGreet procedure is the impersonating player's
         bool IsPlayerForceGreet(const RE::IProcedureTreeItem::ExecStateContext* a_execState) {
             return Session::GetSingleton().IsActive() && a_execState && a_execState->context &&
@@ -161,9 +179,9 @@ namespace InTheirShoes {
     }
 
     // Swapped aliases' packages made a player using furniture stand up while not AI-driven (#42), so none is
-    // picked then. Runs on AI threads: reads only Session and an atomic.
+    // picked unless idle AI runs. Runs on AI threads: reads only Session and an atomic.
     RE::TESPackage* IdleAIManager::Hook_Player_CheckForCurrentAliasPackage(RE::Actor* a_this) {
-        if (Session::GetSingleton().IsActive() && !IdleAIManager::GetSingleton()._playerAIDriven.load()) {
+        if (Session::GetSingleton().IsActive() && !IdleAIManager::GetSingleton()._running.load()) {
             return nullptr;
         }
         return _origPlayerCheckForCurrentAliasPackage(a_this);
@@ -210,25 +228,108 @@ namespace InTheirShoes {
         return a_player->IsInCombat() && !travelling;
     }
 
-    void IdleAIManager::Update() {
+    std::string_view IdleAIManager::ToString(StopReason a_reason) {
+        switch (a_reason) {
+            case StopReason::kInput: return "player input"sv;
+            case StopReason::kCombat: return "combat"sv;
+            case StopReason::kMenu: return "menu"sv;
+            case StopReason::kSelfDialogue: return "self-dialogue"sv;
+            case StopReason::kInactive: return "idle AI off or no impersonation"sv;
+            case StopReason::kSessionChanged: return "impersonation changed"sv;
+            case StopReason::kLostControl: return "something else turned AI-driven off"sv;
+            case StopReason::kOtherControl: return "something else made the player AI-driven"sv;
+            default: return "unknown"sv;
+        }
+    }
+
+    void IdleAIManager::Update(float a_delta) {
         auto* player = RE::PlayerCharacter::GetSingleton();
-        if (player && CombatStopsIdleAI(player)) {
-            if (_aiActive) {
-                StopIdleAI();
-            }
+        if (!player) return;
+        HandleRequests(player);
+
+        // Ownership against the engine's state. SetAIDriven (Game.SetPlayerAIDriven) is a plain flag, not a
+        // count, so a script that turns it off also ends idle AI's control.
+        const auto& flags = player->GetPlayerRuntimeData().playerFlags;
+        if (_owned && !flags.aiControlledPackage) {
+            _owned = false;
+            Disengage(player, StopReason::kLostControl);
+        }
+
+        const auto& settings = Settings::GetSingleton();
+        if (!settings.IsIdleAIEnabled() || !Session::GetSingleton().IsActive()) {
+            Disengage(player, StopReason::kInactive);
+            _idleSeconds = 0.0f;
+            ReleaseGreetedPackage();
+            return;
+        }
+        if (CombatStopsIdleAI(player)) {
+            Disengage(player, StopReason::kCombat);
+        } else if (IsRunning() && IsMenuThatStopsIdleAI()) {
+            Disengage(player, StopReason::kMenu);
+        } else if (_state == State::kEngaging && IsPlayerAIControlled(player)) {
+            Disengage(player, StopReason::kOtherControl);
+        }
+
+        if (IsRunning()) {
+            UpdateRunning(player, a_delta);
         } else {
-            CheckIdleAI();
+            UpdateIdleTime(player, a_delta);
         }
         ReleaseGreetedPackage();
+    }
 
-        if (!_aiActive || !player || !Session::GetSingleton().IsActive()) return;
+    void IdleAIManager::UpdateIdleTime(RE::PlayerCharacter* a_player, float a_delta) {
+        // Idle time is game time while the player could be driven. Menus and the window being in the background
+        // pause it (so alt+tab can't use it up, #45); anything that would stop idle AI resets it.
+        auto* main = RE::Main::GetSingleton();
+        auto blockedBy = PlayerBusy::kNo;
+        bool reset = true;
+        if (CombatStopsIdleAI(a_player)) {
+            blockedBy = PlayerBusy::kCombat;
+        } else if (IsPlayerAIControlled(a_player)) {
+            blockedBy = PlayerBusy::kAIControlled;
+        } else if (IsInFurniture(a_player)) {
+            // Furniture the player entered itself: idle AI engaged during the enter animation and an alias package
+            // walked it out (#42).
+            blockedBy = PlayerBusy::kFurniture;
+        } else if (main && !main->GetRuntimeData().gameActive) {
+            blockedBy = PlayerBusy::kWindowInactive;
+            reset = false;
+        } else if (IsBlockingMenuOpen()) {
+            blockedBy = PlayerBusy::kMenu;
+            reset = false;
+        }
+        LogPlayerBusy(_blockedBy, blockedBy, "Idle AI"sv);
+        if (blockedBy != PlayerBusy::kNo) {
+            if (reset) _idleSeconds = 0.0f;
+            return;
+        }
+
+        _idleSeconds += a_delta;
+        if (_idleSeconds >= Settings::GetSingleton().GetIdleTimeout()) {
+            BeginEngage(a_player);
+        }
+    }
+
+    void IdleAIManager::UpdateRunning(RE::PlayerCharacter* a_player, float a_delta) {
+        if (_state == State::kEngaging) {
+            // AI-driven turns on once the alias is in place, so the player doesn't briefly run the wrong package.
+            // A call superseded by a later one counts once that one finishes. If Papyrus is held up, go ahead.
+            _engageWaitSeconds += a_delta;
+            const bool applied = _appliedSequence.load(std::memory_order_acquire) >= _engageSequence;
+            if (!applied && _engageWaitSeconds < kEngageWaitSeconds) return;
+            if (!applied) {
+                SKSE::log::warn("Idle package state {} not applied after {:.1f}s; engaging anyway", _engageSequence, _engageWaitSeconds);
+            }
+            FinishEngage(a_player);
+        }
 
         if (!_evaluatedAfterEngage && SecondsSince(_aiStartTime) >= kEvaluateAfterEngageSeconds) {
             _evaluatedAfterEngage = true;
-            player->EvaluatePackage(true, true);
+            a_player->EvaluatePackage(true, true);
         }
 
-        auto* scene = GetPlayingScene(player);
+        auto* scene = GetPlayingScene(a_player);
         const ScenePhase scenePhase{ scene ? scene->GetFormID() : 0, scene ? scene->currentPhaseIndex : 0 };
         if (SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds || scenePhase != _syncedScenePhase) {
             _syncedScenePhase = scenePhase;
@@ -240,9 +341,135 @@ namespace InTheirShoes {
         CheckForceGreetReachedPuppet();
     }
 
+    void IdleAIManager::HandleRequests(RE::PlayerCharacter* a_player) {
+        const auto requests = _requests.exchange(0, std::memory_order_acq_rel);
+        if (!requests) return;
+        if (requests & kPostLoad) {
+            HandlePostLoad(a_player);
+        }
+        if (requests & kSessionChanged) {
+            // Switching donors ends and begins a session in one call, so Update never sees it inactive
+            _idleSeconds = 0.0f;
+            Disengage(a_player, StopReason::kSessionChanged);
+        }
+        if (requests & kSelfDialogueEnded) {
+            HandleSelfDialogueEnded();
+        }
+        if (requests & kPackageChanged) {
+            const auto index = Settings::GetSingleton().GetIdlePackage();
+            _travelArrived = false;
+            SKSE::log::info("Idle AI package: {}", index > 0 ? fmt::format("alias {}", index - 1) : "the donor's own"s);
+            ApplyIdlePackage();
+        }
+        if (requests & kDestinationChanged) {
+            _travelArrived = false;
+            const auto* destination = Forms::TravelDestination(Settings::GetSingleton().GetTravelDestination());
+            SKSE::log::info("Idle AI travel destination: {}",
+                destination && destination->location ? destination->location->GetName() : "none");
+            // A running Travel package heads for the new destination
+            ApplyIdlePackage();
+        }
+        if (requests & kActionInput) {
+            _idleSeconds = 0.0f;
+            Disengage(a_player, StopReason::kInput);
+        }
+    }
+
+    void IdleAIManager::HandlePostLoad(RE::PlayerCharacter* a_player) {
+        // A save made while idle AI ran keeps the player AI-driven and in a package alias (#35), and idle AI isn't
+        // running now. Ownership isn't saved, so AI-driven is taken to be idle AI's if the player is impersonating
+        // or in a package alias.
+        bool inPackageAlias = false;
+        if (auto* quest = Forms::idlePackageQuest) {
+            for (const auto* alias : quest->aliases) {
+                if (alias && quest->GetAliasedRef(alias->aliasID).get().get() == a_player) {
+                    inPackageAlias = true;
+                    break;
+                }
+            }
+        }
+        if (!inPackageAlias && !Session::GetSingleton().IsActive()) return;
+        if (a_player->GetPlayerRuntimeData().playerFlags.aiControlledPackage) {
+            a_player->SetAIDriven(false);
+            SKSE::log::info("Turned off AI-driven saved while idle AI ran");
+        }
+        ApplyIdlePackage(true);
+    }
+
+    void IdleAIManager::BeginEngage(RE::PlayerCharacter* a_player) {
+        if (auto* pc = RE::PlayerControls::GetSingleton()) {
+            _savedUserRunning = pc->data.running;
+        }
+
+        _state = State::kEngaging;
+        _running = true;
+        _forceGreetTriggered = false;
+        _forceGreetProcedureActive = false;
+        _runningPackageLogged = false;
+        _travelArrived = false;  // Rechecked at the next package sync
+        _scenePackagesRunning = false;
+        _lastPackageSyncTime = std::chrono::steady_clock::now();
+        if (auto* scene = GetPlayingScene(a_player)) {
+            _syncedScenePhase = { scene->GetFormID(), scene->currentPhaseIndex };
+        } else {
+            _syncedScenePhase = {};
+        }
+
+        SyncDonorPackagesToPlayer();
+        a_player->AllowBleedoutDialogue(true);
+        // Always sent, even if the alias doesn't change, so its completion says when to turn AI-driven on
+        _engageSequence = ApplyIdlePackage(true);
+        _engageWaitSeconds = 0.0f;
+        SKSE::log::info("Player idle timeout reached - engaging autonomous AI.");
+    }
+
+    void IdleAIManager::FinishEngage(RE::PlayerCharacter* a_player) {
+        // Set here rather than through Game.SetPlayerAIDriven, so ownership changes in the same instant as the
+        // engine's flag (#45). The Papyrus function calls this same engine function and nothing else.
+        a_player->SetAIDriven(true);
+        _owned = true;
+        _state = State::kDriving;
+        _evaluatedAfterEngage = false;
+        _aiStartTime = std::chrono::steady_clock::now();
+        a_player->EvaluatePackage(true, true);
+        SKSE::log::info("Player is AI-driven");
+    }
+
+    void IdleAIManager::Disengage(RE::PlayerCharacter* a_player, StopReason a_reason) {
+        if (!IsRunning()) return;
+        _state = State::kManual;
+        _running = false;
+        _forceGreetProcedureActive = false;
+        _scenePackagesRunning = false;
+
+        // Control goes back before the aliases change: each alias call waits a frame, and in between the AI's
+        // slope pitch drove the camera (straight up or down when stopping on a slope).
+        if (_owned) {
+            a_player->SetAIDriven(false);
+            _owned = false;
+        }
+        ApplyIdlePackage();
+        ClearPlayerPackages();
+        a_player->EvaluatePackage(false, false);
+        if (auto* pc = RE::PlayerControls::GetSingleton()) {
+            pc->data.autoMove = false;
+            pc->data.moveInputVec = { 0.0f, 0.0f };
+            pc->data.running = _savedUserRunning;
+        }
+        _loggedPackage = nullptr;
+        _idleSeconds = 0.0f;
+        SKSE::log::info("Disengaged autonomous AI: {}", ToString(a_reason));
+    }
+
+    void IdleAIManager::StopForSelfDialogue() {
+        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+            Disengage(player, StopReason::kSelfDialogue);
+        }
+    }
+
     void IdleAIManager::LogRunningPackage() {
         // Report the first package seen after engaging (or that there is none), then every change
-        if (SecondsSince(_aiStartTime) < 1.0f) return;
+        if (_state != State::kDriving || SecondsSince(_aiStartTime) < 1.0f) return;
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* pkg = player ? player->GetCurrentPackage() : nullptr;
         if (_runningPackageLogged && pkg == _loggedPackage) return;
@@ -263,7 +490,7 @@ namespace InTheirShoes {
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = Session::GetSingleton().GetPuppet();
         auto* curPkg = player ? player->GetCurrentPackage() : nullptr;
-        if (!puppet || !curPkg) {
+        if (_state != State::kDriving || !puppet || !curPkg) {
             _forceGreetTriggered = false;
             _forceGreetProcedureActive = false;
             return;
@@ -291,6 +518,10 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::OnSelfDialogueEnded() {
+        Post(kSelfDialogueEnded);
+    }
+
+    void IdleAIManager::HandleSelfDialogueEnded() {
         if (!_greetingPackage) return;
         auto* scene = GetPlayingScene(RE::PlayerCharacter::GetSingleton());
         _greetedScene = scene ? scene->GetFormID() : 0;
@@ -314,134 +545,64 @@ namespace InTheirShoes {
         _greetedScene = 0;
     }
 
+    bool IdleAIManager::IsActionInput(const RE::InputEvent* a_event) {
+        // Only input that asks the player to act in the world takes control back (#45): moving, attacking, drawing
+        // a weapon, activating, jumping, sneaking, shouting. Menu keys, hotkeys, the camera, Run/Sprint and keys
+        // with no gameplay event (Alt, Tab) don't, so the player can manage equipment while idle AI walks.
+        // Matched by user event, so rebinding and controllers work, and only in the gameplay context, where a
+        // menu hasn't taken the input.
+        static constexpr std::array kActionEvents = {
+            &RE::UserEvents::forward, &RE::UserEvents::back, &RE::UserEvents::strafeLeft, &RE::UserEvents::strafeRight,
+            &RE::UserEvents::autoMove, &RE::UserEvents::activate, &RE::UserEvents::leftAttack,
+            &RE::UserEvents::rightAttack, &RE::UserEvents::readyWeapon, &RE::UserEvents::jump, &RE::UserEvents::sneak,
+            &RE::UserEvents::shout,
+        };
+
+        auto* controlMap = RE::ControlMap::GetSingleton();
+        auto* userEvents = RE::UserEvents::GetSingleton();
+        if (!controlMap || !userEvents) return false;
+        const auto& contexts = controlMap->GetRuntimeData().contextPriorityStack;
+        if (contexts.empty() || contexts.back() != RE::UserEvents::INPUT_CONTEXT_ID::kGameplay) return false;
+
+        switch (a_event->GetEventType()) {
+            case RE::INPUT_EVENT_TYPE::kButton: {
+                const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+                if (!button->IsPressed()) return false;
+                RE::BSFixedString name = button->QUserEvent();
+                if (name.empty()) {
+                    name = RE::BSFixedString(controlMap->GetUserEventName(button->GetIDCode(), button->GetDevice()));
+                }
+                return std::ranges::any_of(kActionEvents, [&](auto a_member) { return name == userEvents->*a_member; });
+            }
+            case RE::INPUT_EVENT_TYPE::kThumbstick: {
+                // The left stick moves (Move); the right stick, like the mouse, only moves the camera
+                const auto* stick = static_cast<const RE::ThumbstickEvent*>(a_event);
+                return stick->IsLeft() && (std::abs(stick->xValue) > 0.25f || std::abs(stick->yValue) > 0.25f);
+            }
+            default:
+                return false;
+        }
+    }
+
     RE::BSEventNotifyControl IdleAIManager::ProcessEvent(
         RE::InputEvent* const* a_event,
         RE::BSTEventSource<RE::InputEvent*>* /*a_eventSource*/) {
         if (!a_event) {
             return RE::BSEventNotifyControl::kContinue;
         }
-
+        // Runs on input threads, concurrently with Update, so it only posts the request (#45)
         for (auto* event = *a_event; event; event = event->next) {
-            bool isUserAction = false;
-            if (event->GetEventType() == RE::INPUT_EVENT_TYPE::kButton) {
-                const auto* button = static_cast<const RE::ButtonEvent*>(event);
-                isUserAction = button->IsPressed() || button->IsDown() || button->IsHeld();
-            } else if (event->GetEventType() == RE::INPUT_EVENT_TYPE::kThumbstick) {
-                const auto* stick = static_cast<const RE::ThumbstickEvent*>(event);
-                // Only the left stick: the right stick, like mouse movement, just moves the camera
-                isUserAction = stick->IsLeft() && (std::abs(stick->xValue) > 0.25f || std::abs(stick->yValue) > 0.25f);
-            }
-            if (isUserAction) {
-                OnUserInput();
+            if (IsActionInput(event)) {
+                Post(kActionInput);
                 break;
             }
         }
-
         return RE::BSEventNotifyControl::kContinue;
     }
 
-    void IdleAIManager::OnUserInput() {
-        _lastInputTime = std::chrono::steady_clock::now();
-        if (_aiActive) {
-            StopIdleAI();
-        }
-    }
-
-    void IdleAIManager::CheckIdleAI() {
-        const auto& settings = Settings::GetSingleton();
-        if (!settings.IsIdleAIEnabled() || !Session::GetSingleton().IsActive()) {
-            if (_aiActive) {
-                StopIdleAI();
-            }
-            return;
-        }
-
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        auto blockedBy = PlayerBusy::kNo;
-        // Idle AI keeps running in scenes; the engine holds the AI-driven player's lines until pathing ends (#2).
-        if (!player || CombatStopsIdleAI(player)) {
-            blockedBy = PlayerBusy::kCombat;
-        } else if (IsBlockingMenuOpen()) {
-            blockedBy = PlayerBusy::kMenu;
-        } else if (!_aiActive && IsInFurniture(player)) {
-            // Furniture the player entered itself: idle AI engaged during the enter animation and an alias package
-            // walked it out (#42).
-            blockedBy = PlayerBusy::kFurniture;
-        }
-        LogPlayerBusy(_blockedBy, blockedBy, "Idle AI"sv);
-        if (blockedBy != PlayerBusy::kNo) {
-            _lastInputTime = std::chrono::steady_clock::now();
-            if (_aiActive) {
-                StopIdleAI();
-            }
-            return;
-        }
-
-        if (SecondsSince(_lastInputTime) >= settings.GetIdleTimeout() && !_aiActive) {
-            StartIdleAI();
-        }
-    }
-
-    void IdleAIManager::StartIdleAI() {
-        if (!Session::GetSingleton().IsActive() || !Settings::GetSingleton().IsIdleAIEnabled()) return;
-
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        if (!player || CombatStopsIdleAI(player) || IsBlockingMenuOpen()) return;
-
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            _savedUserRunning = pc->data.running;
-        }
-
-        _aiActive = true;
-        _forceGreetTriggered = false;
-        _forceGreetProcedureActive = false;
-        _runningPackageLogged = false;
-        _evaluatedAfterEngage = false;
-        _aiStartTime = std::chrono::steady_clock::now();
-        _lastPackageSyncTime = _aiStartTime;
-        _travelArrived = false;  // Rechecked at the next package sync
-        _scenePackagesRunning = false;
-        if (auto* scene = GetPlayingScene(player)) {
-            _syncedScenePhase = { scene->GetFormID(), scene->currentPhaseIndex };
-        } else {
-            _syncedScenePhase = {};
-        }
-
-        SyncDonorPackagesToPlayer();
-        player->AllowBleedoutDialogue(true);
-        ApplyIdlePackage();
-        SKSE::log::info("Player idle timeout reached - engaging autonomous AI.");
-    }
-
-    void IdleAIManager::StopIdleAI() {
-        if (!_aiActive) return;
-        _aiActive = false;
-        _forceGreetProcedureActive = false;
-        _scenePackagesRunning = false;
-
-        ApplyIdlePackage();
-        ClearPlayerPackages();
-        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-            player->EvaluatePackage(false, false);
-        }
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            pc->data.autoMove = false;
-            pc->data.moveInputVec = { 0.0f, 0.0f };
-            pc->data.running = _savedUserRunning;
-        }
-        _loggedPackage = nullptr;
-        _lastInputTime = std::chrono::steady_clock::now();
-        SKSE::log::info("Disengaged autonomous AI.");
-    }
-
-    void IdleAIManager::OnImpersonationChanged(bool a_active) {
-        if (!a_active) {
-            StopIdleAI();
-        } else if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            _savedUserRunning = pc->data.running;
-        }
-        _lastInputTime = std::chrono::steady_clock::now();
-        SKSE::log::info("Idle AI: impersonation active = {}", a_active);
+    void IdleAIManager::OnImpersonationChanged() {
+        Post(kSessionChanged);
+        SKSE::log::info("Idle AI: impersonation active = {}", Session::GetSingleton().IsActive());
     }
 
     void IdleAIManager::RetargetAliasPackagesToPuppet() {
@@ -465,19 +626,15 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::OnIdlePackageChanged() {
-        const auto index = Settings::GetSingleton().GetIdlePackage();
-        _travelArrived = false;
-        SKSE::log::info("Idle AI package: {}", index > 0 ? fmt::format("alias {}", index - 1) : "the donor's own"s);
-        ApplyIdlePackage();
+        Post(kPackageChanged);
     }
 
     void IdleAIManager::OnTravelDestinationChanged() {
-        _travelArrived = false;
-        const auto* destination = Forms::TravelDestination(Settings::GetSingleton().GetTravelDestination());
-        SKSE::log::info("Idle AI travel destination: {}",
-            destination && destination->location ? destination->location->GetName() : "none");
-        // A running Travel package heads for the new destination
-        ApplyIdlePackage();
+        Post(kDestinationChanged);
+    }
+
+    void IdleAIManager::OnPostLoadGame() {
+        Post(kPostLoad);
     }
 
     void IdleAIManager::CheckTravelArrival() {
@@ -499,12 +656,12 @@ namespace InTheirShoes {
     }
 
     IdleAIManager::IdlePackageState IdleAIManager::DesiredIdlePackageState() const {
-        IdlePackageState state{ _aiActive };
+        IdlePackageState state{};
         const auto& settings = Settings::GetSingleton();
         const auto index = settings.GetIdlePackage();
         const auto* quest = Forms::idlePackageQuest;
         // While scene package actions run, the alias is left empty so it doesn't outrank them
-        if (!_aiActive || _scenePackagesRunning || !quest || index <= 0 || static_cast<std::size_t>(index) > quest->aliases.size()) {
+        if (!IsRunning() || _scenePackagesRunning || !quest || index <= 0 || static_cast<std::size_t>(index) > quest->aliases.size()) {
             return state;
         }
 
@@ -528,18 +685,11 @@ namespace InTheirShoes {
         return state;
     }
 
-    void IdleAIManager::ApplyIdlePackage(bool a_force) {
+    std::int32_t IdleAIManager::ApplyIdlePackage(bool a_force) {
         auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
         const auto state = DesiredIdlePackageState();
-        if (!vm || (state == _sentState && !a_force)) return;
+        if (!vm || (state == _sentState && !a_force)) return 0;
         _sentState = state;
-
-        // Updated synchronously so immediate EvaluatePackage calls see it; Game.SetPlayerAIDriven (ITS_IdlePackage)
-        // then switches the movement controller.
-        _playerAIDriven = state.aiDriven;
-        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
-            player->GetPlayerRuntimeData().playerFlags.aiControlledPackage = state.aiDriven;
-        }
 
         // Aliases are filled and cleared in Papyrus (CommonLib can't clear an alias). Everything goes in one
         // call with a sequence number, so calls that run out of order can't leave a stale state behind.
@@ -548,53 +698,46 @@ namespace InTheirShoes {
         const std::int32_t sequence = ++_applySequence;
         RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
         vm->DispatchStaticCall("ITS_IdlePackage", "Apply",
-            RE::MakeFunctionArguments(std::move(quest), bool{ state.aiDriven }, std::int32_t{ state.aliasID }, std::move(destination),
+            RE::MakeFunctionArguments(std::move(quest), std::int32_t{ state.aliasID }, std::move(destination),
                 std::int32_t{ state.destinationAliasID }, std::int32_t{ sequence }),
             callback);
-        SKSE::log::info("Idle package state {}: AI-driven {}, package alias {}", sequence, state.aiDriven, state.aliasID);
+        SKSE::log::info("Idle package state {}: package alias {}", sequence, state.aliasID);
+        return sequence;
     }
 
-    IdleAIManager::ApplyCheck IdleAIManager::BeginIdlePackageApply(std::int32_t a_sequence, bool a_aiDriven) {
-        if (a_sequence != _applySequence.load()) {
+    bool IdleAIManager::BeginIdlePackageApply(std::int32_t a_sequence) const {
+        if (a_sequence != _applySequence.load(std::memory_order_acquire)) {
             SKSE::log::info("Skipped idle package state {}: superseded", a_sequence);
-            return ApplyCheck::kSkip;
+            return false;
         }
-        std::scoped_lock lock(_appliedLock);
-        if (_appliedAIDriven == a_aiDriven) return ApplyCheck::kApply;
-        _appliedAIDriven = a_aiDriven;
-        return ApplyCheck::kApplyAndSetAIDriven;
+        return true;
     }
 
-    void IdleAIManager::OnPostLoadGame() {
-        // A save made while idle AI ran may have the player AI-driven or in a package alias (#35), and idle AI
-        // isn't running now
-        auto* quest = Forms::idlePackageQuest;
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        if (!player) return;
-        bool inPackageAlias = false;
-        if (quest) {
-            for (const auto* alias : quest->aliases) {
-                if (alias && quest->GetAliasedRef(alias->aliasID).get().get() == player) {
-                    inPackageAlias = true;
-                    break;
-                }
-            }
-        }
-        if (inPackageAlias || Session::GetSingleton().IsActive()) {
-            ApplyIdlePackage(true);
+    void IdleAIManager::EndIdlePackageApply(std::int32_t a_sequence) {
+        auto applied = _appliedSequence.load(std::memory_order_relaxed);
+        while (a_sequence > applied && !_appliedSequence.compare_exchange_weak(applied, a_sequence, std::memory_order_acq_rel)) {
         }
     }
 
     void IdleAIManager::Clear() {
-        StopIdleAI();
+        // On revert, before a save loads, when no frame runs. The player is about to be replaced by the save's, so
+        // the engine isn't touched here; HandlePostLoad tidies up what the save holds.
+        _requests = 0;
+        _state = State::kManual;
+        _running = false;
+        _owned = false;
+        _idleSeconds = 0.0f;
+        _forceGreetProcedureActive = false;
+        _scenePackagesRunning = false;
+        _loggedPackage = nullptr;
         ClearPlayerPackages();
         _travelArrived = false;
         _sentState = {};
         _greetingPackage = 0;
         _greetedPackage = 0;
         _greetedScene = 0;
-        std::scoped_lock lock(_appliedLock);
-        _appliedAIDriven.reset();
+        // Calls dispatched before the revert never count toward an engage after it
+        _appliedSequence = _applySequence.load();
     }
 
     void IdleAIManager::SyncDonorPackagesToPlayer() {
@@ -602,7 +745,7 @@ namespace InTheirShoes {
         auto* donor = session.GetDonor();
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = session.GetPuppet();
-        if (!session.IsActive() || !donor || !player || !_aiActive) return;
+        if (!session.IsActive() || !donor || !player || !IsRunning()) return;
 
         auto* donorBase = donor->GetActorBase();
         auto* playerBase = skyrim_cast<RE::TESNPC*>(player->GetActorBase());

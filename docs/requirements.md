@@ -68,7 +68,7 @@ The donor shall remain hidden from the player. If scripting would make the donor
 ## Configuration
 - The user shall be able to configure these options:
   - Idle pathing (toggle)
-  - Idle time before pathing (seconds)
+  - Idle time before pathing (seconds of game time, not counting menus or time with the game in the background)
   - Idle package: Default (the donor's own packages) or a sandbox package that outranks them, so a donor whose quests made them a follower can still sandbox
   - Idle package: Travel, which walks to a hold capital chosen in the MCM and sandboxes there on arrival
   - Autonomous combat AI (toggle)

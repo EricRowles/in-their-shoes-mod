@@ -38,6 +38,7 @@ Run the build through `build_and_deploy.py`; it sets up the MSVC environment tha
 
 ## Rules
 - Papyrus natives, SKSE messages/tasks, event sinks and the player update may call the engine, whatever thread they're on (#15).
+- A manager whose state changes every frame (e.g. `IdleAIManager`) owns that state on the main thread: other threads post requests (atomics) that its update handles, rather than changing it directly (#45).
 - Condition, voice type, AI procedure and animation hooks run in parallel: they read only `Session`, atomics and locked state.
 - Lifecycle work (game load/revert, frame, session begin/end) goes through `Lifecycle`, not calls between managers.
 - Look up forms by ID only in `Forms`.

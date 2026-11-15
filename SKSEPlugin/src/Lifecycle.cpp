@@ -46,7 +46,7 @@ namespace InTheirShoes::Lifecycle {
             // Before FactionManager, which leaves the aliases' factions out of the ones it moves
             AliasSwapManager::GetSingleton().SwapNewDonorAliases();
             FactionManager::GetSingleton().OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
-            IdleAIManager::GetSingleton().OnImpersonationChanged(true);
+            IdleAIManager::GetSingleton().OnImpersonationChanged();
             PackageRetarget::GetSingleton().RetargetDonorToPlayer(session.GetDonor(), Session::GetPlayer());
         }
     }
@@ -65,8 +65,8 @@ namespace InTheirShoes::Lifecycle {
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
-    void OnFrame() {
-        IdleAIManager::GetSingleton().Update();
+    void OnFrame(float a_delta) {
+        IdleAIManager::GetSingleton().Update(a_delta);
         DialogueManager::GetSingleton().Update();
         // After DialogueManager, which adopts aliases a fragment just gave the puppet
         if (Session::GetSingleton().IsActive()) {
@@ -79,7 +79,7 @@ namespace InTheirShoes::Lifecycle {
         CrimeManager::GetSingleton().OnSessionBegin(RE::PlayerCharacter::GetSingleton());
         IdleAIManager::GetSingleton().ClearPlayerPackages();
         IdleChatter::GetSingleton().InvalidateTopicCache();
-        IdleAIManager::GetSingleton().OnImpersonationChanged(true);
+        IdleAIManager::GetSingleton().OnImpersonationChanged();
         PackageRetarget::GetSingleton().RetargetDonorToPlayer(Session::GetSingleton().GetDonor(), Session::GetPlayer());
     }
 
@@ -91,8 +91,8 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnSelfDialogueEnded() {
-        // Called from the menu event or the dialogue hook; IdleAIManager's state belongs to the main thread
-        SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnSelfDialogueEnded(); });
+        // Called from the menu event or the dialogue hook; IdleAIManager handles it in its next update
+        IdleAIManager::GetSingleton().OnSelfDialogueEnded();
     }
 
     void OnSessionEnd() {
@@ -100,7 +100,7 @@ namespace InTheirShoes::Lifecycle {
         PlayerVoice::GetSingleton().Finish();
         CrimeManager::GetSingleton().OnSessionEnd(RE::PlayerCharacter::GetSingleton());
         IdleChatter::GetSingleton().InvalidateTopicCache();
-        IdleAIManager::GetSingleton().OnImpersonationChanged(false);
+        IdleAIManager::GetSingleton().OnImpersonationChanged();
         PackageRetarget::GetSingleton().RestoreDonorToPlayer();
     }
 

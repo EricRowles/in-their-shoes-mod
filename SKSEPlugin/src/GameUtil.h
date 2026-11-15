@@ -52,6 +52,13 @@ namespace InTheirShoes {
                ui->IsMenuOpen("MagicMenu"sv) || ui->IsMenuOpen("TweenMenu"sv) || ui->IsMenuOpen("Book Menu"sv);
     }
 
+    // Whether the engine has the player AI-driven: Game.SetPlayerAIDriven (PlayerCharacter::SetAIDriven sets
+    // aiControlledPackage), or the engine walking the player to or from a position, such as furniture
+    inline bool IsPlayerAIControlled(RE::PlayerCharacter* a_player) {
+        const auto& flags = a_player->GetPlayerRuntimeData().playerFlags;
+        return flags.aiControlledPackage || flags.aiControlledToPos || flags.aiControlledFromPos;
+    }
+
     // The scene the player is in, or null when none is playing
     inline RE::BGSScene* GetPlayingScene(RE::Actor* a_actor) {
         auto* scene = a_actor ? a_actor->GetCurrentScene() : nullptr;
@@ -93,6 +100,8 @@ namespace InTheirShoes {
         kScene,
         kSelfDialogue,
         kFurniture,
+        kAIControlled,   // Something other than idle AI has the player AI-driven
+        kWindowInactive, // The game window is in the background
     };
 
     constexpr std::string_view ToString(PlayerBusy a_busy) {
@@ -102,6 +111,8 @@ namespace InTheirShoes {
             case PlayerBusy::kScene: return "scene"sv;
             case PlayerBusy::kSelfDialogue: return "self-dialogue"sv;
             case PlayerBusy::kFurniture: return "furniture"sv;
+            case PlayerBusy::kAIControlled: return "AI-controlled"sv;
+            case PlayerBusy::kWindowInactive: return "game window in the background"sv;
             default: return "not busy"sv;
         }
     }

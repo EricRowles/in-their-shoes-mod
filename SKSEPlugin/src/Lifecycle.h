@@ -13,8 +13,8 @@ namespace InTheirShoes::Lifecycle {
     // Before a save loads or a new game starts (the co-save revert callback)
     void OnGameRevert();
 
-    // Every player update
-    void OnFrame();
+    // Every player update, on the main thread. a_delta is the frame's game time in seconds.
+    void OnFrame(float a_delta);
 
     // ImpersonationManager, once the player holds the donor's aliases, and as the donor gets them back
     void OnSessionBegin();
