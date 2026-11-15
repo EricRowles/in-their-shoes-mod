@@ -1,7 +1,6 @@
 #pragma once
 
 #include "GameClock.h"
-#include "Singleton.h"
 #include <functional>
 #include <optional>
 #include "RE/D/DialogueItem.h"
@@ -18,7 +17,7 @@ namespace InTheirShoes {
     //
     // The engine's original UpdateInDialogue and SetSpeakingDone are hooked by DialogueManager; it hands them
     // over in SetEngineCalls.
-    class PlayerVoice : public Singleton<PlayerVoice> {
+    class PlayerVoice : public REX::Singleton<PlayerVoice> {
     public:
         struct EngineCalls {
             // Character::UpdateInDialogue run on the given actor, bypassing our hook
@@ -63,7 +62,7 @@ namespace InTheirShoes {
         void Finish();
 
     private:
-        friend Singleton<PlayerVoice>;
+        friend REX::Singleton<PlayerVoice>;
         PlayerVoice() = default;
         ~PlayerVoice() = default;
 

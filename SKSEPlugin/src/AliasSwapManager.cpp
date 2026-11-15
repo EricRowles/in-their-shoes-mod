@@ -49,12 +49,7 @@ namespace InTheirShoes {
         }
 
         RE::TESObjectREFR* GetAliasReference(RE::TESQuest* a_quest, std::uint32_t a_aliasID) {
-            for (auto* alias : a_quest->aliases) {
-                if (alias && alias->aliasID == a_aliasID) {
-                    return alias->QType() == "Ref"sv ? static_cast<RE::BGSRefAlias*>(alias)->GetReference() : nullptr;
-                }
-            }
-            return nullptr;
+            return a_quest->GetAliasedRef(a_aliasID).get().get();
         }
     }
 
@@ -109,7 +104,7 @@ namespace InTheirShoes {
 
     void AliasSwapManager::SwapNewDonorAliases() {
         // Aliases are only swapped at session start; this catches donor aliases filled by quests started later.
-        auto& session = Session::GetSingleton();
+        auto& session = *Session::GetSingleton();
         auto* donor = session.GetDonor();
         auto* player = Session::GetPlayer();
         if (!session.IsActive() || !donor || !player) return;
@@ -145,8 +140,8 @@ namespace InTheirShoes {
     RE::BSEventNotifyControl AliasSwapManager::ProcessEvent(const RE::TESQuestStartStopEvent* a_event,
         RE::BSTEventSource<RE::TESQuestStartStopEvent>* /*a_eventSource*/) {
         // Deferred to the main thread, where _swappedAliases is used, and until the quest has filled its aliases
-        if (a_event && a_event->started && Session::GetSingleton().IsActive()) {
-            SKSE::GetTaskInterface()->AddTask([] { AliasSwapManager::GetSingleton().SwapNewDonorAliases(); });
+        if (a_event && a_event->started && Session::GetSingleton()->IsActive()) {
+            SKSE::GetTaskInterface()->AddTask([] { AliasSwapManager::GetSingleton()->SwapNewDonorAliases(); });
         }
         return RE::BSEventNotifyControl::kContinue;
     }
@@ -178,7 +173,7 @@ namespace InTheirShoes {
 
     bool AliasSwapManager::IsAliasFaction(const RE::TESFaction* a_faction) const {
         return std::ranges::any_of(_swappedAliases, [&](const SwappedAlias& a_entry) {
-            return std::ranges::find(a_entry.factions, a_faction, &FactionRank::first) != a_entry.factions.end();
+            return std::ranges::contains(a_entry.factions, a_faction, &FactionRank::first);
         });
     }
 

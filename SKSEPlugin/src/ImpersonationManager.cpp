@@ -32,16 +32,8 @@ namespace InTheirShoes {
         if (shown && _baseline->face.fullName == shown) return;
 
         // A naming alias moved to the player leaves the puppet nameless, with no activation prompt (#23). The alias's
-        // message outranks a custom name, so clear it first.
-        auto* textData = puppet->extraList.GetByType<RE::ExtraTextDisplayData>();
-        if (!textData) {
-            puppet->extraList.Add(new RE::ExtraTextDisplayData(_baseline->face.fullName.c_str()));
-        } else {
-            textData->displayNameText = nullptr;
-            textData->ownerQuest = nullptr;
-            textData->ownerInstance = RE::ExtraTextDisplayData::DisplayDataType::kCustomName;
-            textData->SetName(_baseline->face.fullName.c_str());
-        }
+        // message outranks a custom name, so it is cleared (a_force).
+        puppet->SetDisplayName(_baseline->face.fullName, true);
         SKSE::log::info("Restored the puppet's name (was '{}')", shown ? shown : "");
     }
 
@@ -61,9 +53,9 @@ namespace InTheirShoes {
             return RE::BSEventNotifyControl::kContinue;
         }
         SKSE::GetTaskInterface()->AddTask([]() {
-            auto& self = GetSingleton();
+            auto& self = *GetSingleton();
             if (IsActive() && self._donorFace) {
-                FaceManager::GetSingleton().ReapplyTints(GetPlayer(), *self._donorFace);
+                FaceManager::GetSingleton()->ReapplyTints(GetPlayer(), *self._donorFace);
                 SKSE::log::info("Reapplied the donor's skin and hair colors after the player's 3D was updated");
             }
         });
@@ -73,27 +65,27 @@ namespace InTheirShoes {
     void ImpersonationManager::AttachDonor(RE::Actor* a_donor) {
         _donorKeepAlive.reset(a_donor);
         auto* base = a_donor ? a_donor->GetActorBase() : nullptr;
-        Session::GetSingleton().SetDonor(a_donor, base ? ActorHooks::GetNPCVoiceType(base) : nullptr);
+        Session::GetSingleton()->SetDonor(a_donor, base ? ActorHooks::GetNPCVoiceType(base) : nullptr);
     }
 
     void ImpersonationManager::DetachDonor() {
-        Session::GetSingleton().SetDonor(nullptr, nullptr);
+        Session::GetSingleton()->SetDonor(nullptr, nullptr);
         _donorKeepAlive.reset();
     }
 
     void ImpersonationManager::AttachPuppet(RE::Actor* a_puppet) {
         _puppetKeepAlive.reset(a_puppet);
-        Session::GetSingleton().SetPuppet(a_puppet);
+        Session::GetSingleton()->SetPuppet(a_puppet);
     }
 
     void ImpersonationManager::SetBaseline(Baseline a_baseline) {
         _baseline = std::move(a_baseline);
-        Session::GetSingleton().SetOrigPlayerVoiceType(_baseline->face.voiceType);
+        Session::GetSingleton()->SetOrigPlayerVoiceType(_baseline->face.voiceType);
     }
 
     void ImpersonationManager::CaptureBaseline(RE::Actor* a_player) {
         Baseline baseline;
-        if (auto face = FaceManager::GetSingleton().CaptureSnapshot(a_player)) {
+        if (auto face = FaceManager::GetSingleton()->CaptureSnapshot(a_player)) {
             baseline.face = std::move(*face);
         }
         if (auto stats = StatManager::CaptureSnapshot(a_player)) {
@@ -122,7 +114,7 @@ namespace InTheirShoes {
             return false;
         }
 
-        auto& faces = FaceManager::GetSingleton();
+        auto& faces = *FaceManager::GetSingleton();
 
         if (IsActive()) {
             // Donor-to-donor switch: hand the current state back to the old donor, who takes the player's place
@@ -183,7 +175,7 @@ namespace InTheirShoes {
         }
 
         if (_baseline) {
-            FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face);
+            FaceManager::GetSingleton()->ApplySnapshot(player, _baseline->face);
             StatManager::ApplySnapshot(player, _baseline->stats);
             StatManager::RestoreProgress(player, _baseline->progress);
         }
@@ -213,15 +205,15 @@ namespace InTheirShoes {
     void ImpersonationManager::BeginSession(RE::Actor* a_donor) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         AttachDonor(a_donor);
-        Session::GetSingleton().SetActive(true);
+        Session::GetSingleton()->SetActive(true);
 
         SKSE::log::info("Beginning impersonation: Donor {:08X} ({})", a_donor->GetFormID(), a_donor->GetName());
 
         // After its items have moved to the player
         RemoveUniqueDonorOutfit(a_donor);
-        auto& factions = FactionManager::GetSingleton();
+        auto& factions = *FactionManager::GetSingleton();
         factions.CaptureDragonborn(player);
-        AliasSwapManager::GetSingleton().SwapDonorAliasesToPlayer(a_donor, player);
+        AliasSwapManager::GetSingleton()->SwapDonorAliasesToPlayer(a_donor, player);
         factions.TakeOnDonorFactions(a_donor, player);
 
         if (auto* puppet = GetPuppet()) {
@@ -237,19 +229,19 @@ namespace InTheirShoes {
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
         // While the player still holds the aliases, whose factions stay with them
-        FactionManager::GetSingleton().ReturnFactions(donor, GetPlayer());
-        AliasSwapManager::GetSingleton().RestoreSwappedAliases(donor);
+        FactionManager::GetSingleton()->ReturnFactions(donor, GetPlayer());
+        AliasSwapManager::GetSingleton()->RestoreSwappedAliases(donor);
 
         Lifecycle::OnSessionEnd();
 
-        Session::GetSingleton().SetActive(false);
+        Session::GetSingleton()->SetActive(false);
         DetachDonor();
     }
 
     void ImpersonationManager::ApplyPuppetFollowState(RE::Actor* a_puppet) {
         // The follow package itself lives on the PlayerPuppet alias, gated by the ITS_PuppetFollows global.
         // Teammate status lets the puppet travel through load doors with the player.
-        if (Settings::GetSingleton().DoesPuppetFollowPlayer()) {
+        if (Settings::GetSingleton()->DoesPuppetFollowPlayer()) {
             a_puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
         } else {
             a_puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
@@ -263,14 +255,14 @@ namespace InTheirShoes {
             auto* base = a_puppet->GetActorBase();
             bool bodyChanges = base && (base->GetSex() != _baseline->face.sex || a_puppet->GetRace() != _baseline->face.race);
             _puppetRefresh = bodyChanges ? PuppetRefresh::kReloadThenReapply : PuppetRefresh::kReapply;
-            FaceManager::GetSingleton().ApplySnapshot(a_puppet, _baseline->face, true, true);
+            FaceManager::GetSingleton()->ApplySnapshot(a_puppet, _baseline->face, true, true);
         }
         ApplyPuppetFollowState(a_puppet);
         a_puppet->AllowPCDialogue(true);
         a_puppet->AllowBleedoutDialogue(true);
         a_puppet->StopCombat();
         a_puppet->EvaluatePackage(true, true);
-        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), Settings::GetSingleton().DoesPuppetFollowPlayer());
+        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), Settings::GetSingleton()->DoesPuppetFollowPlayer());
     }
 
     void ImpersonationManager::ReleasePuppet() {
@@ -285,7 +277,7 @@ namespace InTheirShoes {
         auto* puppet = GetPuppet();
         if (!puppet || !IsActive()) return;
 
-        const bool follows = Settings::GetSingleton().DoesPuppetFollowPlayer();
+        const bool follows = Settings::GetSingleton()->DoesPuppetFollowPlayer();
         ApplyPuppetFollowState(puppet);
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (follows && player &&
@@ -319,7 +311,7 @@ namespace InTheirShoes {
             return;
         }
         _puppetRefresh = PuppetRefresh::kNone;
-        FaceManager::GetSingleton().ApplySnapshot(puppet, _baseline->face, true, true);
+        FaceManager::GetSingleton()->ApplySnapshot(puppet, _baseline->face, true, true);
         SKSE::log::info("Reapplied Dragonborn appearance to puppet {:08X} after its 3D loaded.", puppet->GetFormID());
     }
 
@@ -351,7 +343,7 @@ namespace InTheirShoes {
         SKSE::log::info("Donor {:08X} moved away from holding marker; leashing back.", donor->GetFormID());
         _leashQueued = true;
         SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle(), markerHandle = _storageMarker]() {
-            ImpersonationManager::GetSingleton()._leashQueued = false;
+            ImpersonationManager::GetSingleton()->_leashQueued = false;
             auto d = donorHandle.get();
             auto m = markerHandle.get();
             if (d && m) {
@@ -373,8 +365,8 @@ namespace InTheirShoes {
 
         AttachDonor(a_donor);
         const auto aliasCount = a_aliases.size();
-        AliasSwapManager::GetSingleton().SetSwappedAliases(std::move(a_aliases));
-        Session::GetSingleton().SetActive(true);
+        AliasSwapManager::GetSingleton()->SetSwappedAliases(std::move(a_aliases));
+        Session::GetSingleton()->SetActive(true);
         SKSE::log::info("Restored impersonation session: Donor {:08X} ({} swapped aliases)", a_donor->GetFormID(), aliasCount);
     }
 
@@ -382,7 +374,7 @@ namespace InTheirShoes {
         // Put the in-memory player record back before another save loads over it
         if (_baseline) {
             if (auto* player = RE::PlayerCharacter::GetSingleton(); player && player->GetActorBase()) {
-                FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face, false);
+                FaceManager::GetSingleton()->ApplySnapshot(player, _baseline->face, false);
             }
         }
 
@@ -390,12 +382,12 @@ namespace InTheirShoes {
     }
 
     void ImpersonationManager::ClearSessionState() {
-        Session::GetSingleton().SetActive(false);
+        Session::GetSingleton()->SetActive(false);
         DetachDonor();
         AttachPuppet(nullptr);
         _baseline.reset();
         _donorFace.reset();
-        Session::GetSingleton().SetOrigPlayerVoiceType(nullptr);
+        Session::GetSingleton()->SetOrigPlayerVoiceType(nullptr);
         _donorQuestItems.clear();
         _leashQueued = false;
         _puppetRefresh = PuppetRefresh::kNone;
@@ -408,12 +400,12 @@ namespace InTheirShoes {
             // Reapply the donor's look captured at the start: the parked donor has no 3D to re-capture tints from.
             if (_donorFace) {
                 SKSE::GetTaskInterface()->AddTask([face = *_donorFace]() {
-                    FaceManager::GetSingleton().ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);
+                    FaceManager::GetSingleton()->ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);
                 });
             } else {
                 SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle()]() {
                     if (auto d = donorHandle.get()) {
-                        FaceManager::GetSingleton().CopyAppearance(d.get(), RE::PlayerCharacter::GetSingleton());
+                        FaceManager::GetSingleton()->CopyAppearance(d.get(), RE::PlayerCharacter::GetSingleton());
                     }
                 });
             }

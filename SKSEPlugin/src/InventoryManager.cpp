@@ -22,9 +22,7 @@ namespace InTheirShoes {
         bool IsBaseSpellOf(RE::SpellItem* a_spell, RE::TESNPC* a_base) {
             auto* effects = a_base ? a_base->actorEffects : nullptr;
             if (!effects) return false;
-            for (std::uint32_t i = 0; i < effects->numSpells; ++i) {
-                if (effects->spells[i] == a_spell) return true;
-            }
+            if (effects->GetIndex(a_spell)) return true;
             for (std::uint32_t i = 0; i < effects->numShouts; ++i) {
                 if (auto* shout = effects->shouts[i]) {
                     for (const auto& var : shout->variations) {
@@ -313,7 +311,7 @@ namespace InTheirShoes {
         // (a script's AddSpell on the donor lands on the player)
         std::int32_t removedAbilities = 0;
         for (auto* ability : a_dragonborn.abilitiesRecorded ? GetAddedAbilities(a_player) : std::vector<RE::SpellItem*>{}) {
-            if (std::ranges::find(a_dragonborn.abilities, ability->GetFormID()) != a_dragonborn.abilities.end()) continue;
+            if (std::ranges::contains(a_dragonborn.abilities, ability->GetFormID())) continue;
             if (a_donor && !IsBaseSpellOf(ability, donorBase) && !a_donor->HasSpell(ability) && a_donor->AddSpell(ability)) {
                 returnedCount++;
             }

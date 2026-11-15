@@ -27,7 +27,6 @@ add_library(${PROJECT_NAME} SHARED
     src/PlayerBusy.cpp
     src/Session.h
     src/Settings.h
-    src/Singleton.h
     src/Lifecycle.h
     src/Lifecycle.cpp
     src/ActorHooks.h

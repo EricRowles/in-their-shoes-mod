@@ -1,12 +1,15 @@
 #pragma once
 
+#include "RE/B/BGSPackageDataLocation.h"
+#include "RE/B/BGSPackageDataRef.h"
+#include "RE/B/BGSPackageDataTargetSelector.h"
+#include "RE/B/BGSPackageDataTopic.h"
 #include "RE/I/IPackageData.h"
 #include "RE/P/PackageLocation.h"
 #include "RE/T/TESCustomPackageData.h"
 #include "RE/T/TESPackage.h"
 
 #include <algorithm>
-#include <initializer_list>
 #include <vector>
 
 namespace InTheirShoes::PackageUtil {
@@ -16,31 +19,18 @@ namespace InTheirShoes::PackageUtil {
     inline constexpr std::int8_t kTargetObjectID = 1;           // target.object
 
     // Templated packages keep their targets, locations and topics in TESCustomPackageData inputs (with
-    // packTarg/packLoc null). Each BGSPackageDataPointerTemplate input keeps its data at +0x10: a pointer to
-    // a PackageTarget ("SingleRef", "TargetSelector") or PackageLocation ("Location"), or a
-    // PackageEventAction::TopicData in place ("Topic").
-    template <class T>
-    T* GetInputData(RE::IPackageData* a_input) {
-        constexpr std::uintptr_t kInputDataOffset = 0x10;
-        return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(a_input) + kInputDataOffset);
-    }
+    // packTarg/packLoc null): BGSPackageDataRef ("SingleRef") and BGSPackageDataTargetSelector point to a
+    // PackageTarget, BGSPackageDataLocation to a PackageLocation, and BGSPackageDataTopic holds a topic.
 
-    // Calls a_fn(input) for each of the package's own data inputs whose type is one of a_typeNames
-    template <typename Fn>
-    void ForEachPackageInput(const RE::TESPackage* a_pkg, std::initializer_list<const char*> a_typeNames, Fn&& a_fn) {
+    // Calls a_fn(input) for each of the package's own data inputs that is an Input
+    template <class Input, typename Fn>
+    void ForEachPackageInput(const RE::TESPackage* a_pkg, Fn&& a_fn) {
         const auto* customData = a_pkg ? skyrim_cast<const RE::TESCustomPackageData*>(a_pkg->data) : nullptr;
         if (!customData || !customData->data.data) return;
 
         for (std::uint16_t i = 0; i < customData->data.dataSize; ++i) {
-            auto* input = customData->data.data[i];
-            if (!input) continue;
-            const auto& typeName = input->GetTypeName();
-            if (typeName.empty()) continue;
-            for (const char* name : a_typeNames) {
-                if (_stricmp(typeName.c_str(), name) == 0) {
-                    a_fn(input);
-                    break;
-                }
+            if (auto* input = skyrim_cast<Input*>(customData->data.data[i])) {
+                a_fn(input);
             }
         }
     }
@@ -52,10 +42,11 @@ namespace InTheirShoes::PackageUtil {
         if (a_pkg->packTarg) {
             a_fn(a_pkg->packTarg);
         }
-        ForEachPackageInput(a_pkg, { "SingleRef", "TargetSelector" }, [&](RE::IPackageData* a_input) {
-            if (auto* targ = *GetInputData<RE::PackageTarget*>(a_input)) {
-                a_fn(targ);
-            }
+        ForEachPackageInput<RE::BGSPackageDataRef>(a_pkg, [&](RE::BGSPackageDataRef* a_input) {
+            if (a_input->pointer) a_fn(a_input->pointer);
+        });
+        ForEachPackageInput<RE::BGSPackageDataTargetSelector>(a_pkg, [&](RE::BGSPackageDataTargetSelector* a_input) {
+            if (a_input->pointer) a_fn(a_input->pointer);
         });
     }
 
@@ -65,10 +56,8 @@ namespace InTheirShoes::PackageUtil {
         if (a_pkg->packLoc) {
             a_fn(a_pkg->packLoc);
         }
-        ForEachPackageInput(a_pkg, { "Location" }, [&](RE::IPackageData* a_input) {
-            if (auto* loc = *GetInputData<RE::PackageLocation*>(a_input)) {
-                a_fn(loc);
-            }
+        ForEachPackageInput<RE::BGSPackageDataLocation>(a_pkg, [&](RE::BGSPackageDataLocation* a_input) {
+            if (a_input->pointer) a_fn(a_input->pointer);
         });
     }
 

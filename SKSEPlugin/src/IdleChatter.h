@@ -2,7 +2,6 @@
 
 #include "GameClock.h"
 #include "PlayerBusy.h"
-#include "Singleton.h"
 #include <unordered_map>
 #include <vector>
 #include "RE/D/DialogueItem.h"
@@ -12,7 +11,7 @@ namespace InTheirShoes {
     // Picks idle lines for the impersonating player to say as the donor, and decides when (the interval is
     // Settings::GetIdleChatterInterval).
     // PlayerVoice voices them. Not thread-safe.
-    class IdleChatter : public Singleton<IdleChatter> {
+    class IdleChatter : public REX::Singleton<IdleChatter> {
     public:
         // The idle topic list is rebuilt the next time a line is picked
         void InvalidateTopicCache() { _topicsCached = false; }
@@ -25,7 +24,7 @@ namespace InTheirShoes {
         void OnLineFinished() { _lastLineTime = GameClock::Now(); }
 
     private:
-        friend Singleton<IdleChatter>;
+        friend REX::Singleton<IdleChatter>;
         IdleChatter() = default;
         ~IdleChatter() = default;
 

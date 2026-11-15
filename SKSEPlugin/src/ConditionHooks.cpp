@@ -64,7 +64,7 @@ namespace InTheirShoes::ConditionHooks {
         bool IsVoiceTypeAsDonor(const Query& a_q, double& a_result) {
             auto* targetVoice = static_cast<RE::BGSVoiceType*>(a_q.param1);
             auto* donorVoice = a_q.session.GetDonorVoiceType();
-            auto* voice = ((a_q.session.IsInSelfDialogue() || Settings::GetSingleton().IsNPCVoiceEnabled()) && donorVoice) ?
+            auto* voice = ((a_q.session.IsInSelfDialogue() || Settings::GetSingleton()->IsNPCVoiceEnabled()) && donorVoice) ?
                               donorVoice :
                               a_q.session.GetOrigPlayerVoiceType();
             a_result = (voice && targetVoice == voice) ? 1.0 : 0.0;
@@ -131,7 +131,7 @@ namespace InTheirShoes::ConditionHooks {
         bool IsIDAsDragonborn(const Query& a_q, double& a_result) {
             auto* targetForm = static_cast<RE::TESForm*>(a_q.param1);
             if (targetForm && (targetForm == a_q.player || targetForm == a_q.player->GetActorBase() ||
-                                  targetForm->GetFormID() == Forms::kPlayerBaseID || targetForm->GetFormID() == Forms::kPlayerRefID)) {
+                                  Forms::IsPlayerBase(targetForm) || targetForm->GetFormID() == Forms::kPlayerRefID)) {
                 a_result = 1.0;
                 return true;
             }
@@ -141,7 +141,7 @@ namespace InTheirShoes::ConditionHooks {
         // The player is in the donor's factions for the session (FactionManager), so the Dragonborn's are
         // answered from what they were when it began
         bool InFactionAsDragonborn(const Query& a_q, double& a_result) {
-            if (auto rank = FactionManager::GetSingleton().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+            if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
                 a_result = *rank >= 0 ? 1.0 : 0.0;
                 return true;
             }
@@ -149,7 +149,7 @@ namespace InTheirShoes::ConditionHooks {
         }
 
         bool FactionRankAsDragonborn(const Query& a_q, double& a_result) {
-            if (auto rank = FactionManager::GetSingleton().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+            if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
                 a_result = *rank;
                 return true;
             }
@@ -211,7 +211,7 @@ namespace InTheirShoes::ConditionHooks {
         bool IdentityThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
             auto* orig = s_originalIdentity[I];
             if (!orig) return false;
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             if (!session.IsActive()) {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             }
@@ -257,7 +257,7 @@ namespace InTheirShoes::ConditionHooks {
         bool SpatialThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
             auto* orig = s_originalSpatial[I];
             if (!orig) return false;
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             if (!session.IsActive()) {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             }
@@ -303,7 +303,7 @@ namespace InTheirShoes::ConditionHooks {
         bool RelationshipThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
             auto* orig = s_originalRelationship[I];
             if (!orig) return false;
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             if (!session.IsActive()) {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             }
@@ -331,7 +331,7 @@ namespace InTheirShoes::ConditionHooks {
         // take the same parameter as GetIsRace and GetIsSex, so those are asked of the puppet.
         template <std::size_t IsCondition>
         bool PCIsAsPuppet(Condition_t* a_orig, RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             auto* puppet = session.GetPuppet();
             auto* isCondition = s_originalIdentity[IsCondition];
             if (session.IsActive() && session.IsInSelfDialogue() && puppet && isCondition) {
@@ -355,7 +355,7 @@ namespace InTheirShoes::ConditionHooks {
 
         bool PCIsClassThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
             if (!s_originalPCIsClass) return false;
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             auto* donor = session.GetDonor();
             auto* donorBase = donor ? donor->GetActorBase() : nullptr;
             if (!session.IsActive() || session.IsInSelfDialogue() || !donorBase) {
@@ -369,9 +369,9 @@ namespace InTheirShoes::ConditionHooks {
 
         bool PCInFactionThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
             if (!s_originalPCInFaction) return false;
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             if (session.IsActive() && session.IsInSelfDialogue()) {
-                if (auto rank = FactionManager::GetSingleton().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_p1))) {
+                if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_p1))) {
                     a_result = *rank >= 0 ? 1.0 : 0.0;
                     return true;
                 }

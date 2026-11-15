@@ -6,13 +6,12 @@
 
 #include "RE/M/Main.h"
 
+#include <algorithm>
+#include <array>
+
 namespace InTheirShoes {
 
     namespace {
-        constexpr bool Has(BusyCheck a_checks, BusyCheck a_check) {
-            return (static_cast<std::uint32_t>(a_checks) & static_cast<std::uint32_t>(a_check)) != 0;
-        }
-
         constexpr std::string_view ToString(PlayerBusy a_busy) {
             switch (a_busy) {
                 case PlayerBusy::kSelfDialogue: return "self-dialogue"sv;
@@ -28,31 +27,31 @@ namespace InTheirShoes {
         }
     }
 
-    PlayerBusy WhatBlocks(RE::PlayerCharacter* a_player, BusyCheck a_checks) {
-        if (Has(a_checks, BusyCheck::kSelfDialogue) && Session::GetSingleton().IsInSelfDialogue()) {
+    PlayerBusy WhatBlocks(RE::PlayerCharacter* a_player, BusyChecks a_checks) {
+        if (a_checks.any(BusyCheck::kSelfDialogue) && Session::GetSingleton()->IsInSelfDialogue()) {
             return PlayerBusy::kSelfDialogue;
         }
-        if (Has(a_checks, BusyCheck::kCombat) && a_player->IsInCombat()) {
+        if (a_checks.any(BusyCheck::kCombat) && a_player->IsInCombat()) {
             return PlayerBusy::kCombat;
         }
-        if (Has(a_checks, BusyCheck::kSpeaking) && (PlayerVoice::GetSingleton().IsPlaying() || PlayerVoice::IsVoiceActive(a_player))) {
+        if (a_checks.any(BusyCheck::kSpeaking) && (PlayerVoice::GetSingleton()->IsPlaying() || PlayerVoice::IsVoiceActive(a_player))) {
             return PlayerBusy::kSpeaking;
         }
-        if (Has(a_checks, BusyCheck::kAIControlled) && IsPlayerAIControlled(a_player)) {
+        if (a_checks.any(BusyCheck::kAIControlled) && IsPlayerAIControlled(a_player)) {
             return PlayerBusy::kAIControlled;
         }
-        if (Has(a_checks, BusyCheck::kFurniture) && IsInFurniture(a_player)) {
+        if (a_checks.any(BusyCheck::kFurniture) && IsInFurniture(a_player)) {
             return PlayerBusy::kFurniture;
         }
-        if (Has(a_checks, BusyCheck::kScene) && GetPlayingScene(a_player)) {
+        if (a_checks.any(BusyCheck::kScene) && GetPlayingScene(a_player)) {
             return PlayerBusy::kScene;
         }
-        if (Has(a_checks, BusyCheck::kWindowInactive)) {
+        if (a_checks.any(BusyCheck::kWindowInactive)) {
             if (auto* main = RE::Main::GetSingleton(); main && !main->GetRuntimeData().gameActive) {
                 return PlayerBusy::kWindowInactive;
             }
         }
-        if (Has(a_checks, BusyCheck::kMenu) && IsBlockingMenuOpen()) {
+        if (a_checks.any(BusyCheck::kMenu) && IsBlockingMenuOpen()) {
             return PlayerBusy::kMenu;
         }
         return PlayerBusy::kNo;
@@ -69,12 +68,15 @@ namespace InTheirShoes {
     bool IsBlockingMenuOpen() {
         auto* ui = RE::UI::GetSingleton();
         if (!ui) return true;
-        return ui->GameIsPaused() || ui->IsModalMenuOpen() || ui->IsItemMenuOpen() ||
-               ui->IsApplicationMenuOpen() || ui->IsMenuOpen("Dialogue Menu"sv) || ui->IsMenuOpen("Console"sv) ||
-               ui->IsMenuOpen("Loading Menu"sv) || ui->IsMenuOpen("Crafting Menu"sv) || ui->IsMenuOpen("RaceSex Menu"sv) ||
-               ui->IsMenuOpen("Barter Menu"sv) || ui->IsMenuOpen("Container Menu"sv) || ui->IsMenuOpen("Journal Menu"sv) ||
-               ui->IsMenuOpen("MapMenu"sv) || ui->IsMenuOpen("StatsMenu"sv) || ui->IsMenuOpen("InventoryMenu"sv) ||
-               ui->IsMenuOpen("MagicMenu"sv) || ui->IsMenuOpen("TweenMenu"sv) || ui->IsMenuOpen("Book Menu"sv);
+        // The engine's names (the barter and container menus have no space: "Barter Menu" never matched, #46)
+        static constexpr std::array kMenus = {
+            RE::DialogueMenu::MENU_NAME, RE::Console::MENU_NAME, RE::LoadingMenu::MENU_NAME, RE::CraftingMenu::MENU_NAME,
+            RE::RaceSexMenu::MENU_NAME, RE::BarterMenu::MENU_NAME, RE::ContainerMenu::MENU_NAME, RE::JournalMenu::MENU_NAME,
+            RE::MapMenu::MENU_NAME, RE::StatsMenu::MENU_NAME, RE::InventoryMenu::MENU_NAME, RE::MagicMenu::MENU_NAME,
+            RE::TweenMenu::MENU_NAME, RE::BookMenu::MENU_NAME,
+        };
+        return ui->GameIsPaused() || ui->IsModalMenuOpen() || ui->IsItemMenuOpen() || ui->IsApplicationMenuOpen() ||
+               std::ranges::any_of(kMenus, [ui](std::string_view a_menu) { return ui->IsMenuOpen(a_menu); });
     }
 
     bool IsPlayerAIControlled(RE::PlayerCharacter* a_player) {

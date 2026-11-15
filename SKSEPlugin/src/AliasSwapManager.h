@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <vector>
 
 namespace InTheirShoes {
@@ -11,7 +10,7 @@ namespace InTheirShoes {
     // Don't hook TESQuest::ForceRefIntoAlias: a 5-byte context hook split a prologue instruction and froze the game.
     // Not thread-safe; the quest start sink hands its work to the main thread.
     class AliasSwapManager :
-        public Singleton<AliasSwapManager>,
+        public REX::Singleton<AliasSwapManager>,
         public RE::BSTEventSink<RE::TESQuestStartStopEvent> {
     public:
         using FactionRank = std::pair<RE::TESFaction*, std::int8_t>;
@@ -57,7 +56,7 @@ namespace InTheirShoes {
         void SetSwappedAliases(std::vector<SwappedAlias> a_aliases);
 
     private:
-        friend Singleton<AliasSwapManager>;
+        friend REX::Singleton<AliasSwapManager>;
         AliasSwapManager() = default;
         ~AliasSwapManager() override = default;
 

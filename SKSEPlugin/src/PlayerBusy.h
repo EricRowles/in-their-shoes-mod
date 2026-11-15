@@ -18,7 +18,7 @@ namespace InTheirShoes {
         kMenu,
     };
 
-    // Which reasons a caller checks (WhatBlocks), as bits
+    // Which reasons a caller checks (WhatBlocks), as bits of BusyChecks
     enum class BusyCheck : std::uint32_t {
         kSelfDialogue = 1 << 0,
         kCombat = 1 << 1,
@@ -29,12 +29,10 @@ namespace InTheirShoes {
         kWindowInactive = 1 << 6,
         kMenu = 1 << 7,
     };
-    constexpr BusyCheck operator|(BusyCheck a_lhs, BusyCheck a_rhs) {
-        return static_cast<BusyCheck>(static_cast<std::uint32_t>(a_lhs) | static_cast<std::uint32_t>(a_rhs));
-    }
+    using BusyChecks = REX::EnumSet<BusyCheck, std::uint32_t>;
 
     // The first reason in a_checks that holds, in PlayerBusy's order, or kNo
-    PlayerBusy WhatBlocks(RE::PlayerCharacter* a_player, BusyCheck a_checks);
+    PlayerBusy WhatBlocks(RE::PlayerCharacter* a_player, BusyChecks a_checks);
 
     // Logs when what keeps a_who from acting changes, and remembers it in a_last
     void LogPlayerBusy(PlayerBusy& a_last, PlayerBusy a_now, std::string_view a_who);

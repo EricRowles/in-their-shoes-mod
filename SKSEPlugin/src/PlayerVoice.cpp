@@ -284,7 +284,7 @@ namespace InTheirShoes {
         // the line itself (with lip sync) when the voice file is loaded. Update retries it while
         // the file loads, and falls back to playing the file without lip sync.
         auto* ui = RE::UI::GetSingleton();
-        line.waitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
+        line.waitsForMenu = Session::GetSingleton()->IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
         if (!line.waitsForMenu) {
             // Voiced from the frame when called elsewhere: voices started from the Dialogue Menu's job threads
             // never played (#3)
@@ -439,7 +439,7 @@ namespace InTheirShoes {
             if (line.item) {
                 SendTopicInfoEvent(*line.item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd);
             }
-            IdleChatter::GetSingleton().OnLineFinished();
+            IdleChatter::GetSingleton()->OnLineFinished();
         }
     }
 

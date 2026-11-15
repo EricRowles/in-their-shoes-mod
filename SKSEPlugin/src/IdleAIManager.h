@@ -2,7 +2,6 @@
 
 #include "GameClock.h"
 #include "PlayerBusy.h"
-#include "Singleton.h"
 #include <atomic>
 #include <cstdint>
 #include "RE/I/IProcedureTreeItem.h"
@@ -17,7 +16,7 @@ namespace InTheirShoes {
     //
     // Ownership: idle AI only turns AI-driven off if it turned it on itself. While something else (a scene, the
     // engine walking the player to furniture, another mod) has the player AI-driven, idle AI leaves it alone.
-    class IdleAIManager : public Singleton<IdleAIManager>,
+    class IdleAIManager : public REX::Singleton<IdleAIManager>,
         public RE::BSTEventSink<RE::InputEvent*> {
     public:
         void Initialize();
@@ -49,7 +48,7 @@ namespace InTheirShoes {
         void Clear();
 
     private:
-        friend Singleton<IdleAIManager>;
+        friend REX::Singleton<IdleAIManager>;
         IdleAIManager() = default;
         ~IdleAIManager() override = default;
 

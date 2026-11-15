@@ -46,19 +46,15 @@ namespace InTheirShoes {
     constexpr std::string_view kTravelDestinationAlias = "TravelDestination"sv;
 
     namespace {
+        // Procedures are told apart by vtable (CommonLib has no class for BGSProcedureForceGreet or
+        // BGSProcedureDialogue). Branches are matched by RTTI, so sequences (a branch subclass) are searched too (#46).
         bool HasProcedureTreeProcedure(const RE::IProcedureTreeItem* a_item, std::uintptr_t a_procVtbl) {
             if (!a_item) return false;
-            static const std::uintptr_t kBranchVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeBranch[0]).address();
-            static const std::uintptr_t kProcItemVtbl = REL::Relocation<std::uintptr_t>(RE::VTABLE_BGSProcedureTreeProcedure[0]).address();
-
-            const auto vtbl = *reinterpret_cast<const std::uintptr_t*>(a_item);
-            if (vtbl == kProcItemVtbl) {
-                const auto* procItem = static_cast<const RE::BGSProcedureTreeProcedure*>(a_item);
+            if (const auto* procItem = skyrim_cast<const RE::BGSProcedureTreeProcedure*>(a_item)) {
                 if (procItem->procedure && *reinterpret_cast<const std::uintptr_t*>(procItem->procedure) == a_procVtbl) {
                     return true;
                 }
-            } else if (vtbl == kBranchVtbl) {
-                const auto* branch = static_cast<const RE::BGSProcedureTreeBranch*>(a_item);
+            } else if (const auto* branch = skyrim_cast<const RE::BGSProcedureTreeBranch*>(a_item)) {
                 for (const auto* child : branch->conditions) {
                     if (HasProcedureTreeProcedure(child, a_procVtbl)) {
                         return true;
@@ -96,10 +92,10 @@ namespace InTheirShoes {
             if (!customData) return nullptr;
 
             RE::TESTopic* topic = nullptr;
-            ForEachPackageInput(a_pkg, { "Topic" }, [&](RE::IPackageData* a_input) {
-                const auto* topicData = GetInputData<const RE::PackageEventAction::TopicData>(a_input);
-                if (!topic && topicData->type == RE::PackageEventAction::TopicData::Type::kTopicRef && topicData->topic) {
-                    topic = topicData->topic;
+            ForEachPackageInput<RE::BGSPackageDataTopic>(a_pkg, [&](RE::BGSPackageDataTopic* a_input) {
+                // kind 0 names a topic form; others index the engine's named topics
+                if (!topic && a_input->kind == 0 && a_input->topic) {
+                    topic = a_input->topic;
                 }
             });
             if (topic) return topic;
@@ -111,8 +107,10 @@ namespace InTheirShoes {
         // crafting and book menus open from Activate, which already stops it, unless a script opens them.
         bool IsMenuThatStopsIdleAI() {
             static constexpr std::array kMenus = {
-                "Dialogue Menu"sv, "Loading Menu"sv, "RaceSex Menu"sv, "Barter Menu"sv, "Container Menu"sv,
-                "Crafting Menu"sv, "Lockpicking Menu"sv, "Training Menu"sv, "Sleep/Wait Menu"sv, "Book Menu"sv,
+                RE::DialogueMenu::MENU_NAME, RE::LoadingMenu::MENU_NAME, RE::RaceSexMenu::MENU_NAME,
+                RE::BarterMenu::MENU_NAME, RE::ContainerMenu::MENU_NAME, RE::CraftingMenu::MENU_NAME,
+                RE::LockpickingMenu::MENU_NAME, RE::TrainingMenu::MENU_NAME, RE::SleepWaitMenu::MENU_NAME,
+                RE::BookMenu::MENU_NAME,
             };
             auto* ui = RE::UI::GetSingleton();
             return ui && std::ranges::any_of(kMenus, [ui](std::string_view a_menu) { return ui->IsMenuOpen(a_menu); });
@@ -120,7 +118,7 @@ namespace InTheirShoes {
 
         // Whether this ForceGreet procedure is the impersonating player's
         bool IsPlayerForceGreet(const RE::IProcedureTreeItem::ExecStateContext* a_execState) {
-            return Session::GetSingleton().IsActive() && a_execState && a_execState->context &&
+            return Session::GetSingleton()->IsActive() && a_execState && a_execState->context &&
                    a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
         }
 
@@ -139,7 +137,7 @@ namespace InTheirShoes {
         // puppet; false if there is none.
         bool RetargetForceGreetToPuppet(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
             constexpr std::uintptr_t kTargetHandleOffset = 0x20;
-            auto* puppet = Session::GetSingleton().GetPuppet();
+            auto* puppet = Session::GetSingleton()->GetPuppet();
             if (!puppet) return false;
             *reinterpret_cast<RE::ObjectRefHandle*>(reinterpret_cast<std::uintptr_t>(a_execState->nodeState) + kTargetHandleOffset) =
                 puppet->GetHandle();
@@ -173,7 +171,7 @@ namespace InTheirShoes {
     // Swapped aliases' packages made a player using furniture stand up while not AI-driven (#42), so none is
     // picked unless idle AI runs. Runs on AI threads: reads only Session and an atomic.
     RE::TESPackage* IdleAIManager::Hook_Player_CheckForCurrentAliasPackage(RE::Actor* a_this) {
-        if (Session::GetSingleton().IsActive() && !IdleAIManager::GetSingleton()._running.load()) {
+        if (Session::GetSingleton()->IsActive() && !IdleAIManager::GetSingleton()->_running.load()) {
             return nullptr;
         }
         return _origPlayerCheckForCurrentAliasPackage(a_this);
@@ -182,7 +180,7 @@ namespace InTheirShoes {
     std::uint64_t IdleAIManager::Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState) {
         auto ret = _origForceGreetInitExecState(a_this, a_execState);
         if (IsPlayerForceGreet(a_execState) && RetargetForceGreetToPuppet(a_execState)) {
-            IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
+            IdleAIManager::GetSingleton()->_forceGreetProcedureActive = true;
         }
         return ret;
     }
@@ -194,14 +192,14 @@ namespace InTheirShoes {
             // greeted, succeed as the engine would.
             auto* context = a_execState->context;
             auto* package = context->package ? context->package->package : nullptr;
-            const auto greeted = IdleAIManager::GetSingleton()._greetedPackage.load();
+            const auto greeted = IdleAIManager::GetSingleton()->_greetedPackage.load();
             if (package && greeted && package->GetFormID() == greeted) {
                 MarkProcedureSucceeded(a_execState);
                 return 0;
             }
         }
         if (isPlayerForceGreet && RetargetForceGreetToPuppet(a_execState)) {
-            IdleAIManager::GetSingleton()._forceGreetProcedureActive = true;
+            IdleAIManager::GetSingleton()->_forceGreetProcedureActive = true;
         }
         auto ret = _origForceGreetExecute(a_this, a_execState);
         if (isPlayerForceGreet) {
@@ -216,7 +214,7 @@ namespace InTheirShoes {
     bool IdleAIManager::CombatStopsIdleAI(RE::PlayerCharacter* a_player) const {
         // Combat stops idle movement, except on the way to a Travel destination: ITS_TravelPackage has
         // Ignore Combat, so the player keeps going. Once there, the sandbox package stops for combat as usual.
-        const bool travelling = Settings::GetSingleton().GetIdlePackage() == kTravelPackage && !_travelArrived;
+        const bool travelling = Settings::GetSingleton()->GetIdlePackage() == kTravelPackage && !_travelArrived;
         return a_player->IsInCombat() && !travelling;
     }
 
@@ -247,8 +245,8 @@ namespace InTheirShoes {
             Disengage(player, StopReason::kLostControl);
         }
 
-        const auto& settings = Settings::GetSingleton();
-        if (!settings.IsIdleAIEnabled() || !Session::GetSingleton().IsActive()) {
+        const auto& settings = *Settings::GetSingleton();
+        if (!settings.IsIdleAIEnabled() || !Session::GetSingleton()->IsActive()) {
             Disengage(player, StopReason::kInactive);
             _idleSeconds = 0.0f;
             ReleaseGreetedPackage();
@@ -277,8 +275,8 @@ namespace InTheirShoes {
         // Combat goes through CombatStopsIdleAI, since the Travel package ignores it.
         const auto blockedBy = CombatStopsIdleAI(a_player) ?
                                    PlayerBusy::kCombat :
-                                   WhatBlocks(a_player, BusyCheck::kAIControlled | BusyCheck::kFurniture |
-                                                            BusyCheck::kWindowInactive | BusyCheck::kMenu);
+                                   WhatBlocks(a_player, BusyChecks(BusyCheck::kAIControlled, BusyCheck::kFurniture,
+                                                            BusyCheck::kWindowInactive, BusyCheck::kMenu));
         LogPlayerBusy(_blockedBy, blockedBy, "Idle AI"sv);
         if (blockedBy != PlayerBusy::kNo) {
             if (blockedBy != PlayerBusy::kWindowInactive && blockedBy != PlayerBusy::kMenu) {
@@ -288,7 +286,7 @@ namespace InTheirShoes {
         }
 
         _idleSeconds += GameClock::FrameSeconds();
-        if (_idleSeconds >= Settings::GetSingleton().GetIdleTimeout()) {
+        if (_idleSeconds >= Settings::GetSingleton()->GetIdleTimeout()) {
             BeginEngage(a_player);
         }
     }
@@ -335,14 +333,14 @@ namespace InTheirShoes {
             HandleSelfDialogueEnded();
         }
         if (requests & kPackageChanged) {
-            const auto index = Settings::GetSingleton().GetIdlePackage();
+            const auto index = Settings::GetSingleton()->GetIdlePackage();
             _travelArrived = false;
             SKSE::log::info("Idle AI package: {}", index > 0 ? fmt::format("alias {}", index - 1) : "the donor's own"s);
             ApplyIdlePackage();
         }
         if (requests & kDestinationChanged) {
             _travelArrived = false;
-            const auto* destination = Forms::TravelDestination(Settings::GetSingleton().GetTravelDestination());
+            const auto* destination = Forms::TravelDestination(Settings::GetSingleton()->GetTravelDestination());
             SKSE::log::info("Idle AI travel destination: {}",
                 destination && destination->location ? destination->location->GetName() : "none");
             // A running Travel package heads for the new destination
@@ -367,7 +365,7 @@ namespace InTheirShoes {
                 }
             }
         }
-        if (!inPackageAlias && !Session::GetSingleton().IsActive()) return;
+        if (!inPackageAlias && !Session::GetSingleton()->IsActive()) return;
         if (a_player->GetPlayerRuntimeData().playerFlags.aiControlledPackage) {
             a_player->SetAIDriven(false);
             SKSE::log::info("Turned off AI-driven saved while idle AI ran");
@@ -466,7 +464,7 @@ namespace InTheirShoes {
         // Opens self-dialogue once per approach when a retargeted greet package brings the player to the puppet.
         // Travel and follow packages don't count: they stay in range, so they reopened it whenever idle AI engaged.
         auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* puppet = Session::GetSingleton().GetPuppet();
+        auto* puppet = Session::GetSingleton()->GetPuppet();
         auto* curPkg = player ? player->GetCurrentPackage() : nullptr;
         if (_state != State::kDriving || !puppet || !curPkg) {
             _forceGreetTriggered = false;
@@ -489,7 +487,7 @@ namespace InTheirShoes {
             SKSE::log::info("Player package {:08X} reached puppet target (dist: {:.1f}, topic: {:08X}) - opening self-dialogue.",
                 curPkg->GetFormID(), dist, topic ? topic->GetFormID() : 0);
             _forceGreetTriggered = true;
-            if (DialogueManager::GetSingleton().OpenSelfDialogue(puppet, topic) && isForceGreetPkg) {
+            if (DialogueManager::GetSingleton()->OpenSelfDialogue(puppet, topic) && isForceGreetPkg) {
                 _greetingPackage = curPkg->GetFormID();
             }
         }
@@ -580,12 +578,12 @@ namespace InTheirShoes {
 
     void IdleAIManager::OnImpersonationChanged() {
         Post(kSessionChanged);
-        SKSE::log::info("Idle AI: impersonation active = {}", Session::GetSingleton().IsActive());
+        SKSE::log::info("Idle AI: impersonation active = {}", Session::GetSingleton()->IsActive());
     }
 
     void IdleAIManager::RetargetAliasPackagesToPuppet() {
         // Swapped aliases' packages that target the player would make it target itself; point them at the puppet.
-        auto& session = Session::GetSingleton();
+        auto& session = *Session::GetSingleton();
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = session.GetPuppet();
         auto* aliasArray = player ? player->extraList.GetByType<RE::ExtraAliasInstanceArray>() : nullptr;
@@ -594,11 +592,11 @@ namespace InTheirShoes {
         RE::BSReadLockGuard locker(aliasArray->lock);
         for (auto* inst : aliasArray->aliases) {
             if (!inst || !inst->quest || !inst->alias || !inst->instancedPackages) continue;
-            if (!AliasSwapManager::GetSingleton().IsSwappedAlias(inst->quest->GetFormID(), inst->alias->aliasID)) continue;
+            if (!AliasSwapManager::GetSingleton()->IsSwappedAlias(inst->quest->GetFormID(), inst->alias->aliasID)) continue;
 
             for (auto* pkg : *inst->instancedPackages) {
                 if (!pkg || pkg->GetFormType() != RE::FormType::Package) continue;
-                PackageRetarget::GetSingleton().RetargetPlayerToPuppet(pkg, puppet);
+                PackageRetarget::GetSingleton()->RetargetPlayerToPuppet(pkg, puppet);
             }
         }
     }
@@ -618,24 +616,22 @@ namespace InTheirShoes {
     void IdleAIManager::CheckTravelArrival() {
         // Travel only reaches the city's center marker, so sandbox anywhere in the city's Location (walled cities are
         // their own worldspaces, so distance doesn't work).
-        const auto& settings = Settings::GetSingleton();
+        const auto& settings = *Settings::GetSingleton();
         if (settings.GetIdlePackage() != kTravelPackage || _travelArrived) return;
         const auto* destination = Forms::TravelDestination(settings.GetTravelDestination());
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!destination || !destination->location || !player) return;
-        for (auto* loc = player->GetCurrentLocation(); loc; loc = loc->parentLoc) {
-            if (loc == destination->location) {
-                _travelArrived = true;
-                SKSE::log::info("Arrived in {}; sandboxing there", destination->location->GetName());
-                ApplyIdlePackage();
-                return;
-            }
+        auto* loc = player->GetCurrentLocation();
+        if (loc && (loc == destination->location || destination->location->IsChild(loc))) {
+            _travelArrived = true;
+            SKSE::log::info("Arrived in {}; sandboxing there", destination->location->GetName());
+            ApplyIdlePackage();
         }
     }
 
     IdleAIManager::IdlePackageState IdleAIManager::DesiredIdlePackageState() const {
         IdlePackageState state{};
-        const auto& settings = Settings::GetSingleton();
+        const auto& settings = *Settings::GetSingleton();
         const auto index = settings.GetIdlePackage();
         const auto* quest = Forms::idlePackageQuest;
         // While scene package actions run, the alias is left empty so it doesn't outrank them
@@ -719,7 +715,7 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::SyncDonorPackagesToPlayer() {
-        auto& session = Session::GetSingleton();
+        auto& session = *Session::GetSingleton();
         auto* donor = session.GetDonor();
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* puppet = session.GetPuppet();
@@ -734,7 +730,7 @@ namespace InTheirShoes {
         // The donor's base packages go on the player's base record (ForceGreets retargeted to the puppet, other
         // player-targeted ones skipped); swapped aliases apply theirs directly; the MCM's package alias outranks both.
         // The scene's package actions for the player's aliases come first, with the MCM alias released while they run.
-        auto& retarget = PackageRetarget::GetSingleton();
+        auto& retarget = *PackageRetarget::GetSingleton();
         auto scenePkgs = GetScenePackagesInCurrentPhase(GetPlayingScene(player), player);
         for (auto* pkg : scenePkgs) {
             retarget.RetargetPlayerToPuppet(pkg, puppet);
@@ -751,7 +747,7 @@ namespace InTheirShoes {
             } else if (PackageTargetsActor(pkg, player)) {
                 continue;
             }
-            if (std::find(donorPkgs.begin(), donorPkgs.end(), pkg) == donorPkgs.end()) {
+            if (!std::ranges::contains(donorPkgs, pkg)) {
                 donorPkgs.push_back(pkg);
             }
         }
@@ -778,7 +774,7 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::ClearPlayerPackages() {
-        PackageRetarget::GetSingleton().RestorePlayerToPuppet();
+        PackageRetarget::GetSingleton()->RestorePlayerToPuppet();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return;

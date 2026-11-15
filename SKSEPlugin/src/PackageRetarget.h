@@ -1,7 +1,6 @@
 #pragma once
 
 #include "PackageUtil.h"
-#include "Singleton.h"
 #include <unordered_map>
 #include <unordered_set>
 
@@ -15,7 +14,7 @@ namespace InTheirShoes {
     //    target itself, so they target the puppet.
     // Each edited target's original value is kept and its current value computed from the rules, so dropping a
     // rule, or all of them, works in any order. Not thread-safe: called from the main thread.
-    class PackageRetarget : public Singleton<PackageRetarget> {
+    class PackageRetarget : public REX::Singleton<PackageRetarget> {
     public:
         // Points every package's targets and locations that reference a_donor at a_player
         void RetargetDonorToPlayer(RE::Actor* a_donor, RE::Actor* a_player);
@@ -31,7 +30,7 @@ namespace InTheirShoes {
         void RestoreAll();
 
     private:
-        friend Singleton<PackageRetarget>;
+        friend REX::Singleton<PackageRetarget>;
         PackageRetarget() = default;
         ~PackageRetarget() = default;
 

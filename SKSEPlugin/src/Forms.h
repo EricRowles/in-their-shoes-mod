@@ -6,6 +6,9 @@ namespace InTheirShoes::Forms {
     inline constexpr RE::FormID kPlayerBaseID = 0x07;
     inline constexpr RE::FormID kPlayerRefID = 0x14;
 
+    // Whether a_form is the player's base record (by ID, so it also holds for a copy loaded from a save)
+    inline bool IsPlayerBase(const RE::TESForm* a_form) { return a_form && a_form->GetFormID() == kPlayerBaseID; }
+
     // Forms the plugin uses, resolved once by Resolve() on kDataLoaded. A form that can't be found stays null
     // (and is logged), so check before dereferencing. See docs/esp_quest_structure.md for the mod's records.
 

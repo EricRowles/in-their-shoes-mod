@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <vector>
 
 namespace InTheirShoes {
@@ -9,7 +8,7 @@ namespace InTheirShoes {
     // donor would be wanted for the Dragonborn's crimes and the Dragonborn would carry the donor's. Each session
     // starts with no bounty; when it ends, what the donor ran up is dropped and the Dragonborn's comes back.
     // Not thread-safe.
-    class CrimeManager : public Singleton<CrimeManager> {
+    class CrimeManager : public REX::Singleton<CrimeManager> {
     public:
         struct FactionBounty {
             RE::TESFaction* faction{ nullptr };
@@ -26,7 +25,7 @@ namespace InTheirShoes {
         void Restore(std::vector<FactionBounty> a_bounty);
 
     private:
-        friend Singleton<CrimeManager>;
+        friend REX::Singleton<CrimeManager>;
         CrimeManager() = default;
         ~CrimeManager() = default;
 

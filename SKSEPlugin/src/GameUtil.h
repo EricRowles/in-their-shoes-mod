@@ -65,7 +65,7 @@ namespace InTheirShoes {
         std::vector<RE::TESPackage*> packages;
         ForEachSceneActionInCurrentPhase(a_scene, a_actor, RE::BGSSceneAction::Type::kPackage, [&](RE::BGSSceneAction* a_action) {
             for (auto* pkg : static_cast<RE::BGSSceneActionPackage*>(a_action)->packages) {
-                if (pkg && std::find(packages.begin(), packages.end(), pkg) == packages.end()) {
+                if (pkg && !std::ranges::contains(packages, pkg)) {
                     packages.push_back(pkg);
                 }
             }

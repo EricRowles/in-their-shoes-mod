@@ -1,7 +1,6 @@
 #pragma once
 
 #include "GameClock.h"
-#include "Singleton.h"
 #include <atomic>
 #include <optional>
 #include "RE/D/DialogueItem.h"
@@ -18,7 +17,7 @@ namespace InTheirShoes {
     //
     // Whether self-dialogue is on is published in Session, which condition hooks read from AI threads.
     class DialogueManager :
-        public Singleton<DialogueManager>,
+        public REX::Singleton<DialogueManager>,
         public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
     public:
         void Initialize();
@@ -31,8 +30,13 @@ namespace InTheirShoes {
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
 
+        // 1.6.1170 has three start-speech calls outside UpdateInDialogue; more would mean the search went wrong
+        static constexpr std::size_t kMaxStartSpeechCalls = 6;
+        // The trampoline SKSE::Init allocates: the talking idle call and the start-speech calls, 14 bytes each
+        static constexpr std::size_t kTrampolineSize = 14 * (1 + kMaxStartSpeechCalls);
+
     private:
-        friend Singleton<DialogueManager>;
+        friend REX::Singleton<DialogueManager>;
         DialogueManager() = default;
         ~DialogueManager() override = default;
 

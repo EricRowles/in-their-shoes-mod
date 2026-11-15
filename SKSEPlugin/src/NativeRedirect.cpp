@@ -2,6 +2,7 @@
 #include "NativeRedirect.h"
 #include "GameUtil.h"
 #include "PackageUtil.h"
+#include "QuestConditions.h"
 #include "Session.h"
 #include "Settings.h"
 
@@ -111,8 +112,7 @@ namespace InTheirShoes::NativeRedirect {
         // Whether the calling script is attached to a_actor or is a magic effect on it
         bool IsOnBody(const StackFrame& a_caller, const RE::Actor* a_actor) {
             if (HoldsForm(a_caller.self, a_actor)) return true;
-            auto object = a_caller.self.IsObject() ? a_caller.self.GetObject() : nullptr;
-            auto* effect = object ? static_cast<RE::ActiveEffect*>(object->Resolve(RE::ActiveEffect::VMTYPEID)) : nullptr;
+            auto* effect = a_caller.self.IsObject() ? a_caller.self.Unpack<RE::ActiveEffect*>() : nullptr;
             return effect && effect->GetTargetActor() == a_actor;
         }
 
@@ -195,31 +195,21 @@ namespace InTheirShoes::NativeRedirect {
         }
 
         // Whether the donor would run a_pkg. Conditions on the donor's aliases (held by the player) are evaluated on a
-        // copy run on the donor; the shared condition can't be edited. OR binds tighter than AND, as in the engine.
+        // copy run on the donor; the shared condition can't be edited.
         bool DonorWouldRunPackage(RE::TESPackage* a_pkg, RE::TESQuest* a_quest, RE::Actor* a_donor, RE::Actor* a_player) {
             RE::ConditionCheckParams params(a_donor, a_donor);
             params.quest = a_quest;
-            bool all = true;
-            bool group = false;
-            for (auto* item = a_pkg->packConditions.head; item; item = item->next) {
-                bool pass;
-                if (item->data.object == RE::CONDITIONITEMOBJECT::kQuestAlias && a_quest &&
-                    a_quest->GetAliasedRef(item->data.dataID).get().get() == a_player) {
+            return QuestConditions::EvaluateItems(a_pkg->packConditions, [&](RE::TESConditionItem& a_item) {
+                if (a_item.data.object == RE::CONDITIONITEMOBJECT::kQuestAlias && a_quest &&
+                    a_quest->GetAliasedRef(a_item.data.dataID).get().get() == a_player) {
                     RE::TESConditionItem copy;
-                    copy.data = item->data;
+                    copy.data = a_item.data;
                     copy.data.object = RE::CONDITIONITEMOBJECT::kSelf;
                     copy.next = nullptr;
-                    pass = copy.IsTrue(params);
-                } else {
-                    pass = item->IsTrue(params);
+                    return copy.IsTrue(params);
                 }
-                group = group || pass;
-                if (!item->data.flags.isOR) {
-                    all = all && group;
-                    group = false;
-                }
-            }
-            return all;
+                return a_item.IsTrue(params);
+            });
         }
 
         // The package the engine would run for the player: its alias packages, highest quest priority first, then
@@ -236,7 +226,7 @@ namespace InTheirShoes::NativeRedirect {
                 return a_lhs->quest->data.priority > a_rhs->quest->data.priority;
             });
             // The donor's package, so the donor is the subject: the player is the one talking after the line
-            auto* donor = Session::GetSingleton().GetDonor();
+            auto* donor = Session::GetSingleton()->GetDonor();
             if (!donor) return nullptr;
             auto passes = [&](RE::TESPackage* a_pkg, RE::TESQuest* a_quest) { return DonorWouldRunPackage(a_pkg, a_quest, donor, a_player); };
             for (const auto* data : aliases) {
@@ -273,8 +263,8 @@ namespace InTheirShoes::NativeRedirect {
         // Runs on the main thread
         void DoPlayerPackageMove() {
             auto* player = RE::PlayerCharacter::GetSingleton();
-            if (!player || !Session::GetSingleton().IsActive()) return;
-            auto* donor = Session::GetSingleton().GetDonor();
+            if (!player || !Session::GetSingleton()->IsActive()) return;
+            auto* donor = Session::GetSingleton()->GetDonor();
             RE::TESObjectREFR* target = nullptr;
             auto* pkg = PickPlayerPackage(player);
             RE::PackageLocation::Type type = RE::PackageLocation::Type::kNone;
@@ -336,8 +326,8 @@ namespace InTheirShoes::NativeRedirect {
 
         void WearOutfitOnPlayer(RE::BGSOutfit* a_outfit) {
             auto* player = RE::PlayerCharacter::GetSingleton();
-            auto* donor = Session::GetSingleton().GetDonor();
-            if (!player || !donor || !Session::GetSingleton().IsActive()) return;
+            auto* donor = Session::GetSingleton()->GetDonor();
+            if (!player || !donor || !Session::GetSingleton()->IsActive()) return;
             if (s_outfitItemsDonor != donor->GetFormID()) {
                 s_outfitItemsGiven.clear();
                 s_outfitItemsDonor = donor->GetFormID();
@@ -355,7 +345,7 @@ namespace InTheirShoes::NativeRedirect {
 
             auto counts = player->GetInventoryCounts();
             for (auto* old : s_outfitItemsGiven) {
-                if (std::find(items.begin(), items.end(), old) == items.end() && counts[old] > 0) {
+                if (!std::ranges::contains(items, old) && counts[old] > 0) {
                     player->RemoveItem(old, 1, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
                 }
             }
@@ -375,7 +365,7 @@ namespace InTheirShoes::NativeRedirect {
         bool MarshallAndDispatch(const NativeFunction* a_this, Variable& a_self, VM& a_vm, RE::VMStackID a_stackID,
             Variable& a_result, const StackFrame& a_frame) {
             auto* orig = s_origMarshall.at(*reinterpret_cast<const std::uintptr_t*>(a_this));
-            const auto& session = Session::GetSingleton();
+            const auto& session = *Session::GetSingleton();
             const auto* caller = session.IsActive() ? GetCallingFrame(a_this, a_frame) : nullptr;
             auto call = [&](Variable& a_callSelf) { return orig(a_this, a_callSelf, a_vm, a_stackID, a_result, a_frame); };
 
@@ -385,7 +375,7 @@ namespace InTheirShoes::NativeRedirect {
                 return true;
             }
             if (caller && !IsOurScript(*caller) && a_this->GetName() == SetOutfitName() &&
-                (HoldsForm(a_self, Session::GetPlayer()) || (GetStandIn(a_self, session) && Settings::GetSingleton().IsNativeRedirectEnabled()))) {
+                (HoldsForm(a_self, Session::GetPlayer()) || (GetStandIn(a_self, session) && Settings::GetSingleton()->IsNativeRedirectEnabled()))) {
                 Variable donorSelf;
                 if (GetObjectFor(a_vm, session.GetDonor(), "Actor", donorSelf)) {
                     const auto page = a_frame.GetPageForFrame();
@@ -398,7 +388,7 @@ namespace InTheirShoes::NativeRedirect {
                     return result;
                 }
             }
-            if (!Settings::GetSingleton().IsNativeRedirectEnabled() || !session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) {
+            if (!Settings::GetSingleton()->IsNativeRedirectEnabled() || !session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) {
                 return call(a_self);
             }
             if (!caller || IsOurScript(*caller)) return call(a_self);

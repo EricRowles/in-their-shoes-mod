@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -14,7 +13,7 @@ namespace InTheirShoes {
     //
     // Two kinds of faction stay put: the Dragonborn's PlayerFaction, and the factions of the donor's swapped
     // aliases, which reach the player with the aliases. Not thread-safe, except GetDragonbornFactionRank.
-    class FactionManager : public Singleton<FactionManager> {
+    class FactionManager : public REX::Singleton<FactionManager> {
     public:
         using FactionRank = std::pair<RE::TESFaction*, std::int8_t>;
 
@@ -42,7 +41,7 @@ namespace InTheirShoes {
         void Restore(std::vector<FactionRank> a_dragonborn, std::vector<FactionRank> a_given);
 
     private:
-        friend Singleton<FactionManager>;
+        friend REX::Singleton<FactionManager>;
         FactionManager() = default;
         ~FactionManager() = default;
 
