@@ -1,11 +1,13 @@
 #include "PCH.h"
 #include "NativeRedirect.h"
 #include "GameUtil.h"
+#include "PackageUtil.h"
 #include "Session.h"
 #include "Settings.h"
 
 #include <RE/A/ActiveEffect.h>
 #include <RE/B/BSScriptObjectBindPolicy.h>
+#include <RE/E/ExtraAliasInstanceArray.h>
 
 #include <array>
 #include <mutex>
@@ -201,16 +203,228 @@ namespace InTheirShoes::NativeRedirect {
             std::vector<std::pair<Variable*, Variable>> _swapped;
         };
 
+        // MoveToPackageLocation on the player (#41). A fragment that gets the donor through its alias gets the
+        // player, which holds the alias (e.g. Maids II's SMSKQ01 "Kasia.MoveToPackageLocation()" before
+        // re-dressing her). The engine's version (1.6.1170: Actor at 673D20) starts a path search to the package
+        // location for the player, which isn't AI-driven, and the frame's job list then waits on it forever:
+        // the game froze. So the player moves to the package's location with a plain MoveTo instead.
+        const RE::BSFixedString& MoveToPackageLocationName() {
+            static const RE::BSFixedString name{ "MoveToPackageLocation" };
+            return name;
+        }
+
+        // Whether the donor would run a_pkg. Conditions on one of the donor's aliases, which the player now holds,
+        // ask about the donor: SMSKQ01's package checks "IsTalking == 0" on Kasia's alias, and the player is
+        // still talking just after the line. Those are evaluated on a copy that runs on the donor (the shared
+        // condition can't be edited: other threads evaluate it). OR binds tighter than AND, as in the engine.
+        bool DonorWouldRunPackage(RE::TESPackage* a_pkg, RE::TESQuest* a_quest, RE::Actor* a_donor, RE::Actor* a_player) {
+            RE::ConditionCheckParams params(a_donor, a_donor);
+            params.quest = a_quest;
+            bool all = true;
+            bool group = false;
+            for (auto* item = a_pkg->packConditions.head; item; item = item->next) {
+                bool pass;
+                if (item->data.object == RE::CONDITIONITEMOBJECT::kQuestAlias && a_quest &&
+                    a_quest->GetAliasedRef(item->data.dataID).get().get() == a_player) {
+                    RE::TESConditionItem copy;
+                    copy.data = item->data;
+                    copy.data.object = RE::CONDITIONITEMOBJECT::kSelf;
+                    copy.next = nullptr;
+                    pass = copy.IsTrue(params);
+                } else {
+                    pass = item->IsTrue(params);
+                }
+                group = group || pass;
+                if (!item->data.flags.isOR) {
+                    all = all && group;
+                    group = false;
+                }
+            }
+            return all;
+        }
+
+        // The package the engine would run for the player: its alias packages, highest quest priority first, then
+        // its base record's (the donor's while idle AI runs). The first whose conditions pass.
+        RE::TESPackage* PickPlayerPackage(RE::Actor* a_player) {
+            std::vector<const RE::BGSRefAliasInstanceData*> aliases;
+            if (auto* extra = a_player->extraList.GetByType<RE::ExtraAliasInstanceArray>()) {
+                RE::BSReadLockGuard guard(extra->lock);
+                for (const auto* data : extra->aliases) {
+                    if (data && data->quest && data->instancedPackages && IsQuestRunning(data->quest)) aliases.push_back(data);
+                }
+            }
+            std::stable_sort(aliases.begin(), aliases.end(), [](const auto* a_lhs, const auto* a_rhs) {
+                return a_lhs->quest->data.priority > a_rhs->quest->data.priority;
+            });
+            // The donor's package, so the donor is the subject: the player is the one talking after the line
+            auto* donor = Session::GetSingleton().GetDonor();
+            if (!donor) return nullptr;
+            auto passes = [&](RE::TESPackage* a_pkg, RE::TESQuest* a_quest) { return DonorWouldRunPackage(a_pkg, a_quest, donor, a_player); };
+            for (const auto* data : aliases) {
+                for (auto* pkg : *data->instancedPackages) {
+                    if (pkg && passes(pkg, data->quest)) return pkg;
+                }
+            }
+            if (auto* base = a_player->GetActorBase()) {
+                for (auto* pkg : base->aiPackages.packages) {
+                    if (pkg && passes(pkg, pkg->ownerQuest)) return pkg;
+                }
+            }
+            return nullptr;
+        }
+
+        // Where a package location is, as a reference to move to; null for the types that don't name one (a cell,
+        // an object type, near self). Linked references are the donor's: the player has none of its own.
+        RE::TESObjectREFR* ResolvePackageLocation(const RE::PackageLocation* a_loc, const RE::TESPackage* a_pkg, RE::Actor* a_donor) {
+            using Type = RE::PackageLocation::Type;
+            switch (a_loc->locType.get()) {
+                case Type::kNearReference:
+                    return a_loc->data.refHandle.get().get();
+                case Type::kAlias_Reference: {
+                    const auto aliasID = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(a_loc->data.object));
+                    return a_pkg->ownerQuest ? a_pkg->ownerQuest->GetAliasedRef(aliasID).get().get() : nullptr;
+                }
+                case Type::kNearLinkedReference:
+                    return a_donor ? a_donor->GetLinkedRef(a_loc->data.object ? a_loc->data.object->As<RE::BGSKeyword>() : nullptr) : nullptr;
+                default:
+                    return nullptr;
+            }
+        }
+
+        // Runs on the main thread
+        void DoPlayerPackageMove() {
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            if (!player || !Session::GetSingleton().IsActive()) return;
+            auto* donor = Session::GetSingleton().GetDonor();
+            RE::TESObjectREFR* target = nullptr;
+            auto* pkg = PickPlayerPackage(player);
+            RE::PackageLocation::Type type = RE::PackageLocation::Type::kNone;
+            if (pkg) {
+                PackageUtil::ForEachPackageLocation(pkg, [&](RE::PackageLocation* a_loc) {
+                    if (target || !a_loc) return;
+                    type = a_loc->locType.get();
+                    target = ResolvePackageLocation(a_loc, pkg, donor);
+                });
+            }
+            SKSE::log::info("MoveToPackageLocation on the player: package {:08X}, location type {}, target {:08X}",
+                pkg ? pkg->GetFormID() : 0, static_cast<int>(type), target ? target->GetFormID() : 0);
+            if (target) {
+                player->MoveTo(target);
+            }
+        }
+
+        // Set while a move waits for the dialogue menu to close: the player is talking until then, which fails
+        // the donor's packages' IsTalking == 0 conditions (the donor itself wouldn't be talking), and a move
+        // belongs after the line anyway
+        std::atomic<bool> s_packageMovePending{ false };
+
+        class DialogueCloseSink : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+        public:
+            RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override {
+                if (a_event && !a_event->opening && a_event->menuName == RE::DialogueMenu::MENU_NAME &&
+                    s_packageMovePending.exchange(false)) {
+                    SKSE::GetTaskInterface()->AddTask(DoPlayerPackageMove);
+                }
+                return RE::BSEventNotifyControl::kContinue;
+            }
+        };
+
+        void MovePlayerToPackageLocation(RE::VMStackID a_stackID) {
+            SKSE::GetTaskInterface()->AddTask([a_stackID] {
+                // The script goes on at once: what follows the move (re-dressing the donor) doesn't wait for it
+                if (auto* vm = RE::BSScript::Internal::VirtualMachine::GetSingleton()) {
+                    vm->ReturnFromLatent(a_stackID, Variable{});
+                }
+                auto* ui = RE::UI::GetSingleton();
+                if (ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME)) {
+                    SKSE::log::info("MoveToPackageLocation on the player: moving when the dialogue menu closes");
+                    s_packageMovePending = true;
+                } else {
+                    DoPlayerPackageMove();
+                }
+            });
+        }
+
+        // SetOutfit meant for the donor (#41): through its alias it reaches the player, through a property the
+        // donor or the puppet. On the player it would set the Dragonborn's base record's outfit, and didn't redraw
+        // the player either. So the donor gets the outfit, and the player puts on its items as it would by hand.
+        const RE::BSFixedString& SetOutfitName() {
+            static const RE::BSFixedString name{ "SetOutfit" };
+            return name;
+        }
+
+        // Main thread only: the items the player was given for the last outfit, and the donor it was for. A new
+        // outfit takes them back, as the engine takes an NPC's old outfit items.
+        std::vector<RE::TESBoundObject*> s_outfitItemsGiven;
+        RE::FormID s_outfitItemsDonor{ 0 };
+
+        void WearOutfitOnPlayer(RE::BGSOutfit* a_outfit) {
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            auto* donor = Session::GetSingleton().GetDonor();
+            if (!player || !donor || !Session::GetSingleton().IsActive()) return;
+            if (s_outfitItemsDonor != donor->GetFormID()) {
+                s_outfitItemsGiven.clear();
+                s_outfitItemsDonor = donor->GetFormID();
+            }
+
+            std::vector<RE::TESBoundObject*> items;
+            a_outfit->ForEachItem([&](RE::TESForm* a_item) {
+                if (a_item->Is(RE::FormType::LeveledItem)) {
+                    SKSE::log::info("Outfit {:08X}: leveled item {:08X} skipped", a_outfit->GetFormID(), a_item->GetFormID());
+                } else if (auto* object = a_item->As<RE::TESBoundObject>()) {
+                    items.push_back(object);
+                }
+                return RE::BSContainer::ForEachResult::kContinue;
+            });
+
+            auto counts = player->GetInventoryCounts();
+            for (auto* old : s_outfitItemsGiven) {
+                if (std::find(items.begin(), items.end(), old) == items.end() && counts[old] > 0) {
+                    player->RemoveItem(old, 1, RE::ITEM_REMOVE_REASON::kRemove, nullptr, nullptr);
+                }
+            }
+            s_outfitItemsGiven.clear();
+
+            auto* equipManager = RE::ActorEquipManager::GetSingleton();
+            for (auto* item : items) {
+                if (counts[item] <= 0) {
+                    player->AddObjectToContainer(item, nullptr, 1, nullptr);
+                    s_outfitItemsGiven.push_back(item);
+                }
+                if (equipManager) equipManager->EquipObject(player, item, nullptr, 1, nullptr, true, false, false);
+            }
+            SKSE::log::info("Outfit {:08X} set on the donor; the player put on its {} items", a_outfit->GetFormID(), items.size());
+        }
+
         bool MarshallAndDispatch(const NativeFunction* a_this, Variable& a_self, VM& a_vm, RE::VMStackID a_stackID,
             Variable& a_result, const StackFrame& a_frame) {
             auto* orig = s_origMarshall.at(*reinterpret_cast<const std::uintptr_t*>(a_this));
+            const auto& session = Session::GetSingleton();
+            const auto* caller = session.IsActive() ? GetCallingFrame(a_this, a_frame) : nullptr;
             auto call = [&](Variable& a_callSelf) { return orig(a_this, a_callSelf, a_vm, a_stackID, a_result, a_frame); };
 
-            const auto& session = Session::GetSingleton();
+            if (caller && !IsOurScript(*caller) && a_this->GetName() == MoveToPackageLocationName() &&
+                HoldsForm(a_self, Session::GetPlayer())) {
+                MovePlayerToPackageLocation(a_stackID);
+                return true;
+            }
+            if (caller && !IsOurScript(*caller) && a_this->GetName() == SetOutfitName() &&
+                (HoldsForm(a_self, Session::GetPlayer()) || (GetStandIn(a_self, session) && Settings::GetSingleton().IsNativeRedirectEnabled()))) {
+                Variable donorSelf;
+                if (GetObjectFor(a_vm, session.GetDonor(), "Actor", donorSelf)) {
+                    const auto page = a_frame.GetPageForFrame();
+                    auto* outfit = a_frame.GetStackFrameVariable(0, page).Unpack<RE::BGSOutfit*>();
+                    const bool sleepOutfit = a_this->GetParamCount() > 1 && a_frame.GetStackFrameVariable(1, page).GetBool();
+                    const bool result = call(donorSelf);
+                    if (outfit && !sleepOutfit) {
+                        SKSE::GetTaskInterface()->AddTask([outfit] { WearOutfitOnPlayer(outfit); });
+                    }
+                    return result;
+                }
+            }
             if (!Settings::GetSingleton().IsNativeRedirectEnabled() || !session.IsActive() || !IsRedirectedClass(a_this->GetObjectTypeName())) {
                 return call(a_self);
             }
-            const auto* caller = GetCallingFrame(a_this, a_frame);
             if (!caller || IsOurScript(*caller)) return call(a_self);
 
             const auto kind = GetKind(a_this->GetName());
@@ -269,6 +483,10 @@ namespace InTheirShoes::NativeRedirect {
             REL::safe_write(vtable + kMarshallAndDispatchIndex * sizeof(std::uintptr_t), reinterpret_cast<std::uintptr_t>(&MarshallAndDispatch));
         }
         s_installed = true;
+        static DialogueCloseSink s_dialogueCloseSink;
+        if (auto* ui = RE::UI::GetSingleton()) {
+            ui->AddEventSink<RE::MenuOpenCloseEvent>(&s_dialogueCloseSink);
+        }
         SKSE::log::info("Redirecting {} ObjectReference/Actor natives for the donor ({} vtables patched).", natives,
             s_origMarshall.size());
     }
