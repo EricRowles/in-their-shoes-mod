@@ -102,22 +102,57 @@ namespace InTheirShoes {
         // self-dialogue makes the donor a follower
         for (const auto& [quest, aid] : toAdopt) {
             SKSE::log::info("Moved puppet's alias ID {} in quest {:08X} to the player", aid, quest->GetFormID());
-            auto factions = MoveAlias(quest, aid, a_puppet, a_player);
-            auto known = std::ranges::find_if(_swappedAliases, [&](const SwappedAlias& a_entry) {
-                return a_entry.questFormID == quest->GetFormID() && a_entry.aliasID == aid;
-            });
-            if (known != _swappedAliases.end()) {
-                known->factions = std::move(factions);
-            } else {
-                _swappedAliases.push_back({ quest->GetFormID(), aid, std::move(factions) });
-            }
+            TakeAlias(quest, aid, a_puppet, a_player);
         }
         a_puppet->EvaluatePackage(false, false);
     }
 
+    void AliasSwapManager::SwapNewDonorAliases() {
+        // Aliases are only swapped at session start; this catches donor aliases filled by quests started later.
+        auto& session = Session::GetSingleton();
+        auto* donor = session.GetDonor();
+        auto* player = Session::GetPlayer();
+        if (!session.IsActive() || !donor || !player) return;
+
+        auto toSwap = GetFilledRefAliases(donor);
+        for (const auto& [quest, aid] : toSwap) {
+            SKSE::log::info("Quest {:08X} alias ID {} holds the donor; moving it to the player", quest->GetFormID(), aid);
+            TakeAlias(quest, aid, donor, player);
+        }
+        if (!toSwap.empty()) {
+            player->EvaluatePackage(false, false);
+        }
+    }
+
+    void AliasSwapManager::TakeAlias(RE::TESQuest* a_quest, std::uint32_t a_aliasID, RE::Actor* a_from, RE::Actor* a_to) {
+        auto factions = MoveAlias(a_quest, a_aliasID, a_from, a_to);
+        auto known = std::ranges::find_if(_swappedAliases, [&](const SwappedAlias& a_entry) {
+            return a_entry.questFormID == a_quest->GetFormID() && a_entry.aliasID == a_aliasID;
+        });
+        if (known != _swappedAliases.end()) {
+            known->factions = std::move(factions);
+        } else {
+            _swappedAliases.push_back({ a_quest->GetFormID(), a_aliasID, std::move(factions) });
+        }
+    }
+
+    void AliasSwapManager::Initialize() {
+        if (auto* events = RE::ScriptEventSourceHolder::GetSingleton()) {
+            events->GetEventSource<RE::TESQuestStartStopEvent>()->AddEventSink(this);
+        }
+    }
+
+    RE::BSEventNotifyControl AliasSwapManager::ProcessEvent(const RE::TESQuestStartStopEvent* a_event,
+        RE::BSTEventSource<RE::TESQuestStartStopEvent>* /*a_eventSource*/) {
+        // Deferred to the main thread, where _swappedAliases is used, and until the quest has filled its aliases
+        if (a_event && a_event->started && Session::GetSingleton().IsActive()) {
+            SKSE::GetTaskInterface()->AddTask([] { AliasSwapManager::GetSingleton().SwapNewDonorAliases(); });
+        }
+        return RE::BSEventNotifyControl::kContinue;
+    }
+
     void AliasSwapManager::DropReleasedAliases() {
-        // A quest that clears or refills a swapped alias (e.g. dismissing a follower) takes it, and its factions,
-        // from the donor; restoring it on revert would undo that
+        // A quest that clears or refills a swapped alias takes it from the donor; restoring it on revert undoes that
         auto* player = Session::GetPlayer();
         auto released = std::ranges::remove_if(_swappedAliases, [&](const SwappedAlias& a_entry) {
             auto* quest = RE::TESForm::LookupByID<RE::TESQuest>(a_entry.questFormID);

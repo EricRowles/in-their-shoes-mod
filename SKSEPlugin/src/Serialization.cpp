@@ -1,11 +1,13 @@
 #include "PCH.h"
 #include "Serialization.h"
 #include "AliasSwapManager.h"
+#include "CrimeManager.h"
 #include "FaceManager.h"
 #include "FactionManager.h"
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
+#include "Settings.h"
 
 #include <type_traits>
 
@@ -186,6 +188,12 @@ namespace InTheirShoes::Serialization {
             WriteFormID(a_serde, spells.rightSpell);
             WriteFormID(a_serde, spells.shout);
             WriteList(a_serde, spells.abilities, [&](RE::FormID a_id) { Write(a_serde, a_id); });
+            const auto& progress = a_baseline.progress;
+            Write(a_serde, progress.recorded);
+            Write(a_serde, progress.level);
+            Write(a_serde, progress.perkPoints);
+            Write(a_serde, progress.skills);
+            WriteList(a_serde, progress.perks, [&](RE::FormID a_id) { Write(a_serde, a_id); });
         }
 
         bool ReadBaseline(Serde* a_serde, std::uint32_t a_version, Baseline& a_out) {
@@ -209,12 +217,22 @@ namespace InTheirShoes::Serialization {
             // v1 has no abilities (and didn't give the player the donor's): revert leaves them alone
             if (!ok || a_version < 2) return ok;
             a_out.spells.abilitiesRecorded = true;
-            return ReadList(a_serde, [&] {
+            const bool abilitiesOk = ReadList(a_serde, [&] {
                 RE::FormID id = 0;
                 if (!ReadFormID(a_serde, id)) return false;
                 if (id != 0) a_out.spells.abilities.push_back(id);
                 return true;
             });
+            // v2 has no character progress: revert leaves the level alone
+            if (!abilitiesOk || a_version < 3) return abilitiesOk;
+            auto& progress = a_out.progress;
+            return Read(a_serde, progress.recorded) && Read(a_serde, progress.level) && Read(a_serde, progress.perkPoints) &&
+                   Read(a_serde, progress.skills) && ReadList(a_serde, [&] {
+                       RE::FormID id = 0;
+                       if (!ReadFormID(a_serde, id)) return false;
+                       if (id != 0) progress.perks.push_back(id);
+                       return true;
+                   });
         }
 
         // --- 'SESS': donor, puppet, swapped aliases and donor quest items carried by the player ---
@@ -310,6 +328,76 @@ namespace InTheirShoes::Serialization {
                 FactionManager::GetSingleton().GetDragonbornFactions().size(), FactionManager::GetSingleton().GetGivenFactions().size());
         }
 
+        // --- 'CRIM': the Dragonborn's bounty ---
+
+        void WriteCrime(Serde* a_serde) {
+            auto& crime = CrimeManager::GetSingleton();
+            if (!crime.IsActive() || !Session::GetSingleton().IsActive()) return;
+            if (!a_serde->OpenRecord(kCrimeRecord, kCrimeVersion)) return;
+            WriteList(a_serde, crime.GetDragonbornBounty(), [&](const CrimeManager::FactionBounty& a_entry) {
+                WriteFormID(a_serde, a_entry.faction);
+                Write(a_serde, a_entry.gold);
+            });
+        }
+
+        void ReadCrime(Serde* a_serde) {
+            std::vector<CrimeManager::FactionBounty> bounty;
+            const bool ok = ReadList(a_serde, [&] {
+                CrimeManager::FactionBounty entry;
+                if (!ReadForm(a_serde, entry.faction) || !Read(a_serde, entry.gold)) return false;
+                if (entry.faction) bounty.push_back(entry);
+                return true;
+            });
+            if (!ok) {
+                SKSE::log::warn("Bounty record is truncated; ignoring it.");
+                return;
+            }
+            CrimeManager::GetSingleton().Restore(std::move(bounty));
+            SKSE::log::info("Loaded the Dragonborn's bounty ({} crime factions).", CrimeManager::GetSingleton().GetDragonbornBounty().size());
+        }
+
+        // --- 'SETT': the MCM's settings ---
+
+        void WriteSettings(Serde* a_serde) {
+            if (!a_serde->OpenRecord(kSettingsRecord, kSettingsVersion)) return;
+            const auto& settings = Settings::GetSingleton();
+            Write(a_serde, settings.IsIdleAIEnabled());
+            Write(a_serde, settings.GetIdleTimeout());
+            Write(a_serde, settings.GetIdlePackage());
+            Write(a_serde, settings.GetTravelDestination());
+            Write(a_serde, settings.IsNPCVoiceEnabled());
+            Write(a_serde, settings.GetIdleChatterInterval());
+            Write(a_serde, settings.IsNativeRedirectEnabled());
+            Write(a_serde, settings.DoesPuppetFollowPlayer());
+        }
+
+        void ReadSettings(Serde* a_serde) {
+            bool idleAIEnabled = false;
+            float idleTimeout = 0.0f;
+            std::int32_t idlePackage = 0;
+            std::int32_t travelDestination = 0;
+            bool npcVoiceEnabled = false;
+            float idleChatterInterval = 0.0f;
+            bool nativeRedirectEnabled = false;
+            bool puppetFollows = false;
+            if (!Read(a_serde, idleAIEnabled) || !Read(a_serde, idleTimeout) || !Read(a_serde, idlePackage) ||
+                !Read(a_serde, travelDestination) || !Read(a_serde, npcVoiceEnabled) || !Read(a_serde, idleChatterInterval) ||
+                !Read(a_serde, nativeRedirectEnabled) || !Read(a_serde, puppetFollows)) {
+                SKSE::log::warn("Settings record is truncated; ignoring it.");
+                return;
+            }
+            auto& settings = Settings::GetSingleton();
+            settings.SetIdleAIEnabled(idleAIEnabled);
+            settings.SetIdleTimeout(idleTimeout);
+            settings.SetIdlePackage(idlePackage);
+            settings.SetTravelDestination(travelDestination);
+            settings.SetNPCVoiceEnabled(npcVoiceEnabled);
+            settings.SetIdleChatterInterval(idleChatterInterval);
+            settings.SetNativeRedirectEnabled(nativeRedirectEnabled);
+            settings.SetPuppetFollowsPlayer(puppetFollows);
+            SKSE::log::info("Loaded settings from co-save.");
+        }
+
         // Whether this build can read a record saved at a_version (it reads a_current and every older
         // version back to a_min)
         bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current,
@@ -338,12 +426,14 @@ namespace InTheirShoes::Serialization {
     void SaveCallback(SKSE::SerializationInterface* a_serde) {
         if (!a_serde) return;
 
+        WriteSettings(a_serde);
         auto& mgr = ImpersonationManager::GetSingleton();
         if (const auto& baseline = mgr.GetBaseline()) {
             WriteBaseline(a_serde, *baseline);
         }
         WriteSession(a_serde);
         WriteFactions(a_serde);
+        WriteCrime(a_serde);
         if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton().IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
@@ -395,6 +485,16 @@ namespace InTheirShoes::Serialization {
                 case kFactionsRecord:
                     if (!IsReadableVersion(type, version, kFactionsVersion)) break;
                     ReadFactions(a_serde);
+                    break;
+
+                case kCrimeRecord:
+                    if (!IsReadableVersion(type, version, kCrimeVersion)) break;
+                    ReadCrime(a_serde);
+                    break;
+
+                case kSettingsRecord:
+                    if (!IsReadableVersion(type, version, kSettingsVersion)) break;
+                    ReadSettings(a_serde);
                     break;
 
                 default:

@@ -45,10 +45,7 @@ namespace InTheirShoes::PackageUtil {
         }
     }
 
-    // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages.
-    // E.g. vanilla ForceGreet (0003C1C4) targets the player in its SingleRef input, and its "Forcegreet
-    // Distance" Location input (radius 300) is near the player, so left alone the player is always within
-    // it and skips the Travel branch.
+    // A package's targets and locations: packTarg/packLoc, plus the inputs of templated packages
     template <typename Fn>
     void ForEachPackageTarget(const RE::TESPackage* a_pkg, Fn&& a_fn) {
         if (!a_pkg) return;
@@ -75,27 +72,87 @@ namespace InTheirShoes::PackageUtil {
         });
     }
 
+    // A package target's value, copied out so it can be kept and written back. The target union is read and
+    // written through the member its type uses.
+    struct TargetValue {
+        std::int8_t type{ kTargetSpecificReference };
+        RE::ObjectRefHandle handle{};
+        RE::TESForm* object{ nullptr };
+
+        static TargetValue Of(const RE::PackageTarget* a_targ) {
+            TargetValue value{ a_targ->targType };
+            if (value.type == kTargetSpecificReference) {
+                value.handle = a_targ->target.handle;
+            } else {
+                value.object = a_targ->target.object;
+            }
+            return value;
+        }
+        static TargetValue At(RE::Actor* a_actor) { return { kTargetSpecificReference, a_actor->GetHandle(), nullptr }; }
+
+        void WriteTo(RE::PackageTarget* a_targ) const {
+            a_targ->targType = type;
+            if (type == kTargetSpecificReference) {
+                a_targ->target.handle = handle;
+            } else {
+                a_targ->target.object = object;
+            }
+        }
+
+        bool References(RE::Actor* a_actor) const {
+            if (!a_actor) return false;
+            if (type == kTargetSpecificReference) return handle == a_actor->GetHandle();
+            if (type == kTargetObjectID) return object == a_actor || object == a_actor->GetBaseObject();
+            return false;
+        }
+    };
+
+    // A package location's value, like TargetValue
+    struct LocationValue {
+        RE::PackageLocation::Type type{ RE::PackageLocation::Type::kNearReference };
+        RE::ObjectRefHandle handle{};
+        RE::TESForm* object{ nullptr };
+        std::uint32_t radius{ 0 };
+
+        static LocationValue Of(const RE::PackageLocation* a_loc) {
+            LocationValue value{ a_loc->locType.get() };
+            if (value.type == RE::PackageLocation::Type::kNearReference) {
+                value.handle = a_loc->data.refHandle;
+            } else {
+                value.object = a_loc->data.object;
+            }
+            value.radius = a_loc->rad;
+            return value;
+        }
+        // Near a_actor, keeping a_radius
+        static LocationValue Near(RE::Actor* a_actor, std::uint32_t a_radius) {
+            return { RE::PackageLocation::Type::kNearReference, a_actor->GetHandle(), nullptr, a_radius };
+        }
+
+        void WriteTo(RE::PackageLocation* a_loc) const {
+            a_loc->locType = type;
+            if (type == RE::PackageLocation::Type::kNearReference) {
+                a_loc->data.refHandle = handle;
+            } else {
+                a_loc->data.object = object;
+            }
+            a_loc->rad = radius;
+        }
+
+        bool References(RE::Actor* a_actor) const {
+            if (!a_actor) return false;
+            if (type == RE::PackageLocation::Type::kNearReference) return handle == a_actor->GetHandle();
+            if (type == RE::PackageLocation::Type::kObjectID) return object == a_actor || object == a_actor->GetBaseObject();
+            return false;
+        }
+    };
+
     inline bool TargetReferencesActor(const RE::PackageTarget* a_targ, RE::Actor* a_actor) {
-        if (!a_targ || !a_actor) return false;
-        if (a_targ->targType == kTargetSpecificReference) {
-            return a_targ->target.handle == a_actor->GetHandle();
-        }
-        if (a_targ->targType == kTargetObjectID) {
-            return a_targ->target.object == a_actor || a_targ->target.object == a_actor->GetBaseObject();
-        }
-        return false;
+        return a_targ && TargetValue::Of(a_targ).References(a_actor);
     }
 
     inline bool LocationReferencesActor(const RE::PackageLocation* a_loc, RE::Actor* a_actor) {
-        if (!a_loc || !a_actor) return false;
-        auto type = a_loc->locType.get();
-        if (type == RE::PackageLocation::Type::kNearReference) {
-            return a_loc->data.refHandle == a_actor->GetHandle();
-        }
-        if (type == RE::PackageLocation::Type::kObjectID) {
-            return a_loc->data.object == a_actor || a_loc->data.object == a_actor->GetBaseObject();
-        }
-        return false;
+        return a_loc && LocationValue::Of(a_loc).References(a_actor);
     }
 
     inline bool PackageTargetsActor(const RE::TESPackage* a_pkg, RE::Actor* a_actor) {
@@ -113,70 +170,5 @@ namespace InTheirShoes::PackageUtil {
         });
         return found;
     }
-
-    // Package targets and locations pointed at another actor at runtime (packages are base records), saved so
-    // Restore() can put them back. Each is saved the first time it changes.
-    class PackageEdits {
-    public:
-        void Retarget(RE::PackageTarget* a_targ, RE::Actor* a_actor) {
-            if (std::ranges::none_of(_targets, [&](const SavedTarget& a_saved) { return a_saved.target == a_targ; })) {
-                _targets.push_back({ a_targ, a_targ->targType, a_targ->target.handle, a_targ->target.object });
-            }
-            a_targ->targType = kTargetSpecificReference;
-            a_targ->target.handle = a_actor->GetHandle();
-        }
-
-        void Relocate(RE::PackageLocation* a_loc, RE::Actor* a_actor) {
-            if (std::ranges::none_of(_locations, [&](const SavedLocation& a_saved) { return a_saved.location == a_loc; })) {
-                _locations.push_back({ a_loc, a_loc->locType.get(), a_loc->data.refHandle, a_loc->data.object, a_loc->rad });
-            }
-            a_loc->locType = RE::PackageLocation::Type::kNearReference;
-            a_loc->data.refHandle = a_actor->GetHandle();
-        }
-
-        std::size_t TargetCount() const { return _targets.size(); }
-        std::size_t LocationCount() const { return _locations.size(); }
-
-        // The target and location unions are restored through the member their saved type uses
-        void Restore() {
-            for (const auto& saved : _targets) {
-                saved.target->targType = saved.type;
-                if (saved.type == kTargetSpecificReference) {
-                    saved.target->target.handle = saved.handle;
-                } else {
-                    saved.target->target.object = saved.object;
-                }
-            }
-            for (const auto& saved : _locations) {
-                saved.location->locType = saved.type;
-                if (saved.type == RE::PackageLocation::Type::kNearReference) {
-                    saved.location->data.refHandle = saved.handle;
-                } else {
-                    saved.location->data.object = saved.object;
-                }
-                saved.location->rad = saved.radius;
-            }
-            _targets.clear();
-            _locations.clear();
-        }
-
-    private:
-        struct SavedTarget {
-            RE::PackageTarget* target;
-            std::int8_t type;
-            RE::ObjectRefHandle handle;
-            RE::TESForm* object;
-        };
-        struct SavedLocation {
-            RE::PackageLocation* location;
-            RE::PackageLocation::Type type;
-            RE::ObjectRefHandle handle;
-            RE::TESForm* object;
-            std::uint32_t radius;
-        };
-
-        std::vector<SavedTarget> _targets;
-        std::vector<SavedLocation> _locations;
-    };
 
 }

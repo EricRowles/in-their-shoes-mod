@@ -27,16 +27,36 @@ Function ITS_Maintenance()
 	If !PlayerRef.HasSpell(ITS_ImpersonateSpell)
 		PlayerRef.AddSpell(ITS_ImpersonateSpell, False)
 	EndIf
-	UpdateRevertSpell()
+	; The session (donor, puppet) and the settings are restored natively from the co-save
+	SyncWithPlugin()
 
-	; Synchronize SKSE Native settings from MCM properties on game load.
-	; The impersonation session itself (donor, puppet) is restored natively from the co-save.
+	; For saves from before the plugin saved its settings
 	ITS_MCM.PushConfig()
 EndFunction
 
-; The player has the Revert spell exactly while impersonating (while the OriginalDonor alias is filled)
+; The plugin decides whether the player is impersonating (ITS_NG.IsImpersonating). The aliases and the Revert spell
+; follow its answer.
+Function SyncWithPlugin()
+	If ITS_NG.IsImpersonating()
+		Actor donor = ITS_NG.GetDonor()
+		If Alias_OriginalDonor.GetActorReference() != donor
+			Alias_OriginalDonor.ForceRefTo(donor)
+		EndIf
+		Actor puppet = ITS_NG.GetPuppet()
+		If puppet && Alias_PlayerPuppet.GetActorReference() != puppet
+			Alias_PlayerPuppet.ForceRefTo(puppet)
+			puppet.BlockActivation(True)
+		EndIf
+	ElseIf Alias_OriginalDonor.GetActorReference()
+		; The plugin has no session (e.g. its co-save was lost): put the actors back as a revert would
+		ReturnActors(Alias_OriginalDonor.GetActorReference(), Alias_PlayerPuppet.GetActorReference())
+	EndIf
+	UpdateRevertSpell()
+EndFunction
+
+; The player has the Revert spell exactly while impersonating
 Function UpdateRevertSpell()
-	If Alias_OriginalDonor.GetActorReference()
+	If ITS_NG.IsImpersonating()
 		If !PlayerRef.HasSpell(ITS_RevertSpell)
 			PlayerRef.AddSpell(ITS_RevertSpell, False)
 		EndIf
@@ -59,6 +79,8 @@ String Function ValidationMessage(Int a_code)
 		Return "Cannot impersonate: target is a ghost."
 	ElseIf a_code == 8
 		Return "Cannot impersonate while transformed."
+	ElseIf a_code == 9
+		Return "Cannot impersonate: target is a temporary spawned actor."
 	EndIf
 	Return "Cannot impersonate this target."
 EndFunction
@@ -79,14 +101,26 @@ Function FadeFromBlack()
 	ImageSpaceModifier.RemoveCrossFade(0.4)
 EndFunction
 
+; A swap waits (fades) partway through, which lets another call start; a second one is dropped while it runs
+Bool _swapping = False
+
 ; Morph Complete Function -----------------------------------------------------------------------------------
 Function ITS_ImpersonateComplete(Actor a_donor)
+	If !_swapping
+		_swapping = True
+		DoImpersonate(a_donor)
+		_swapping = False
+	EndIf
+EndFunction
+
+Function DoImpersonate(Actor a_donor)
 	If !a_donor || a_donor == PlayerRef
 		Return
 	EndIf
 
-	If a_donor == Alias_PlayerPuppet.GetActorReference()
-		ITS_Revert()
+	Bool firstImpersonation = !ITS_NG.IsImpersonating()
+	If !firstImpersonation && a_donor == ITS_NG.GetPuppet()
+		DoRevert()
 		Return
 	EndIf
 
@@ -114,7 +148,6 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 
 	; On the first impersonation, the puppet takes the player's spot (in the loaded cell, so its 3D is attached
 	; before morphing). On a donor-to-donor switch the puppet stays where it is and the old donor takes the player's spot.
-	Bool firstImpersonation = !Alias_OriginalDonor.GetActorReference()
 	If firstImpersonation
 		puppet.MoveTo(PlayerRef)
 		Utility.Wait(0.1)
@@ -124,9 +157,8 @@ Function ITS_ImpersonateComplete(Actor a_donor)
 		; The player takes the donor's spot
 		PlayerRef.MoveTo(ITS_TempMarker)
 		PlayerRef.StopCombat()
-		Alias_OriginalDonor.ForceRefTo(a_donor)
-		a_donor.EvaluatePackage()	; the alias's hold-position package keeps it at the storage marker
-		UpdateRevertSpell()
+		SyncWithPlugin()
+		a_donor.EvaluatePackage()	; the OriginalDonor alias's hold-position package keeps it at the storage marker
 		Debug.Notification("Control Swapped")
 	Else
 		If firstImpersonation
@@ -144,42 +176,55 @@ EndFunction
 
 ; Revert Function -----------------------------------------------------------------------------------
 Function ITS_Revert()
-	Actor donor = Alias_OriginalDonor.GetActorReference()
-	If donor
-		If ITS_NG.IsPlayerTransformed()
-			Debug.Notification("Cannot return to your body while transformed.")
-			Return
-		EndIf
-		Actor puppet = Alias_PlayerPuppet.GetActorReference()
-
-		FadeToBlack()
-
-		; Restore state first so the native donor leash is off before anyone moves
-		ITS_TempMarker.MoveTo(PlayerRef)
-		If !ITS_NG.Revert() && ITS_NG.IsImpersonating()
-			; The plugin refused and still holds the session: leave everyone where they are. (If the plugin has
-			; no session, e.g. after a lost co-save, carry on so the aliases and actors are put back.)
-			ITS_TempMarker.MoveTo(ITS_StorageMarker)
-			FadeFromBlack()
-			Debug.Notification("Couldn't return to your body.")
-			Return
-		EndIf
-
-		; The player returns to the puppet's spot and the donor takes the player's old spot
-		PlayerRef.MoveTo(puppet)
-		PlayerRef.StopCombat()
-		donor.MoveTo(ITS_TempMarker)
-		donor.StopCombat()
-
-		puppet.BlockActivation(False)
-		puppet.MoveTo(ITS_StorageMarker)
-		ITS_TempMarker.MoveTo(ITS_StorageMarker)
-		Alias_OriginalDonor.Clear()
-		Alias_PlayerPuppet.Clear()
-		UpdateRevertSpell()
-
-		FadeFromBlack()
-
-		Debug.Notification("Returned to Body")
+	If !_swapping
+		_swapping = True
+		DoRevert()
+		_swapping = False
 	EndIf
+EndFunction
+
+Function DoRevert()
+	If !ITS_NG.IsImpersonating()
+		SyncWithPlugin()
+		Return
+	EndIf
+	If ITS_NG.IsPlayerTransformed()
+		Debug.Notification("Cannot return to your body while transformed.")
+		Return
+	EndIf
+	Actor donor = ITS_NG.GetDonor()
+	Actor puppet = ITS_NG.GetPuppet()
+
+	FadeToBlack()
+
+	; Restore state first so the native donor leash is off before anyone moves
+	If !ITS_NG.Revert()
+		FadeFromBlack()
+		Debug.Notification("Couldn't return to your body.")
+		Return
+	EndIf
+	ReturnActors(donor, puppet)
+
+	FadeFromBlack()
+	Debug.Notification("Returned to Body")
+EndFunction
+
+; Once the plugin has no session: the player returns to the puppet's spot, the donor takes the player's old spot,
+; and the puppet is put away
+Function ReturnActors(Actor a_donor, Actor a_puppet)
+	ITS_TempMarker.MoveTo(PlayerRef)
+	If a_puppet
+		PlayerRef.MoveTo(a_puppet)
+		a_puppet.BlockActivation(False)
+		a_puppet.MoveTo(ITS_StorageMarker)
+	EndIf
+	PlayerRef.StopCombat()
+	If a_donor
+		a_donor.MoveTo(ITS_TempMarker)
+		a_donor.StopCombat()
+	EndIf
+	ITS_TempMarker.MoveTo(ITS_StorageMarker)
+	Alias_OriginalDonor.Clear()
+	Alias_PlayerPuppet.Clear()
+	UpdateRevertSpell()
 EndFunction

@@ -10,6 +10,8 @@ Bool Function Impersonate(Actor a_donor, Actor a_puppet) Global Native
 ; gets their own appearance, stats, spells and gear back. Move the actors afterwards.
 Bool Function Revert() Global Native
 
+; Settings: the plugin saves them in its co-save. ITS_MCMScript sets them.
+
 ; Enables or disables autonomous idle AI pathing on the player when inactive.
 Function SetIdleAIEnabled(Bool a_enabled) Global Native
 
@@ -51,15 +53,26 @@ Function SetPuppetFollowsPlayer(Bool a_follows) Global Native
 
 ; Validates whether a_target can be impersonated by the player.
 ; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost,
-; 8 = Player is transformed (see IsPlayerTransformed).
+; 8 = Player is transformed (see IsPlayerTransformed), 9 = Spawned actor (a temporary FF reference).
 Int Function ValidateImpersonateTarget(Actor a_target) Global Native
 
 ; Whether the player is in Werewolf or Vampire Lord form, or changing into or out of it.
 ; Impersonate and Revert refuse while it is true.
 Bool Function IsPlayerTransformed() Global Native
 
-; Whether the plugin has an impersonation session. It can differ from ITS_Quest's aliases if the co-save was lost.
+; Whether the player is impersonating. The plugin owns this answer; ITS_QuestScript keeps its aliases in line with it.
 Bool Function IsImpersonating() Global Native
+
+; The donor and puppet while impersonating, otherwise None
+Actor Function GetDonor() Global Native
+Actor Function GetPuppet() Global Native
+
+; The donor's name; "None" when not impersonating, "Not Found" when a saved session's donor no longer exists
+String Function GetDonorName() Global Native
+
+; Used by ITS_IdlePackage.Apply: 0 if call a_sequence was superseded by a later one, 1 to apply it, 2 to apply it
+; and call Game.SetPlayerAIDriven(a_aiDriven).
+Int Function BeginIdlePackageApply(Int a_sequence, Bool a_aiDriven) Global Native
 
 ; The plugin's version, e.g. "0.5.0"
 String Function GetPluginVersion() Global Native

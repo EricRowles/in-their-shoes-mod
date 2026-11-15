@@ -3,6 +3,7 @@
 #include "FactionManager.h"
 #include "Forms.h"
 #include "Session.h"
+#include "Settings.h"
 
 #include <optional>
 #include <utility>
@@ -63,7 +64,7 @@ namespace InTheirShoes::ConditionHooks {
         bool IsVoiceTypeAsDonor(const Query& a_q, double& a_result) {
             auto* targetVoice = static_cast<RE::BGSVoiceType*>(a_q.param1);
             auto* donorVoice = a_q.session.GetDonorVoiceType();
-            auto* voice = ((a_q.session.IsInSelfDialogue() || a_q.session.IsNPCVoiceEnabled()) && donorVoice) ?
+            auto* voice = ((a_q.session.IsInSelfDialogue() || Settings::GetSingleton().IsNPCVoiceEnabled()) && donorVoice) ?
                               donorVoice :
                               a_q.session.GetOrigPlayerVoiceType();
             a_result = (voice && targetVoice == voice) ? 1.0 : 0.0;
@@ -104,10 +105,7 @@ namespace InTheirShoes::ConditionHooks {
             return a_q.Ask(a_q.donor ? a_q.donor : a_q.player, a_result);
         }
 
-        // The player only joins the donor's scenes through its swapped aliases, which doesn't put the Dragonborn in
-        // them. A banter quest's "IsInScene == 0 on the player" dialogue condition failed all of its lines, so a
-        // scene's actions finished at once with nothing said (#1). The condition can't tell which aliases put the
-        // player in the scene, so scenes it's really in answer no as well.
+        // IsInScene on the player answers for the donor, so banter lines requiring "IsInScene == 0" don't fail (#1).
         bool IsInSceneAsDonor(const Query& a_q, double& a_result) {
             a_result = a_q.IsTrueFor(a_q.donor) ? 1.0 : 0.0;
             return true;
@@ -121,6 +119,13 @@ namespace InTheirShoes::ConditionHooks {
 
         bool AskSubject(const Query& a_q, double& a_result) {
             return a_q.Ask(a_q.subject, a_result);
+        }
+
+        // The puppet's body has the Dragonborn's race and sex, as the player's has the donor's. In self-dialogue
+        // the bodies are the wrong way round, so race and sex are asked of the other body.
+        bool AskPuppet(const Query& a_q, double& a_result) {
+            auto* puppet = a_q.session.GetPuppet();
+            return a_q.Ask(puppet ? puppet : a_q.subject, a_result);
         }
 
         bool IsIDAsDragonborn(const Query& a_q, double& a_result) {
@@ -186,8 +191,20 @@ namespace InTheirShoes::ConditionHooks {
             { "GetIsClass"sv, &AskDonor, &AskPlayer },
             { "GetIsCrimeFaction"sv, &AskDonor, &AskPlayer },
             { "IsInScene"sv, &IsInSceneAsDonor, &AskSubject },
+            { "GetIsRace"sv, &AskPlayer, &AskPuppet },
+            { "GetIsSex"sv, &AskPlayer, &AskPuppet },
         };
         constexpr std::size_t kIdentityCount = std::size(kIdentityConditions);
+
+        constexpr std::size_t IdentityIndex(std::string_view a_name) {
+            for (std::size_t i = 0; i < kIdentityCount; ++i) {
+                if (kIdentityConditions[i].name == a_name) return i;
+            }
+            return kIdentityCount;
+        }
+        constexpr std::size_t kGetIsRace = IdentityIndex("GetIsRace"sv);
+        constexpr std::size_t kGetIsSex = IdentityIndex("GetIsSex"sv);
+        static_assert(kGetIsRace < kIdentityCount && kGetIsSex < kIdentityCount);
         std::array<Condition_t*, kIdentityCount> s_originalIdentity{};
 
         template <std::size_t I>
@@ -218,9 +235,7 @@ namespace InTheirShoes::ConditionHooks {
 
         struct SpatialCondition {
             std::string_view name;
-            // The parameter is a reference, resolved like the subject. When both resolve to the player, the
-            // answer is this: per requirements.md ("Conditions that require the player to be nearby will still
-            // target the impersonator"), checks between the donor and the player pass.
+            // When both resolve to the player, checks between the donor and the player pass (requirements.md).
             std::optional<double> resultWhenBothPlayer;
         };
 
@@ -260,10 +275,8 @@ namespace InTheirShoes::ConditionHooks {
             return orig(evalThis, evalP1, a_p2, a_result);
         }
 
-        // --- Relationships: who an actor is to another ---
-        // Relationships are between base records, so the player's are the donor's: the donor's spouse, friends
-        // and enemies treat the player as the donor. The puppet keeps the Dragonborn's (marriage, followers).
-        // In self-dialogue the puppet is the donor and the player the Dragonborn.
+        // --- Relationships: the Dragonborn's apply first, then the donor's. The puppet keeps the Dragonborn's;
+        // in self-dialogue the puppet is the donor and the player the Dragonborn. ---
 
         constexpr std::string_view kRelationshipConditions[] = {
             "GetRelationshipRank"sv,
@@ -294,13 +307,49 @@ namespace InTheirShoes::ConditionHooks {
             if (!session.IsActive()) {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             }
-            return orig(ResolveRelationshipRef(session, a_thisObj),
-                ResolveRelationshipRef(session, static_cast<RE::TESObjectREFR*>(a_p1)), a_p2, a_result);
+            auto* ref = static_cast<RE::TESObjectREFR*>(a_p1);
+            auto* evalThis = ResolveRelationshipRef(session, a_thisObj);
+            auto* evalRef = ResolveRelationshipRef(session, ref);
+            // The Dragonborn's own relationship first: the player's side asked as the player rather than the donor.
+            // A rank of 0 (acquaintance) or false means the Dragonborn has none, so the donor's answers.
+            auto* player = session.GetPlayer();
+            const bool thisIsDonor = a_thisObj == player && evalThis != player;
+            const bool refIsDonor = ref == player && evalRef != player;
+            if (thisIsDonor != refIsDonor) {
+                auto* ownThis = thisIsDonor ? player : evalThis;
+                auto* ownRef = refIsDonor ? player : evalRef;
+                if (ownThis != ownRef && orig(ownThis, ownRef, a_p2, a_result) && a_result != 0.0) {
+                    return true;
+                }
+            }
+            return orig(evalThis, evalRef, a_p2, a_result);
         }
 
-        // --- The PC: outside self-dialogue the PC is the donor. GetPCIsRace and GetPCIsSex follow the player's
-        // record, which has the donor's race and sex, but the class stays the Dragonborn's. GetPCInFaction follows
-        // the player's real factions, which are the donor's; in self-dialogue the PC is the Dragonborn. ---
+        // --- The PC: the donor's race, sex and factions, the Dragonborn's class; the Dragonborn in self-dialogue ---
+
+        // In self-dialogue the PC is the Dragonborn, whose race and sex the puppet's body has. The PC conditions
+        // take the same parameter as GetIsRace and GetIsSex, so those are asked of the puppet.
+        template <std::size_t IsCondition>
+        bool PCIsAsPuppet(Condition_t* a_orig, RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            auto& session = Session::GetSingleton();
+            auto* puppet = session.GetPuppet();
+            auto* isCondition = s_originalIdentity[IsCondition];
+            if (session.IsActive() && session.IsInSelfDialogue() && puppet && isCondition) {
+                return isCondition(puppet, a_p1, a_p2, a_result);
+            }
+            return a_orig(a_thisObj, a_p1, a_p2, a_result);
+        }
+
+        Condition_t* s_originalPCIsRace{ nullptr };
+        Condition_t* s_originalPCIsSex{ nullptr };
+
+        bool PCIsRaceThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            return s_originalPCIsRace && PCIsAsPuppet<kGetIsRace>(s_originalPCIsRace, a_thisObj, a_p1, a_p2, a_result);
+        }
+
+        bool PCIsSexThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            return s_originalPCIsSex && PCIsAsPuppet<kGetIsSex>(s_originalPCIsSex, a_thisObj, a_p1, a_p2, a_result);
+        }
 
         Condition_t* s_originalPCIsClass{ nullptr };
 
@@ -371,9 +420,11 @@ namespace InTheirShoes::ConditionHooks {
                                         HookSpatialConditions(std::make_index_sequence<kSpatialCount>{}) +
                                         HookRelationshipConditions(std::make_index_sequence<kRelationshipCount>{}) +
                                         HookCondition(s_originalPCIsClass, "GetPCIsClass"sv, &PCIsClassThunk) +
-                                        HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk);
+                                        HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk) +
+                                        HookCondition(s_originalPCIsRace, "GetPCIsRace"sv, &PCIsRaceThunk) +
+                                        HookCondition(s_originalPCIsSex, "GetPCIsSex"sv, &PCIsSexThunk);
 
-        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 2;
+        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 4;
         if (hookedCount == kExpectedHooks) {
             SKSE::log::info("Installed all {} script condition hooks.", hookedCount);
         } else {

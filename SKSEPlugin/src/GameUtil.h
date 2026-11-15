@@ -92,6 +92,7 @@ namespace InTheirShoes {
         kMenu,
         kScene,
         kSelfDialogue,
+        kFurniture,
     };
 
     constexpr std::string_view ToString(PlayerBusy a_busy) {
@@ -100,8 +101,18 @@ namespace InTheirShoes {
             case PlayerBusy::kMenu: return "menu"sv;
             case PlayerBusy::kScene: return "scene"sv;
             case PlayerBusy::kSelfDialogue: return "self-dialogue"sv;
+            case PlayerBusy::kFurniture: return "furniture"sv;
             default: return "not busy"sv;
         }
+    }
+
+    // Logs when what keeps a_who from acting changes, and remembers it in a_last
+    inline void LogPlayerBusy(PlayerBusy& a_last, PlayerBusy a_now, std::string_view a_who) {
+        if (a_now == a_last) return;
+        if (a_now != PlayerBusy::kNo) {
+            SKSE::log::info("{} waiting: {}", a_who, ToString(a_now));
+        }
+        a_last = a_now;
     }
 
     // Real time, which keeps running while the game is paused

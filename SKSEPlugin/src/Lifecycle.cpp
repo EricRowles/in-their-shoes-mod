@@ -3,6 +3,7 @@
 #include "ActorHooks.h"
 #include "AliasSwapManager.h"
 #include "ConditionHooks.h"
+#include "CrimeManager.h"
 #include "DialogueManager.h"
 #include "FaceManager.h"
 #include "FactionManager.h"
@@ -12,7 +13,9 @@
 #include "ImpersonationManager.h"
 #include "NativeRedirect.h"
 #include "PackageRetarget.h"
+#include "PlayerVoice.h"
 #include "Session.h"
+#include "Settings.h"
 
 namespace InTheirShoes::Lifecycle {
 
@@ -28,6 +31,7 @@ namespace InTheirShoes::Lifecycle {
 
         Forms::Resolve();
         DialogueManager::GetSingleton().Initialize();
+        AliasSwapManager::GetSingleton().Initialize();
         ActorHooks::Install();
         ConditionHooks::Install();
         FaceManager::GetSingleton().InstallHook();
@@ -39,6 +43,8 @@ namespace InTheirShoes::Lifecycle {
         ImpersonationManager::GetSingleton().OnPostLoadGame();
         IdleAIManager::GetSingleton().OnPostLoadGame();
         if (auto& session = Session::GetSingleton(); session.IsActive()) {
+            // Before FactionManager, which leaves the aliases' factions out of the ones it moves
+            AliasSwapManager::GetSingleton().SwapNewDonorAliases();
             FactionManager::GetSingleton().OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
             IdleAIManager::GetSingleton().OnImpersonationChanged(true);
             PackageRetarget::GetSingleton().RetargetDonorToPlayer(session.GetDonor(), Session::GetPlayer());
@@ -49,11 +55,13 @@ namespace InTheirShoes::Lifecycle {
         ImpersonationManager::GetSingleton().OnRevert();
         AliasSwapManager::GetSingleton().Clear();
         FactionManager::GetSingleton().Clear();
+        CrimeManager::GetSingleton().Clear();
         IdleAIManager::GetSingleton().Clear();
         DialogueManager::GetSingleton().Clear();
         IdleChatter::GetSingleton().Clear();
-        // After IdleAIManager, which restores the targets it retargeted from the player to the puppet
-        PackageRetarget::GetSingleton().Restore(false);
+        PackageRetarget::GetSingleton().RestoreAll();
+        // A save without settings (from an older version) gets the MCM's once it pushes them
+        Settings::GetSingleton().Reset();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
@@ -68,6 +76,7 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnSessionBegin() {
+        CrimeManager::GetSingleton().OnSessionBegin(RE::PlayerCharacter::GetSingleton());
         IdleAIManager::GetSingleton().ClearPlayerPackages();
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(true);
@@ -81,11 +90,18 @@ namespace InTheirShoes::Lifecycle {
         }
     }
 
+    void OnSelfDialogueEnded() {
+        // Called from the menu event or the dialogue hook; IdleAIManager's state belongs to the main thread
+        SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnSelfDialogueEnded(); });
+    }
+
     void OnSessionEnd() {
+        // The player stops voicing the donor's line on revert or a switch to another donor
+        PlayerVoice::GetSingleton().Finish();
+        CrimeManager::GetSingleton().OnSessionEnd(RE::PlayerCharacter::GetSingleton());
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged(false);
-        // After IdleAIManager, which restores the targets it retargeted from the player to the puppet
-        PackageRetarget::GetSingleton().Restore();
+        PackageRetarget::GetSingleton().RestoreDonorToPlayer();
     }
 
 }

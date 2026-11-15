@@ -23,6 +23,7 @@ add_library(${PROJECT_NAME} SHARED
     src/Forms.cpp
     src/GameUtil.h
     src/Session.h
+    src/Settings.h
     src/Singleton.h
     src/Lifecycle.h
     src/Lifecycle.cpp
@@ -30,6 +31,8 @@ add_library(${PROJECT_NAME} SHARED
     src/ActorHooks.cpp
     src/ConditionHooks.h
     src/ConditionHooks.cpp
+    src/CrimeManager.h
+    src/CrimeManager.cpp
     src/AliasSwapManager.h
     src/AliasSwapManager.cpp
     src/FaceManager.h
@@ -47,6 +50,8 @@ add_library(${PROJECT_NAME} SHARED
     src/PackageRetarget.cpp
     src/DialogueManager.h
     src/DialogueManager.cpp
+    src/PlayerVoice.h
+    src/PlayerVoice.cpp
     src/IdleChatter.h
     src/IdleChatter.cpp
     src/QuestConditions.h

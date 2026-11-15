@@ -3,6 +3,7 @@
 #include "GameUtil.h"
 #include "Lifecycle.h"
 #include "Session.h"
+#include "Settings.h"
 
 namespace InTheirShoes::ActorHooks {
 
@@ -25,7 +26,7 @@ namespace InTheirShoes::ActorHooks {
                 if (session.IsActive() && donorVoice) {
                     auto* player = RE::PlayerCharacter::GetSingleton();
                     if (player && a_this == player->GetActorBase()) {
-                        if (session.IsNPCVoiceEnabled()) {
+                        if (Settings::GetSingleton().IsNPCVoiceEnabled()) {
                             return donorVoice;
                         }
                         return session.GetOrigPlayerVoiceType();

@@ -7,14 +7,13 @@
 #include "Forms.h"
 #include "GameUtil.h"
 #include "Lifecycle.h"
+#include "Settings.h"
 
 namespace InTheirShoes {
 
     namespace {
-        // Gives a unique donor an empty outfit, so the engine never adds its outfit again: the outfit's items
-        // left with the player, and re-adding it duplicated what the donor was given back.
-        //
-        // This deliberately breaks the rule against permanent base record changes.
+        // Gives a unique donor an empty outfit so the engine never re-adds it, which duplicated items. Deliberately
+        // breaks the rule against permanent base record changes.
         void RemoveUniqueDonorOutfit(RE::Actor* a_donor) {
             auto* npc = a_donor->GetActorBase();
             if (!Forms::emptyOutfit || !npc || !npc->IsUnique() || npc->IsDynamicForm()) return;
@@ -32,9 +31,8 @@ namespace InTheirShoes {
         const char* shown = puppet->GetDisplayFullName();
         if (shown && _baseline->face.fullName == shown) return;
 
-        // An alias that names its holder (e.g. Remi's follower alias) leaves the puppet nameless when it's moved
-        // to the player, and a nameless actor has no activation prompt (#23). The alias's message outranks a
-        // custom name, so it is cleared first.
+        // A naming alias moved to the player leaves the puppet nameless, with no activation prompt (#23). The alias's
+        // message outranks a custom name, so clear it first.
         auto* textData = puppet->extraList.GetByType<RE::ExtraTextDisplayData>();
         if (!textData) {
             puppet->extraList.Add(new RE::ExtraTextDisplayData(_baseline->face.fullName.c_str()));
@@ -57,12 +55,8 @@ namespace InTheirShoes {
     }
 
     RE::BSEventNotifyControl ImpersonationManager::ProcessEvent(const SKSE::NiNodeUpdateEvent* a_event, RE::BSTEventSource<SKSE::NiNodeUpdateEvent>*) {
-        // RaceMenu keeps its own copy of the Dragonborn's tint colors (and custom hair color) in its script. On
-        // every game load and every load of the player's 3D, its OnGameReload / On3DLoaded writes them back with
-        // Game.SetNthTintMaskColor and SetHairColor, which also set the base record's bodyTintColor, and then
-        // calls QueueNiNodeUpdate. That replaced the donor's skin with the Dragonborn's about 3s after a load (#14).
-        // SKSE sends this event once that update has rebuilt the 3D, so put the donor's colors back then. The
-        // event isn't guaranteed to arrive on the main thread, so only Session is read here.
+        // RaceMenu writes the Dragonborn's tints back on load and 3D load, replacing the donor's skin (#14). Reapply
+        // the donor's once that update rebuilds the 3D. May arrive off the main thread: reads only Session.
         if (!a_event || a_event->reference != GetPlayer() || !IsActive()) {
             return RE::BSEventNotifyControl::kContinue;
         }
@@ -106,14 +100,13 @@ namespace InTheirShoes {
             baseline.stats = std::move(*stats);
         }
         InventoryManager::StashPlayerSpells(a_player, baseline.spells);
+        baseline.progress = StatManager::CaptureProgress(RE::PlayerCharacter::GetSingleton());
         SetBaseline(std::move(baseline));
         SKSE::log::info("Captured Dragonborn baseline (name '{}').", _baseline->face.fullName.c_str());
     }
 
     bool ImpersonationManager::IsPlayerTransformed() {
-        // The Werewolf and Vampire Lord quests run for the whole transformation, including the moments
-        // around the race swap, and restore the race they saved when it began. (Confirmed for Vampire Lord: the
-        // quest runs from the start of the transformation until ~2s after changing back.)
+        // These quests run for the whole transformation and restore the race they saved when it began.
         return IsQuestRunning(Forms::playerWerewolfQuest) || IsQuestRunning(Forms::dlc1PlayerVampireQuest);
     }
 
@@ -192,6 +185,7 @@ namespace InTheirShoes {
         if (_baseline) {
             FaceManager::GetSingleton().ApplySnapshot(player, _baseline->face);
             StatManager::ApplySnapshot(player, _baseline->stats);
+            StatManager::RestoreProgress(player, _baseline->progress);
         }
         if (puppet) {
             InventoryManager::TransferAllItems(puppet, player, _donorQuestItems);
@@ -255,7 +249,7 @@ namespace InTheirShoes {
     void ImpersonationManager::ApplyPuppetFollowState(RE::Actor* a_puppet) {
         // The follow package itself lives on the PlayerPuppet alias, gated by the ITS_PuppetFollows global.
         // Teammate status lets the puppet travel through load doors with the player.
-        if (_puppetFollows) {
+        if (Settings::GetSingleton().DoesPuppetFollowPlayer()) {
             a_puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
         } else {
             a_puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
@@ -264,9 +258,8 @@ namespace InTheirShoes {
 
     void ImpersonationManager::ConfigurePuppet(RE::Actor* a_puppet) {
         if (_baseline) {
-            // The puppet has usually just been moved in, and its 3D may still be loading from the old
-            // base data; a 3D reset before it attaches is lost. Reapply once the 3D is in place.
-            // A 3D reset also keeps the skeleton and animations loaded for the puppet's own race and sex (#22).
+            // The puppet's 3D may still be loading, and a reset before it attaches is lost: reapply when it is.
+            // A reset also keeps the skeleton of the puppet's own race and sex (#22).
             auto* base = a_puppet->GetActorBase();
             bool bodyChanges = base && (base->GetSex() != _baseline->face.sex || a_puppet->GetRace() != _baseline->face.race);
             _puppetRefresh = bodyChanges ? PuppetRefresh::kReloadThenReapply : PuppetRefresh::kReapply;
@@ -277,7 +270,7 @@ namespace InTheirShoes {
         a_puppet->AllowBleedoutDialogue(true);
         a_puppet->StopCombat();
         a_puppet->EvaluatePackage(true, true);
-        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), _puppetFollows);
+        SKSE::log::info("Configured puppet {:08X} (followsPlayer={}).", a_puppet->GetFormID(), Settings::GetSingleton().DoesPuppetFollowPlayer());
     }
 
     void ImpersonationManager::ReleasePuppet() {
@@ -288,20 +281,20 @@ namespace InTheirShoes {
         AttachPuppet(nullptr);
     }
 
-    void ImpersonationManager::SetPuppetFollowsPlayer(bool a_follows) {
-        _puppetFollows = a_follows;
+    void ImpersonationManager::OnPuppetFollowsChanged() {
         auto* puppet = GetPuppet();
         if (!puppet || !IsActive()) return;
 
+        const bool follows = Settings::GetSingleton().DoesPuppetFollowPlayer();
         ApplyPuppetFollowState(puppet);
         auto* player = RE::PlayerCharacter::GetSingleton();
-        if (a_follows && player &&
+        if (follows && player &&
             (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f)) {
             puppet->MoveTo(player);
             SKSE::log::info("Teleported the puppet to the player.");
         }
         puppet->EvaluatePackage(true, true);
-        SKSE::log::info("Updated puppet follows player: {}", a_follows);
+        SKSE::log::info("Updated puppet follows player: {}", follows);
     }
 
     void ImpersonationManager::RefreshPuppetAppearanceWhenLoaded() {
@@ -412,9 +405,7 @@ namespace InTheirShoes {
         if (!IsActive()) return;
 
         if (auto* donor = GetDonor()) {
-            // The player's record may have reloaded with stale appearance data; reapply the donor's look as
-            // captured when impersonation began. Re-capturing now would miss the donor's rendered skin and hair
-            // tints, since the parked donor has no 3D. (If the snapshot couldn't be captured, re-capture anyway.)
+            // Reapply the donor's look captured at the start: the parked donor has no 3D to re-capture tints from.
             if (_donorFace) {
                 SKSE::GetTaskInterface()->AddTask([face = *_donorFace]() {
                     FaceManager::GetSingleton().ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);

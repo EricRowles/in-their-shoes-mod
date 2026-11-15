@@ -5,9 +5,9 @@
 #include "FactionManager.h"
 #include "DialogueManager.h"
 #include "GameUtil.h"
-#include "IdleChatter.h"
 #include "ImpersonationManager.h"
 #include "Session.h"
+#include "Settings.h"
 #include "Version.h"
 #include <RE/C/ControlMap.h>
 #include <RE/T/TESRace.h>
@@ -24,20 +24,47 @@ namespace InTheirShoes::Papyrus {
             return ImpersonationManager::GetSingleton().Revert();
         }
 
+        // --- Settings (ITS_MCMScript) ---
+
         void SetIdleAIEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-            IdleAIManager::GetSingleton().SetIdleAIEnabled(a_enabled);
+            Settings::GetSingleton().SetIdleAIEnabled(a_enabled);
         }
 
         void SetIdleAITimeout(RE::StaticFunctionTag*, float a_seconds) {
-            IdleAIManager::GetSingleton().SetIdleTimeout(a_seconds);
+            Settings::GetSingleton().SetIdleTimeout(a_seconds);
         }
 
+        // IdleAIManager's state is the main thread's (its Update runs there), so the change is handled there
         void SetIdleAIPackage(RE::StaticFunctionTag*, std::int32_t a_index) {
-            IdleAIManager::GetSingleton().SetIdlePackage(a_index);
+            Settings::GetSingleton().SetIdlePackage(a_index);
+            SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnIdlePackageChanged(); });
         }
 
         void SetIdleTravelDestination(RE::StaticFunctionTag*, std::int32_t a_index) {
-            IdleAIManager::GetSingleton().SetTravelDestination(a_index);
+            Settings::GetSingleton().SetTravelDestination(a_index);
+            SKSE::GetTaskInterface()->AddTask([] { IdleAIManager::GetSingleton().OnTravelDestinationChanged(); });
+        }
+
+        void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
+            Settings::GetSingleton().SetIdleChatterInterval(a_seconds);
+        }
+
+        void SetNPCVoiceEnabled(RE::StaticFunctionTag*, bool a_enabled) {
+            Settings::GetSingleton().SetNPCVoiceEnabled(a_enabled);
+        }
+
+        void SetNativeRedirectEnabled(RE::StaticFunctionTag*, bool a_enabled) {
+            Settings::GetSingleton().SetNativeRedirectEnabled(a_enabled);
+        }
+
+        void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
+            Settings::GetSingleton().SetPuppetFollowsPlayer(a_follows);
+            ImpersonationManager::GetSingleton().OnPuppetFollowsChanged();
+        }
+
+        // ITS_IdlePackage.Apply: see IdleAIManager::BeginIdlePackageApply
+        std::int32_t BeginIdlePackageApply(RE::StaticFunctionTag*, std::int32_t a_sequence, bool a_aiDriven) {
+            return std::to_underlying(IdleAIManager::GetSingleton().BeginIdlePackageApply(a_sequence, a_aiDriven));
         }
 
         RE::BSFixedString GetCurrentSceneName(RE::StaticFunctionTag*) {
@@ -56,26 +83,10 @@ namespace InTheirShoes::Papyrus {
             return static_cast<std::int32_t>(AliasSwapManager::GetSingleton().GetSwappedAliasCount());
         }
 
-        void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
-            IdleChatter::GetSingleton().SetInterval(a_seconds);
-        }
-
         bool OpenSelfDialogue(RE::StaticFunctionTag*, RE::Actor* a_speaker) {
             SKSE::log::info("OpenSelfDialogue called from Papyrus with speaker {:08X}",
                 a_speaker ? a_speaker->GetFormID() : 0u);
             return DialogueManager::GetSingleton().OpenSelfDialogue(a_speaker);
-        }
-
-        void SetNPCVoiceEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-            Session::GetSingleton().SetNPCVoiceEnabled(a_enabled);
-        }
-
-        void SetNativeRedirectEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-            Session::GetSingleton().SetNativeRedirectEnabled(a_enabled);
-        }
-
-        void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
-            ImpersonationManager::GetSingleton().SetPuppetFollowsPlayer(a_follows);
         }
 
         // ValidateImpersonateTarget's result. The values are part of the Papyrus API (documented in ITS_NG.psc,
@@ -90,6 +101,7 @@ namespace InTheirShoes::Papyrus {
             kMounted = 6,
             kGhost = 7,
             kPlayerTransformed = 8,
+            kSpawned = 9,
         };
 
         TargetValidation ValidateTarget(RE::Actor* a_target) {
@@ -114,6 +126,11 @@ namespace InTheirShoes::Papyrus {
             }
             if (a_target->IsGhost()) {
                 return TargetValidation::kGhost;
+            }
+            // A spawned actor (FF form ID, e.g. a leveled bandit) can be deleted while parked, and a session saved
+            // with a missing donor can't be restored or reverted
+            if (a_target->IsDynamicForm()) {
+                return TargetValidation::kSpawned;
             }
             auto* base = a_target->GetActorBase();
             if (!base) {
@@ -151,8 +168,29 @@ namespace InTheirShoes::Papyrus {
             return fmt::format("{}.{}.{}", ITS_VERSION_MAJOR, ITS_VERSION_MINOR, ITS_VERSION_PATCH);
         }
 
+        // The plugin owns whether the player is impersonating; ITS_QuestScript keeps its aliases in line with it
         bool IsImpersonating(RE::StaticFunctionTag*) {
             return Session::GetSingleton().IsActive();
+        }
+
+        RE::Actor* GetDonor(RE::StaticFunctionTag*) {
+            auto& session = Session::GetSingleton();
+            return session.IsActive() ? session.GetDonor() : nullptr;
+        }
+
+        RE::Actor* GetPuppet(RE::StaticFunctionTag*) {
+            auto& session = Session::GetSingleton();
+            return session.IsActive() ? session.GetPuppet() : nullptr;
+        }
+
+        // The donor's name for the MCM: "None" when not impersonating, "Not Found" when a saved session's donor no
+        // longer exists (the Dragonborn's baseline was loaded without a session)
+        RE::BSFixedString GetDonorName(RE::StaticFunctionTag*) {
+            auto& session = Session::GetSingleton();
+            if (auto* donor = session.IsActive() ? session.GetDonor() : nullptr) {
+                return donor->GetDisplayFullName();
+            }
+            return ImpersonationManager::GetSingleton().GetBaseline() ? "Not Found"sv : "None"sv;
         }
 
         bool IsPlayerTransformed(RE::StaticFunctionTag*) {
@@ -162,8 +200,7 @@ namespace InTheirShoes::Papyrus {
         using VM = RE::BSScript::IVirtualMachine;
 
         // --- Trigger events ---
-        // When the player enters or leaves a trigger with a script property set to the donor,
-        // the trigger also gets the event for the donor.
+        // A trigger with a script property set to the donor also gets the player's enter/leave events for the donor.
         // Runs on any thread: reads only Session and the VM's locked script table.
 
         using SendEvent_t = void(VM*, RE::VMHandle, const RE::BSFixedString&, RE::BSScript::IFunctionArguments*);
@@ -243,6 +280,10 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);
         a_vm->RegisterFunction("GetPluginVersion", className, GetPluginVersion);
         a_vm->RegisterFunction("IsImpersonating", className, IsImpersonating);
+        a_vm->RegisterFunction("GetDonor", className, GetDonor);
+        a_vm->RegisterFunction("GetPuppet", className, GetPuppet);
+        a_vm->RegisterFunction("GetDonorName", className, GetDonorName);
+        a_vm->RegisterFunction("BeginIdlePackageApply", className, BeginIdlePackageApply);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;

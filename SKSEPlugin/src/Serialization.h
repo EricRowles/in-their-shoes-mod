@@ -9,9 +9,9 @@ namespace InTheirShoes::Serialization {
     // Every record starts at v1 (the first release format; development saves aren't read).
     inline constexpr std::uint32_t kMinSupportedVersion = 1;
 
-    // The Dragonborn's face, stats and spells. v2 added the Dragonborn's abilities.
+    // The Dragonborn's face, stats and spells. v2 added the Dragonborn's abilities, v3 their character progress.
     inline constexpr std::uint32_t kBaselineRecord = 'BASE';
-    inline constexpr std::uint32_t kBaselineVersion = 2;
+    inline constexpr std::uint32_t kBaselineVersion = 3;
     // Donor, puppet, swapped aliases (with their factions) and donor quest items carried by the player.
     // v2 added the aliases' factions; v1 isn't read.
     inline constexpr std::uint32_t kSessionRecord = 'SESS';
@@ -23,6 +23,12 @@ namespace InTheirShoes::Serialization {
     // The Dragonborn's factions, and the donor's factions the player was given (FactionManager)
     inline constexpr std::uint32_t kFactionsRecord = 'FACT';
     inline constexpr std::uint32_t kFactionsVersion = 1;
+    // The Dragonborn's bounty, set aside for the session (CrimeManager)
+    inline constexpr std::uint32_t kCrimeRecord = 'CRIM';
+    inline constexpr std::uint32_t kCrimeVersion = 1;
+    // The MCM's settings (Settings)
+    inline constexpr std::uint32_t kSettingsRecord = 'SETT';
+    inline constexpr std::uint32_t kSettingsVersion = 1;
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);
