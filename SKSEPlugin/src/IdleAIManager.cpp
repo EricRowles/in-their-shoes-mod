@@ -33,8 +33,6 @@ namespace InTheirShoes {
 
     using namespace PackageUtil;
 
-    // The package is evaluated again a moment after AI-driven turns on, once the AI movement controller has taken over
-    constexpr float kEvaluateAfterEngageSeconds = 0.25f;
     // How long engaging waits for ITS_IdlePackage.Apply to put the player in its alias before going ahead anyway
     constexpr float kEngageWaitSeconds = 2.0f;
     // How often the donor's packages are synced to the player while idle AI runs
@@ -289,8 +287,7 @@ namespace InTheirShoes {
         } else if (IsPlayerAIControlled(a_player)) {
             blockedBy = PlayerBusy::kAIControlled;
         } else if (IsInFurniture(a_player)) {
-            // Furniture the player entered itself: idle AI engaged during the enter animation and an alias package
-            // walked it out (#42).
+            // Sitting, sleeping or crafting counts as doing something, so idle AI doesn't walk the player away
             blockedBy = PlayerBusy::kFurniture;
         } else if (main && !main->GetRuntimeData().gameActive) {
             blockedBy = PlayerBusy::kWindowInactive;
@@ -324,11 +321,6 @@ namespace InTheirShoes {
             FinishEngage(a_player);
         }
 
-        if (!_evaluatedAfterEngage && SecondsSince(_aiStartTime) >= kEvaluateAfterEngageSeconds) {
-            _evaluatedAfterEngage = true;
-            a_player->EvaluatePackage(true, true);
-        }
-
         auto* scene = GetPlayingScene(a_player);
         const ScenePhase scenePhase{ scene ? scene->GetFormID() : 0, scene ? scene->currentPhaseIndex : 0 };
         if (SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds || scenePhase != _syncedScenePhase) {
@@ -348,9 +340,11 @@ namespace InTheirShoes {
             HandlePostLoad(a_player);
         }
         if (requests & kSessionChanged) {
-            // Switching donors ends and begins a session in one call, so Update never sees it inactive
+            // Switching donors ends and begins a session in one call, so Update never sees it inactive. The
+            // packages synced from the last donor go either way.
             _idleSeconds = 0.0f;
             Disengage(a_player, StopReason::kSessionChanged);
+            ClearPlayerPackages();
         }
         if (requests & kSelfDialogueEnded) {
             HandleSelfDialogueEnded();
@@ -429,7 +423,6 @@ namespace InTheirShoes {
         a_player->SetAIDriven(true);
         _owned = true;
         _state = State::kDriving;
-        _evaluatedAfterEngage = false;
         _aiStartTime = std::chrono::steady_clock::now();
         a_player->EvaluatePackage(true, true);
         SKSE::log::info("Player is AI-driven");

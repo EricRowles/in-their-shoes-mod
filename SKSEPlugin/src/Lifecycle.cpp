@@ -77,7 +77,6 @@ namespace InTheirShoes::Lifecycle {
 
     void OnSessionBegin() {
         CrimeManager::GetSingleton().OnSessionBegin(RE::PlayerCharacter::GetSingleton());
-        IdleAIManager::GetSingleton().ClearPlayerPackages();
         IdleChatter::GetSingleton().InvalidateTopicCache();
         IdleAIManager::GetSingleton().OnImpersonationChanged();
         PackageRetarget::GetSingleton().RetargetDonorToPlayer(Session::GetSingleton().GetDonor(), Session::GetPlayer());

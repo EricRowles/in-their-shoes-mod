@@ -46,8 +46,6 @@ namespace InTheirShoes {
         bool BeginIdlePackageApply(std::int32_t a_sequence) const;
         void EndIdlePackageApply(std::int32_t a_sequence);
 
-        void ClearPlayerPackages();
-
         void Clear();
 
     private:
@@ -99,6 +97,7 @@ namespace InTheirShoes {
         void UpdateRunning(RE::PlayerCharacter* a_player, float a_delta);
 
         void SyncDonorPackagesToPlayer();
+        void ClearPlayerPackages();
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
         void ReleaseGreetedPackage();
@@ -165,7 +164,6 @@ namespace InTheirShoes {
         RE::FormID _greetedScene{ 0 };
         RE::TESPackage* _loggedPackage{ nullptr };
         bool _runningPackageLogged{ false };
-        bool _evaluatedAfterEngage{ false };
         std::chrono::steady_clock::time_point _aiStartTime{};
         std::chrono::steady_clock::time_point _lastPackageSyncTime{};
         bool _savedUserRunning{ true };
