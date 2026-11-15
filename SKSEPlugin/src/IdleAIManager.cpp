@@ -4,9 +4,11 @@
 #include "Session.h"
 #include "DialogueManager.h"
 #include "Forms.h"
+#include "GameClock.h"
 #include "GameUtil.h"
 #include "PackageRetarget.h"
 #include "PackageUtil.h"
+#include "PlayerBusy.h"
 #include "Settings.h"
 
 #include <algorithm>
@@ -15,7 +17,6 @@
 #include <string>
 
 #include "RE/C/ControlMap.h"
-#include "RE/M/Main.h"
 #include "RE/P/PlayerControls.h"
 #include "RE/U/UserEvents.h"
 #include "RE/P/PackageLocation.h"
@@ -103,13 +104,6 @@ namespace InTheirShoes {
             });
             if (topic) return topic;
             return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
-        }
-
-        // Sitting, sleeping, or using a crafting station, or getting in or out of one (not riding, which uses the
-        // sitting state too)
-        bool IsInFurniture(RE::PlayerCharacter* a_player) {
-            const auto* state = a_player->AsActorState();
-            return state && state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal && !a_player->IsOnMount();
         }
 
         // Menus that stop running idle AI. Others (inventory, magic, map, journal, favorites, the console) only
@@ -240,7 +234,7 @@ namespace InTheirShoes {
         }
     }
 
-    void IdleAIManager::Update(float a_delta) {
+    void IdleAIManager::Update() {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return;
         HandleRequests(player);
@@ -269,50 +263,41 @@ namespace InTheirShoes {
         }
 
         if (IsRunning()) {
-            UpdateRunning(player, a_delta);
+            UpdateRunning(player);
         } else {
-            UpdateIdleTime(player, a_delta);
+            UpdateIdleTime(player);
         }
         ReleaseGreetedPackage();
     }
 
-    void IdleAIManager::UpdateIdleTime(RE::PlayerCharacter* a_player, float a_delta) {
-        // Idle time is game time while the player could be driven. Menus and the window being in the background
-        // pause it (so alt+tab can't use it up, #45); anything that would stop idle AI resets it.
-        auto* main = RE::Main::GetSingleton();
-        auto blockedBy = PlayerBusy::kNo;
-        bool reset = true;
-        if (CombatStopsIdleAI(a_player)) {
-            blockedBy = PlayerBusy::kCombat;
-        } else if (IsPlayerAIControlled(a_player)) {
-            blockedBy = PlayerBusy::kAIControlled;
-        } else if (IsInFurniture(a_player)) {
-            // Sitting, sleeping or crafting counts as doing something, so idle AI doesn't walk the player away
-            blockedBy = PlayerBusy::kFurniture;
-        } else if (main && !main->GetRuntimeData().gameActive) {
-            blockedBy = PlayerBusy::kWindowInactive;
-            reset = false;
-        } else if (IsBlockingMenuOpen()) {
-            blockedBy = PlayerBusy::kMenu;
-            reset = false;
-        }
+    void IdleAIManager::UpdateIdleTime(RE::PlayerCharacter* a_player) {
+        // Idle time is game time (GameClock) while the player could be driven. Menus and the window being in the
+        // background pause it (so alt+tab can't use it up, #45); anything that would stop idle AI resets it.
+        // Sitting, sleeping or crafting counts as doing something, so idle AI doesn't walk the player away.
+        // Combat goes through CombatStopsIdleAI, since the Travel package ignores it.
+        const auto blockedBy = CombatStopsIdleAI(a_player) ?
+                                   PlayerBusy::kCombat :
+                                   WhatBlocks(a_player, BusyCheck::kAIControlled | BusyCheck::kFurniture |
+                                                            BusyCheck::kWindowInactive | BusyCheck::kMenu);
         LogPlayerBusy(_blockedBy, blockedBy, "Idle AI"sv);
         if (blockedBy != PlayerBusy::kNo) {
-            if (reset) _idleSeconds = 0.0f;
+            if (blockedBy != PlayerBusy::kWindowInactive && blockedBy != PlayerBusy::kMenu) {
+                _idleSeconds = 0.0f;
+            }
             return;
         }
 
-        _idleSeconds += a_delta;
+        _idleSeconds += GameClock::FrameSeconds();
         if (_idleSeconds >= Settings::GetSingleton().GetIdleTimeout()) {
             BeginEngage(a_player);
         }
     }
 
-    void IdleAIManager::UpdateRunning(RE::PlayerCharacter* a_player, float a_delta) {
+    void IdleAIManager::UpdateRunning(RE::PlayerCharacter* a_player) {
         if (_state == State::kEngaging) {
             // AI-driven turns on once the alias is in place, so the player doesn't briefly run the wrong package.
             // A call superseded by a later one counts once that one finishes. If Papyrus is held up, go ahead.
-            _engageWaitSeconds += a_delta;
+            _engageWaitSeconds += GameClock::FrameSeconds();
             const bool applied = _appliedSequence.load(std::memory_order_acquire) >= _engageSequence;
             if (!applied && _engageWaitSeconds < kEngageWaitSeconds) return;
             if (!applied) {
@@ -323,9 +308,9 @@ namespace InTheirShoes {
 
         auto* scene = GetPlayingScene(a_player);
         const ScenePhase scenePhase{ scene ? scene->GetFormID() : 0, scene ? scene->currentPhaseIndex : 0 };
-        if (SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds || scenePhase != _syncedScenePhase) {
+        if (GameClock::SecondsSince(_lastPackageSyncTime) >= kPackageSyncSeconds || scenePhase != _syncedScenePhase) {
             _syncedScenePhase = scenePhase;
-            _lastPackageSyncTime = std::chrono::steady_clock::now();
+            _lastPackageSyncTime = GameClock::Now();
             SyncDonorPackagesToPlayer();
             CheckTravelArrival();
         }
@@ -402,7 +387,7 @@ namespace InTheirShoes {
         _runningPackageLogged = false;
         _travelArrived = false;  // Rechecked at the next package sync
         _scenePackagesRunning = false;
-        _lastPackageSyncTime = std::chrono::steady_clock::now();
+        _lastPackageSyncTime = GameClock::Now();
         if (auto* scene = GetPlayingScene(a_player)) {
             _syncedScenePhase = { scene->GetFormID(), scene->currentPhaseIndex };
         } else {
@@ -423,7 +408,7 @@ namespace InTheirShoes {
         a_player->SetAIDriven(true);
         _owned = true;
         _state = State::kDriving;
-        _aiStartTime = std::chrono::steady_clock::now();
+        _aiStartTime = GameClock::Now();
         a_player->EvaluatePackage(true, true);
         SKSE::log::info("Player is AI-driven");
     }
@@ -462,7 +447,7 @@ namespace InTheirShoes {
 
     void IdleAIManager::LogRunningPackage() {
         // Report the first package seen after engaging (or that there is none), then every change
-        if (_state != State::kDriving || SecondsSince(_aiStartTime) < 1.0f) return;
+        if (_state != State::kDriving || GameClock::SecondsSince(_aiStartTime) < 1.0f) return;
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* pkg = player ? player->GetCurrentPackage() : nullptr;
         if (_runningPackageLogged && pkg == _loggedPackage) return;

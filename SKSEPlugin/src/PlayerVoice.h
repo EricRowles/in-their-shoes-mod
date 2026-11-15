@@ -1,7 +1,7 @@
 #pragma once
 
+#include "GameClock.h"
 #include "Singleton.h"
-#include <chrono>
 #include <functional>
 #include <optional>
 #include "RE/D/DialogueItem.h"
@@ -38,6 +38,8 @@ namespace InTheirShoes {
         float GetUnvoicedSeconds() const { return _line ? _line->unvoicedDuration : 0.0f; }
         // Whether the actor is playing a voice file whose length is known (it was found and loaded)
         static bool HasVoiceSound(RE::Actor* a_actor);
+        // Whether the actor's voice is playing anything, ours or the engine's
+        static bool IsVoiceActive(RE::Actor* a_actor);
 
         // A line for the player to voice (a scene line on a swapped alias)
         void Speak(RE::DialogueResponse* a_response, bool a_unused);
@@ -81,7 +83,7 @@ namespace InTheirShoes {
             // Set for a stand-in's line: the line ends when the stand-in's does (see StandInLineDone)
             bool followsStandIn{ false };
             RE::ActorHandle standIn;
-            std::optional<std::chrono::steady_clock::time_point> standInDoneAt;
+            std::optional<GameClock::TimePoint> standInDoneAt;
             // Set while the line's voice hasn't started yet (see StartVoiceLate)
             RE::DialogueResponse* pendingVoice{ nullptr };
             // Owns the response of a line we built ourselves (idle chatter)
@@ -95,15 +97,13 @@ namespace InTheirShoes {
             // Time the sound could be heard since it started, and since its length became known (see Update)
             float soundActive{ 0.0f };
             float soundPlayed{ 0.0f };
-            // Time between ticks not counted as playback (game paused, loading screens, long frames)
-            float soundPaused{ 0.0f };
-            std::chrono::steady_clock::time_point start{};
+            GameClock::TimePoint start{};
             // When the line was asked for, and when the player's voice started (start moves if the line waits
             // for the menu)
-            std::chrono::steady_clock::time_point created{};
-            std::chrono::steady_clock::time_point soundStart{};
-            std::chrono::steady_clock::time_point lastSoundTick{};
-            std::chrono::steady_clock::time_point lastVoiceRetry{};
+            GameClock::TimePoint created{};
+            GameClock::TimePoint soundStart{};
+            GameClock::TimePoint lastSoundTick{};
+            GameClock::TimePoint lastVoiceRetry{};
         };
         std::optional<Line> _line;
         // The player's copy of a stand-in's line. Kept outside

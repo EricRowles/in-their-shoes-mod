@@ -33,6 +33,8 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `Lifecycle` | Passes plugin, game and session events to the managers in a fixed order |
 | `Session` | Who is who (donor, puppet, self-dialogue), readable from any thread. Source of truth for whether the player is impersonating |
 | `Settings` | The MCM's settings, saved in the co-save, readable from any thread |
+| `GameClock` | Time the game has been running, without pauses, loading screens or hitches. Gameplay timers use it |
+| `PlayerBusy` | Why the player can't be given something to do (combat, a menu, a scene, ...), for idle AI and idle chatter |
 | `ConditionHooks` | Identity, relationship and location conditions answer for the right actor |
 | `ActorHooks` | Voice type, editor location and per-frame player update hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |

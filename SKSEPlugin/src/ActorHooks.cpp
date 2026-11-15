@@ -50,7 +50,7 @@ namespace InTheirShoes::ActorHooks {
             _origPlayerUpdate(a_this, a_delta);
 
             if (a_this && IsMainThread()) {
-                Lifecycle::OnFrame(a_delta);
+                Lifecycle::OnFrame();
             }
         }
 

@@ -236,7 +236,7 @@ namespace InTheirShoes {
             _awaitingMenuSince.reset();
             return;
         }
-        if (SecondsSince(*_awaitingMenuSince) < kNoMenuSeconds) return;
+        if (GameClock::SecondsSince(*_awaitingMenuSince) < kNoMenuSeconds) return;
         _awaitingMenuSince.reset();
         SKSE::log::info("Self-dialogue opened no menu (a one-line greeting)");
         EndSelfDialogue();
@@ -325,7 +325,7 @@ namespace InTheirShoes {
             a_speaker->SetDialogueWithPlayer(true, false, nullptr) ||
             a_speaker->SetDialogueWithPlayer(true, true, nullptr)) {
             SKSE::log::info("Opened self-dialogue with puppet {:08X}", a_speaker->GetFormID());
-            _awaitingMenuSince = std::chrono::steady_clock::now();
+            _awaitingMenuSince = GameClock::Now();
             return true;
         }
 
@@ -383,14 +383,14 @@ namespace InTheirShoes {
             return;
         }
         if (!_unvoicedLine || _unvoicedLine->info != info) {
-            _unvoicedLine = UnvoicedLine{ info, std::chrono::steady_clock::now() };
+            _unvoicedLine = UnvoicedLine{ info, GameClock::Now() };
             return;
         }
         if (_unvoicedLine->advanced) return;
 
         auto& voice = PlayerVoice::GetSingleton();
         const float wait = std::max(voice.GetUnvoicedSeconds(), kUnvoicedLineMinSeconds);
-        if (SecondsSince(_unvoicedLine->since) < wait) return;
+        if (GameClock::SecondsSince(_unvoicedLine->since) < wait) return;
 
         SKSE::log::info("Puppet line {:08X} has no voice file; advancing after {:.1f}s", info->GetFormID(), wait);
         _unvoicedLine->advanced = true;
@@ -408,9 +408,9 @@ namespace InTheirShoes {
             return;
         }
         if (!_puppetSpeakerClearAt) {
-            _puppetSpeakerClearAt = std::chrono::steady_clock::now();
+            _puppetSpeakerClearAt = GameClock::Now();
         }
-        if (SecondsSince(*_puppetSpeakerClearAt) < kPuppetSpeakerClearSeconds) return;
+        if (GameClock::SecondsSince(*_puppetSpeakerClearAt) < kPuppetSpeakerClearSeconds) return;
         session.SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
         ClearPuppetAsSpeaker();

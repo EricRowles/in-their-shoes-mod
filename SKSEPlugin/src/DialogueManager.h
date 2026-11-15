@@ -1,8 +1,8 @@
 #pragma once
 
+#include "GameClock.h"
 #include "Singleton.h"
 #include <atomic>
-#include <chrono>
 #include <optional>
 #include "RE/D/DialogueItem.h"
 
@@ -85,16 +85,16 @@ namespace InTheirShoes {
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
         // After self-dialogue ends (Session::IsPuppetSpeakerPending), the puppet is cleared as the engine's speaker
         // shortly after the menu closes. When the menu was first seen closed, once it has
-        std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
+        std::optional<GameClock::TimePoint> _puppetSpeakerClearAt;
         // The menu line waiting on a voice file that doesn't exist (see AdvancePastUnvoicedLine)
         struct UnvoicedLine {
             const RE::TESTopicInfo* info{ nullptr };
-            std::chrono::steady_clock::time_point since{};
+            GameClock::TimePoint since{};
             bool advanced{ false };
         };
         std::optional<UnvoicedLine> _unvoicedLine;
         // When self-dialogue was opened, until its Dialogue Menu opens (main thread)
-        std::optional<std::chrono::steady_clock::time_point> _awaitingMenuSince;
+        std::optional<GameClock::TimePoint> _awaitingMenuSince;
         static constexpr float kNoMenuSeconds = 2.0f;
         static constexpr float kUnvoicedLineMinSeconds = 1.5f;
     };

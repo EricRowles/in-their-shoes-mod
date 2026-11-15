@@ -73,7 +73,7 @@ The donor shall remain hidden from the player. If scripting would make the donor
   - Idle package: Travel, which walks to a hold capital chosen in the MCM and sandboxes there on arrival
   - Autonomous combat AI (toggle)
   - NPC voice (toggle)
-  - NPC voice - interval between idle lines
+  - NPC voice - interval between idle lines (game time)
   - Puppet follows player (toggle)
   - Redirect other mods' script calls on the donor to the player (toggle)
   - Return to body (action)

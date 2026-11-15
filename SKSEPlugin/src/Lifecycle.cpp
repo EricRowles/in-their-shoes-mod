@@ -7,6 +7,7 @@
 #include "DialogueManager.h"
 #include "FaceManager.h"
 #include "FactionManager.h"
+#include "GameClock.h"
 #include "Forms.h"
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
@@ -65,8 +66,9 @@ namespace InTheirShoes::Lifecycle {
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
 
-    void OnFrame(float a_delta) {
-        IdleAIManager::GetSingleton().Update(a_delta);
+    void OnFrame() {
+        GameClock::Tick();
+        IdleAIManager::GetSingleton().Update();
         DialogueManager::GetSingleton().Update();
         // After DialogueManager, which adopts aliases a fragment just gave the puppet
         if (Session::GetSingleton().IsActive()) {

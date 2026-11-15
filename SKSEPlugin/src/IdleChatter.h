@@ -1,8 +1,8 @@
 #pragma once
 
-#include "GameUtil.h"
+#include "GameClock.h"
+#include "PlayerBusy.h"
 #include "Singleton.h"
-#include <chrono>
 #include <unordered_map>
 #include <vector>
 #include "RE/D/DialogueItem.h"
@@ -22,7 +22,7 @@ namespace InTheirShoes {
         // conditions pass. Only called while the player isn't voicing another line.
         RE::BSTSmartPointer<RE::DialogueItem> Poll();
         // The interval counts from the end of the last line
-        void OnLineFinished() { _lastLineTime = std::chrono::steady_clock::now(); }
+        void OnLineFinished() { _lastLineTime = GameClock::Now(); }
 
     private:
         friend Singleton<IdleChatter>;
@@ -47,8 +47,9 @@ namespace InTheirShoes {
         std::unordered_map<RE::FormID, float> _lastSaidHours;
         PlayerBusy _blockedBy{ PlayerBusy::kNo };
         bool _foundNothing{ false };
-        std::chrono::steady_clock::time_point _lastLineTime{ std::chrono::steady_clock::now() };
-        std::chrono::steady_clock::time_point _lastEvalTime{};
+        // GameClock times, so menus and pauses don't count toward the interval
+        GameClock::TimePoint _lastLineTime{ GameClock::Now() };
+        GameClock::TimePoint _lastEvalTime{};
     };
 
 }

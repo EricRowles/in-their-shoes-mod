@@ -1,9 +1,9 @@
 #pragma once
 
-#include "GameUtil.h"
+#include "GameClock.h"
+#include "PlayerBusy.h"
 #include "Singleton.h"
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include "RE/I/IProcedureTreeItem.h"
 
@@ -21,8 +21,8 @@ namespace InTheirShoes {
         public RE::BSTEventSink<RE::InputEvent*> {
     public:
         void Initialize();
-        // Every player update, on the main thread. a_delta is the frame's game time in seconds.
-        void Update(float a_delta);
+        // Every player update, on the main thread, after GameClock::Tick
+        void Update();
 
         // BSTEventSink<RE::InputEvent*>: any thread
         RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>* a_eventSource) override;
@@ -93,8 +93,8 @@ namespace InTheirShoes {
         void BeginEngage(RE::PlayerCharacter* a_player);
         void FinishEngage(RE::PlayerCharacter* a_player);
         void Disengage(RE::PlayerCharacter* a_player, StopReason a_reason);
-        void UpdateIdleTime(RE::PlayerCharacter* a_player, float a_delta);
-        void UpdateRunning(RE::PlayerCharacter* a_player, float a_delta);
+        void UpdateIdleTime(RE::PlayerCharacter* a_player);
+        void UpdateRunning(RE::PlayerCharacter* a_player);
 
         void SyncDonorPackagesToPlayer();
         void ClearPlayerPackages();
@@ -164,8 +164,8 @@ namespace InTheirShoes {
         RE::FormID _greetedScene{ 0 };
         RE::TESPackage* _loggedPackage{ nullptr };
         bool _runningPackageLogged{ false };
-        std::chrono::steady_clock::time_point _aiStartTime{};
-        std::chrono::steady_clock::time_point _lastPackageSyncTime{};
+        GameClock::TimePoint _aiStartTime{};
+        GameClock::TimePoint _lastPackageSyncTime{};
         bool _savedUserRunning{ true };
 
         // A scene phase: the scene's form ID and its phase index
