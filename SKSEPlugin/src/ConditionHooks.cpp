@@ -249,6 +249,8 @@ namespace InTheirShoes::ConditionHooks {
             { "GetPos"sv, std::nullopt },
             { "GetHeadingAngle"sv, 0.0 },
             { "GetAngle"sv, std::nullopt },
+            { "GetSitting"sv, std::nullopt },
+            { "GetSleeping"sv, std::nullopt },
         };
         constexpr std::size_t kSpatialCount = std::size(kSpatialConditions);
         std::array<Condition_t*, kSpatialCount> s_originalSpatial{};
