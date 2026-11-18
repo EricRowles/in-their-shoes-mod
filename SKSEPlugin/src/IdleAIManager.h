@@ -45,6 +45,9 @@ namespace InTheirShoes {
         bool BeginIdlePackageApply(std::int32_t a_sequence) const;
         void EndIdlePackageApply(std::int32_t a_sequence);
 
+        // Whether idle AI runs (engaging or driving). Any thread (condition hooks read it).
+        bool IsDrivingPlayer() const { return _running.load(); }
+
         void Clear();
 
     private:

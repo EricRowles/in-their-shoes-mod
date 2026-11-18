@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "ActorHooks.h"
+#include "Forms.h"
 #include "GameUtil.h"
 #include "Lifecycle.h"
 #include "Session.h"
@@ -71,6 +72,18 @@ namespace InTheirShoes::ActorHooks {
             RE::TESObjectCELL* a_fallback)
         {
             if (a_this && Session::GetSingleton()->IsActive()) {
+                // The donor's editor location, so its sandbox packages (DefaultMasterPackage's "near editor
+                // location") take the player home. Not the holding cell, where anchoring them froze the game
+                // (2c72b0c): there, and when the donor has none, the player's own position.
+                if (auto* donor = Session::GetSingleton()->GetDonor()) {
+                    RE::TESForm* worldOrCell = nullptr;
+                    const auto* holdingCell = Forms::storageMarker ? Forms::storageMarker->GetParentCell() : nullptr;
+                    if (donor->GetEditorLocation2(a_outPos, a_outRot, worldOrCell, a_fallback) && worldOrCell &&
+                        worldOrCell != holdingCell) {
+                        a_outWorldOrCell = worldOrCell;
+                        return true;
+                    }
+                }
                 a_outPos = a_this->GetPosition();
                 a_outRot = a_this->GetAngle();
                 auto* cell = a_this->GetParentCell();

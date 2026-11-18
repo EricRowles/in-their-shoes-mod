@@ -23,6 +23,8 @@
 #include "RE/T/TESPackage.h"
 #include "RE/T/TESCustomPackageData.h"
 #include "RE/I/IPackageData.h"
+#include "RE/B/BGSDefaultObjectManager.h"
+#include "RE/B/BGSListForm.h"
 #include "RE/B/BGSProcedureTreeBranch.h"
 #include "RE/B/BGSProcedureTreeProcedure.h"
 #include "RE/T/TESQuest.h"
@@ -100,6 +102,19 @@ namespace InTheirShoes {
             });
             if (topic) return topic;
             return customData->templateParent ? GetForceGreetTopic(customData->templateParent) : nullptr;
+        }
+
+        // The default package list (DPLT) an NPC runs when none of its own packages apply: its own, its template's
+        // (when it inherits it), else the game's DefaultMasterPackageList
+        RE::BGSListForm* GetDefaultPackageList(RE::TESActorBase* a_base) {
+            using UseFlag = RE::ACTOR_BASE_DATA::TEMPLATE_USE_FLAG;
+            for (auto* npc = skyrim_cast<RE::TESNPC*>(a_base); npc;) {
+                if (npc->defaultPackList) return npc->defaultPackList;
+                const bool inherits = npc->UsesTemplate() && npc->actorData.templateUseFlags.all(UseFlag::kAIDefPackList);
+                npc = inherits && npc->baseTemplateForm ? npc->baseTemplateForm->As<RE::TESNPC>() : nullptr;
+            }
+            auto* defaults = RE::BGSDefaultObjectManager::GetSingleton();
+            return defaults ? defaults->GetObject<RE::BGSListForm>(RE::BGSDefaultObjectManager::DefaultObject::kDefaultPackList) : nullptr;
         }
 
         // Menus that stop running idle AI. Others (inventory, magic, map, journal, favorites, the console) only
@@ -740,16 +755,26 @@ namespace InTheirShoes {
         ApplyIdlePackage();
 
         std::vector<RE::TESPackage*> donorPkgs = std::move(scenePkgs);
+        auto addDonorPackage = [&](RE::TESPackage* a_pkg) {
+            if (!a_pkg) return;
+            if (HasForceGreetProcedure(a_pkg) && puppet) {
+                retarget.RetargetPlayerToPuppet(a_pkg, puppet);
+            } else if (PackageTargetsActor(a_pkg, player)) {
+                return;
+            }
+            if (!std::ranges::contains(donorPkgs, a_pkg)) {
+                donorPkgs.push_back(a_pkg);
+            }
+        };
         for (auto* pkg : donorBase->aiPackages.packages) {
-            if (!pkg) continue;
-            if (HasForceGreetProcedure(pkg) && puppet) {
-                retarget.RetargetPlayerToPuppet(pkg, puppet);
-            } else if (PackageTargetsActor(pkg, player)) {
-                continue;
-            }
-            if (!std::ranges::contains(donorPkgs, pkg)) {
-                donorPkgs.push_back(pkg);
-            }
+            addDonorPackage(pkg);
+        }
+        // The player has no default package list to fall back on, so the donor's goes last, below its own packages
+        if (auto* defaultPackList = GetDefaultPackageList(donorBase)) {
+            defaultPackList->ForEachForm([&](RE::TESForm* a_form) {
+                addDonorPackage(a_form ? a_form->As<RE::TESPackage>() : nullptr);
+                return RE::BSContainer::ForEachResult::kContinue;
+            });
         }
 
         std::vector<RE::TESPackage*> playerPkgs;

@@ -2,6 +2,7 @@
 #include "ConditionHooks.h"
 #include "FactionManager.h"
 #include "Forms.h"
+#include "IdleAIManager.h"
 #include "Session.h"
 #include "Settings.h"
 
@@ -37,6 +38,12 @@ namespace InTheirShoes::ConditionHooks {
 
         using Answer_t = bool(const Query&, double&);
 
+        // Whether a_form is the Dragonborn: the player's reference or base
+        bool IsDragonbornID(const Query& a_q, const RE::TESForm* a_form) {
+            return a_form && (a_form == a_q.player || a_form == a_q.player->GetActorBase() || Forms::IsPlayerBase(a_form) ||
+                                 a_form->GetFormID() == Forms::kPlayerRefID);
+        }
+
         // --- Identity: the subject answers as the donor ---
 
         bool IsIDAsDonor(const Query& a_q, double& a_result) {
@@ -53,8 +60,13 @@ namespace InTheirShoes::ConditionHooks {
                     return true;
                 }
             }
-            // Fall back to the player's own identity for player perks, spells, and magic effects
+            // Fall back to the player's own identity for player perks, spells, and magic effects. Not while idle AI
+            // drives the player: the donor's packages exclude the player (DefaultMasterPackage has GetIsID Player == 0).
             if (a_q.subject == a_q.player) {
+                if (IdleAIManager::GetSingleton()->IsDrivingPlayer() && IsDragonbornID(a_q, targetForm)) {
+                    a_result = 0.0;
+                    return true;
+                }
                 return a_q.Ask(a_q.player, a_result);
             }
             a_result = 0.0;
@@ -129,9 +141,7 @@ namespace InTheirShoes::ConditionHooks {
         }
 
         bool IsIDAsDragonborn(const Query& a_q, double& a_result) {
-            auto* targetForm = static_cast<RE::TESForm*>(a_q.param1);
-            if (targetForm && (targetForm == a_q.player || targetForm == a_q.player->GetActorBase() ||
-                                  Forms::IsPlayerBase(targetForm) || targetForm->GetFormID() == Forms::kPlayerRefID)) {
+            if (IsDragonbornID(a_q, static_cast<RE::TESForm*>(a_q.param1))) {
                 a_result = 1.0;
                 return true;
             }
