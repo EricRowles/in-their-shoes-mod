@@ -25,6 +25,8 @@ add_library(${PROJECT_NAME} SHARED
     src/GameClock.h
     src/PlayerBusy.h
     src/PlayerBusy.cpp
+    src/PlayerMoveSpeed.h
+    src/PlayerMoveSpeed.cpp
     src/Session.h
     src/Settings.h
     src/Lifecycle.h
