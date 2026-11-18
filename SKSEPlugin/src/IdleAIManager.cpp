@@ -9,6 +9,7 @@
 #include "PackageRetarget.h"
 #include "PackageUtil.h"
 #include "PlayerBusy.h"
+#include "PlayerMoveSpeed.h"
 #include "Settings.h"
 
 #include <algorithm>
@@ -158,6 +159,24 @@ namespace InTheirShoes {
                 puppet->GetHandle();
             return true;
         }
+
+        // Input is matched by user event, so rebinding and controllers work, and only in the gameplay context,
+        // where a menu hasn't taken it
+        bool InGameplayContext() {
+            auto* controlMap = RE::ControlMap::GetSingleton();
+            if (!controlMap) return false;
+            const auto& contexts = controlMap->GetRuntimeData().contextPriorityStack;
+            return !contexts.empty() && contexts.back() == RE::UserEvents::INPUT_CONTEXT_ID::kGameplay;
+        }
+
+        RE::BSFixedString UserEventName(const RE::ButtonEvent* a_button) {
+            RE::BSFixedString name = a_button->QUserEvent();
+            auto* controlMap = RE::ControlMap::GetSingleton();
+            if (name.empty() && controlMap) {
+                name = RE::BSFixedString(controlMap->GetUserEventName(a_button->GetIDCode(), a_button->GetDevice()));
+            }
+            return name;
+        }
     }
 
     void IdleAIManager::Initialize() {
@@ -181,6 +200,8 @@ namespace InTheirShoes {
         REL::Relocation<std::uintptr_t> playerVtbl{ RE::VTABLE_PlayerCharacter[0] };
         _origPlayerCheckForCurrentAliasPackage = playerVtbl.write_vfunc(0x49, &Hook_Player_CheckForCurrentAliasPackage);
         SKSE::log::info("Hooked PlayerCharacter::CheckForCurrentAliasPackage (0x49)");
+
+        PlayerMoveSpeed::Install();
     }
 
     // Swapped aliases' packages made a player using furniture stand up while not AI-driven (#42), so none is
@@ -361,6 +382,10 @@ namespace InTheirShoes {
             // A running Travel package heads for the new destination
             ApplyIdlePackage();
         }
+        // While engaging the player isn't AI-driven yet, so the engine's own toggle changes the setting it starts with
+        if ((requests & kToggleRun) && _state == State::kDriving) {
+            PlayerMoveSpeed::ToggleAlwaysRun(a_player);
+        }
         if (requests & kActionInput) {
             _idleSeconds = 0.0f;
             Disengage(a_player, StopReason::kInput);
@@ -389,10 +414,6 @@ namespace InTheirShoes {
     }
 
     void IdleAIManager::BeginEngage(RE::PlayerCharacter* a_player) {
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            _savedUserRunning = pc->data.running;
-        }
-
         _state = State::kEngaging;
         _running = true;
         _forceGreetTriggered = false;
@@ -422,6 +443,8 @@ namespace InTheirShoes {
         _owned = true;
         _state = State::kDriving;
         _aiStartTime = GameClock::Now();
+        // Before the package starts, so its first path already has the player's walk/run setting (#49)
+        PlayerMoveSpeed::Apply(a_player);
         a_player->EvaluatePackage(true, true);
         SKSE::log::info("Player is AI-driven");
     }
@@ -432,6 +455,7 @@ namespace InTheirShoes {
         _running = false;
         _forceGreetProcedureActive = false;
         _scenePackagesRunning = false;
+        PlayerMoveSpeed::Release();
 
         // Control goes back before the aliases change: each alias call waits a frame, and in between the AI's
         // slope pitch drove the camera (straight up or down when stopping on a slope).
@@ -445,7 +469,6 @@ namespace InTheirShoes {
         if (auto* pc = RE::PlayerControls::GetSingleton()) {
             pc->data.autoMove = false;
             pc->data.moveInputVec = { 0.0f, 0.0f };
-            pc->data.running = _savedUserRunning;
         }
         _loggedPackage = nullptr;
         _idleSeconds = 0.0f;
@@ -540,8 +563,7 @@ namespace InTheirShoes {
         // Only input that asks the player to act in the world takes control back (#45): moving, attacking, drawing
         // a weapon, activating, jumping, sneaking, shouting. Menu keys, hotkeys, the camera, Run/Sprint and keys
         // with no gameplay event (Alt, Tab) don't, so the player can manage equipment while idle AI walks.
-        // Matched by user event, so rebinding and controllers work, and only in the gameplay context, where a
-        // menu hasn't taken the input.
+        // Toggle Always Run switches its speed instead (#49).
         static constexpr std::array kActionEvents = {
             &RE::UserEvents::forward, &RE::UserEvents::back, &RE::UserEvents::strafeLeft, &RE::UserEvents::strafeRight,
             &RE::UserEvents::autoMove, &RE::UserEvents::activate, &RE::UserEvents::leftAttack,
@@ -549,20 +571,14 @@ namespace InTheirShoes {
             &RE::UserEvents::shout,
         };
 
-        auto* controlMap = RE::ControlMap::GetSingleton();
         auto* userEvents = RE::UserEvents::GetSingleton();
-        if (!controlMap || !userEvents) return false;
-        const auto& contexts = controlMap->GetRuntimeData().contextPriorityStack;
-        if (contexts.empty() || contexts.back() != RE::UserEvents::INPUT_CONTEXT_ID::kGameplay) return false;
+        if (!userEvents || !InGameplayContext()) return false;
 
         switch (a_event->GetEventType()) {
             case RE::INPUT_EVENT_TYPE::kButton: {
                 const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
                 if (!button->IsPressed()) return false;
-                RE::BSFixedString name = button->QUserEvent();
-                if (name.empty()) {
-                    name = RE::BSFixedString(controlMap->GetUserEventName(button->GetIDCode(), button->GetDevice()));
-                }
+                const auto name = UserEventName(button);
                 return std::ranges::any_of(kActionEvents, [&](auto a_member) { return name == userEvents->*a_member; });
             }
             case RE::INPUT_EVENT_TYPE::kThumbstick: {
@@ -573,6 +589,13 @@ namespace InTheirShoes {
             default:
                 return false;
         }
+    }
+
+    bool IdleAIManager::IsToggleRunInput(const RE::InputEvent* a_event) {
+        if (a_event->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) return false;
+        const auto* button = static_cast<const RE::ButtonEvent*>(a_event);
+        auto* userEvents = RE::UserEvents::GetSingleton();
+        return button->IsDown() && userEvents && InGameplayContext() && UserEventName(button) == userEvents->toggleRun;
     }
 
     RE::BSEventNotifyControl IdleAIManager::ProcessEvent(
@@ -586,6 +609,9 @@ namespace InTheirShoes {
             if (IsActionInput(event)) {
                 Post(kActionInput);
                 break;
+            }
+            if (IsToggleRunInput(event)) {
+                Post(kToggleRun);
             }
         }
         return RE::BSEventNotifyControl::kContinue;
@@ -714,6 +740,7 @@ namespace InTheirShoes {
         _requests = 0;
         _state = State::kManual;
         _running = false;
+        PlayerMoveSpeed::Release();
         _owned = false;
         _idleSeconds = 0.0f;
         _forceGreetProcedureActive = false;

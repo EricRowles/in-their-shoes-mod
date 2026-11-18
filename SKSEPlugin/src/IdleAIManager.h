@@ -81,6 +81,7 @@ namespace InTheirShoes {
             kDestinationChanged = 1 << 3,
             kPostLoad = 1 << 4,
             kSelfDialogueEnded = 1 << 5,
+            kToggleRun = 1 << 6,
         };
         void Post(Request a_request) { _requests.fetch_or(a_request, std::memory_order_acq_rel); }
         void HandleRequests(RE::PlayerCharacter* a_player);
@@ -91,6 +92,8 @@ namespace InTheirShoes {
         void InstallHooks();
         // Whether a_event asks the player to act in the world (move, attack, activate, ...); see the definition
         static bool IsActionInput(const RE::InputEvent* a_event);
+        // Whether a_event is a press of Toggle Always Run in gameplay
+        static bool IsToggleRunInput(const RE::InputEvent* a_event);
 
         void BeginEngage(RE::PlayerCharacter* a_player);
         void FinishEngage(RE::PlayerCharacter* a_player);
@@ -168,7 +171,6 @@ namespace InTheirShoes {
         bool _runningPackageLogged{ false };
         GameClock::TimePoint _aiStartTime{};
         GameClock::TimePoint _lastPackageSyncTime{};
-        bool _savedUserRunning{ true };
 
         // A scene phase: the scene's form ID and its phase index
         struct ScenePhase {
