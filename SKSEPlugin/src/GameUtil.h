@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <unordered_map>
 
 namespace InTheirShoes {
@@ -41,17 +40,6 @@ namespace InTheirShoes {
         return object && static_cast<RE::FormID>(object->GetHandle() & 0xFFFFFFFF) == a_form->GetFormID();
     }
 
-    inline bool IsBlockingMenuOpen() {
-        auto* ui = RE::UI::GetSingleton();
-        if (!ui) return true;
-        return ui->GameIsPaused() || ui->IsModalMenuOpen() || ui->IsItemMenuOpen() ||
-               ui->IsApplicationMenuOpen() || ui->IsMenuOpen("Dialogue Menu"sv) || ui->IsMenuOpen("Console"sv) ||
-               ui->IsMenuOpen("Loading Menu"sv) || ui->IsMenuOpen("Crafting Menu"sv) || ui->IsMenuOpen("RaceSex Menu"sv) ||
-               ui->IsMenuOpen("Barter Menu"sv) || ui->IsMenuOpen("Container Menu"sv) || ui->IsMenuOpen("Journal Menu"sv) ||
-               ui->IsMenuOpen("MapMenu"sv) || ui->IsMenuOpen("StatsMenu"sv) || ui->IsMenuOpen("InventoryMenu"sv) ||
-               ui->IsMenuOpen("MagicMenu"sv) || ui->IsMenuOpen("TweenMenu"sv) || ui->IsMenuOpen("Book Menu"sv);
-    }
-
     // The scene the player is in, or null when none is playing
     inline RE::BGSScene* GetPlayingScene(RE::Actor* a_actor) {
         auto* scene = a_actor ? a_actor->GetCurrentScene() : nullptr;
@@ -77,47 +65,12 @@ namespace InTheirShoes {
         std::vector<RE::TESPackage*> packages;
         ForEachSceneActionInCurrentPhase(a_scene, a_actor, RE::BGSSceneAction::Type::kPackage, [&](RE::BGSSceneAction* a_action) {
             for (auto* pkg : static_cast<RE::BGSSceneActionPackage*>(a_action)->packages) {
-                if (pkg && std::find(packages.begin(), packages.end(), pkg) == packages.end()) {
+                if (pkg && !std::ranges::contains(packages, pkg)) {
                     packages.push_back(pkg);
                 }
             }
         });
         return packages;
-    }
-
-    // Why the player can't be given something to do right now (idle AI, idle chatter)
-    enum class PlayerBusy {
-        kNo,
-        kCombat,
-        kMenu,
-        kScene,
-        kSelfDialogue,
-        kFurniture,
-    };
-
-    constexpr std::string_view ToString(PlayerBusy a_busy) {
-        switch (a_busy) {
-            case PlayerBusy::kCombat: return "combat"sv;
-            case PlayerBusy::kMenu: return "menu"sv;
-            case PlayerBusy::kScene: return "scene"sv;
-            case PlayerBusy::kSelfDialogue: return "self-dialogue"sv;
-            case PlayerBusy::kFurniture: return "furniture"sv;
-            default: return "not busy"sv;
-        }
-    }
-
-    // Logs when what keeps a_who from acting changes, and remembers it in a_last
-    inline void LogPlayerBusy(PlayerBusy& a_last, PlayerBusy a_now, std::string_view a_who) {
-        if (a_now == a_last) return;
-        if (a_now != PlayerBusy::kNo) {
-            SKSE::log::info("{} waiting: {}", a_who, ToString(a_now));
-        }
-        a_last = a_now;
-    }
-
-    // Real time, which keeps running while the game is paused
-    inline float SecondsSince(std::chrono::steady_clock::time_point a_time) {
-        return std::chrono::duration<float>(std::chrono::steady_clock::now() - a_time).count();
     }
 
 }

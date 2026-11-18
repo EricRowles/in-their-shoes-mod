@@ -13,7 +13,7 @@ namespace InTheirShoes::Lifecycle {
     // Before a save loads or a new game starts (the co-save revert callback)
     void OnGameRevert();
 
-    // Every player update
+    // Every player update, on the main thread. Advances GameClock first.
     void OnFrame();
 
     // ImpersonationManager, once the player holds the donor's aliases, and as the donor gets them back

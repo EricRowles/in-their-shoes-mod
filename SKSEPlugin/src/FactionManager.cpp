@@ -9,7 +9,7 @@ namespace InTheirShoes {
     namespace {
         // Whether the faction moves between the Dragonborn and the donor (see FactionManager.h)
         bool IsSwappable(const RE::TESFaction* a_faction) {
-            return a_faction && a_faction != Forms::playerFaction && !AliasSwapManager::GetSingleton().IsAliasFaction(a_faction);
+            return a_faction && a_faction != Forms::playerFaction && !AliasSwapManager::GetSingleton()->IsAliasFaction(a_faction);
         }
 
         std::vector<FactionManager::FactionRank> GetSwappableMemberships(RE::Actor* a_actor) {
@@ -21,7 +21,7 @@ namespace InTheirShoes {
         }
 
         bool Contains(const std::vector<FactionManager::FactionRank>& a_list, const RE::TESFaction* a_faction) {
-            return std::ranges::find(a_list, a_faction, &FactionManager::FactionRank::first) != a_list.end();
+            return std::ranges::contains(a_list, a_faction, &FactionManager::FactionRank::first);
         }
     }
 
@@ -85,7 +85,7 @@ namespace InTheirShoes {
             a_player->AddToFaction(faction, rank);
         }
         // A script's RemoveFromAllFactions on the donor ran on the player (NativeRedirect)
-        if (Forms::playerFaction && !GetFactionMemberships(a_player).contains(Forms::playerFaction)) {
+        if (Forms::playerFaction && !a_player->IsInFaction(Forms::playerFaction)) {
             a_player->AddToFaction(Forms::playerFaction, 0);
         }
         SKSE::log::info("Returned {} factions to the donor and {} to the Dragonborn.", current.size(), _dragonbornFactions.size());

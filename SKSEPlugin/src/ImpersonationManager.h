@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <optional>
 #include <unordered_set>
 #include <cstdint>
@@ -25,7 +24,7 @@ namespace InTheirShoes {
     // three actors, and keeping the donor parked. Who is who is published in Session for the hooks.
     // Not thread-safe.
     class ImpersonationManager :
-        public Singleton<ImpersonationManager>,
+        public REX::Singleton<ImpersonationManager>,
         public RE::BSTEventSink<SKSE::NiNodeUpdateEvent> {
     public:
         void Initialize();
@@ -67,13 +66,13 @@ namespace InTheirShoes {
         void OnPostLoadGame();
 
     private:
-        friend Singleton<ImpersonationManager>;
+        friend REX::Singleton<ImpersonationManager>;
         ImpersonationManager() = default;
         ~ImpersonationManager() = default;
 
-        static bool IsActive() { return Session::GetSingleton().IsActive(); }
-        static RE::Actor* GetDonor() { return Session::GetSingleton().GetDonor(); }
-        static RE::Actor* GetPuppet() { return Session::GetSingleton().GetPuppet(); }
+        static bool IsActive() { return Session::GetSingleton()->IsActive(); }
+        static RE::Actor* GetDonor() { return Session::GetSingleton()->GetDonor(); }
+        static RE::Actor* GetPuppet() { return Session::GetSingleton()->GetPuppet(); }
         static RE::Actor* GetPlayer() { return Session::GetPlayer(); }
 
         void CaptureBaseline(RE::Actor* a_player);

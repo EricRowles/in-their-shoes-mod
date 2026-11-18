@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <atomic>
 
 namespace InTheirShoes {
@@ -8,7 +7,7 @@ namespace InTheirShoes {
     // Who is who in the current impersonation. Readable from any thread: condition and voice hooks run on AI
     // and loading threads. ImpersonationManager writes the session fields; DialogueManager writes the
     // self-dialogue flags.
-    class Session : public Singleton<Session> {
+    class Session : public REX::Singleton<Session> {
     public:
         bool IsActive() const { return _active.load(std::memory_order_acquire); }
         RE::Actor* GetDonor() const { return _donor.load(std::memory_order_acquire); }
@@ -50,7 +49,7 @@ namespace InTheirShoes {
         void SetPuppetSpeakerPending(bool a_pending) { _puppetSpeakerPending.store(a_pending, std::memory_order_release); }
 
     private:
-        friend Singleton<Session>;
+        friend REX::Singleton<Session>;
         Session() = default;
         ~Session() = default;
 

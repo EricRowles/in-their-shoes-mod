@@ -2,6 +2,7 @@
 #include "IdleChatter.h"
 #include "Forms.h"
 #include "GameUtil.h"
+#include "PlayerBusy.h"
 #include "QuestConditions.h"
 #include "Session.h"
 #include "Settings.h"
@@ -33,7 +34,7 @@ namespace InTheirShoes {
         _topicsCached = false;
         _topics.clear();
         _lastEvalTime = {};
-        _lastLineTime = std::chrono::steady_clock::now();
+        _lastLineTime = GameClock::Now();
         _lastSaidHours.clear();
     }
 
@@ -109,7 +110,7 @@ namespace InTheirShoes {
 
         // Conditions run with the player as subject (condition hooks make it test as the donor)
         // and the puppet, standing in for the Dragonborn, as target
-        auto* puppet = Session::GetSingleton().GetPuppet();
+        auto* puppet = Session::GetSingleton()->GetPuppet();
         auto* targetRef = puppet ? static_cast<RE::TESObjectREFR*>(puppet) : static_cast<RE::TESObjectREFR*>(a_player);
 
         for (const auto& [quest, topic] : _topics) {
@@ -135,29 +136,25 @@ namespace InTheirShoes {
     }
 
     RE::BSTSmartPointer<RE::DialogueItem> IdleChatter::Poll() {
-        auto& session = Session::GetSingleton();
-        const auto& settings = Settings::GetSingleton();
+        auto& session = *Session::GetSingleton();
+        const auto& settings = *Settings::GetSingleton();
         if (!session.IsActive() || !settings.IsNPCVoiceEnabled()) return nullptr;
-        if (SecondsSince(_lastLineTime) < settings.GetIdleChatterInterval() || SecondsSince(_lastEvalTime) < kEvalIntervalSeconds) return nullptr;
-        _lastEvalTime = std::chrono::steady_clock::now();
+        if (GameClock::SecondsSince(_lastLineTime) < settings.GetIdleChatterInterval() ||
+            GameClock::SecondsSince(_lastEvalTime) < kEvalIntervalSeconds) {
+            return nullptr;
+        }
+        _lastEvalTime = GameClock::Now();
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* donor = session.GetDonor();
         if (!player || !donor) return nullptr;
 
-        // MenuTopicManager's fields (speaker, menuOpen, isGreetingPlayer) stay set after a conversation
-        // ends, so only the open menu counts as one
-        auto blockedBy = PlayerBusy::kNo;
-        if (session.IsInSelfDialogue()) {
-            blockedBy = PlayerBusy::kSelfDialogue;
-        } else if (player->IsInCombat()) {
-            blockedBy = PlayerBusy::kCombat;
-        } else if (IsBlockingMenuOpen()) {
-            blockedBy = PlayerBusy::kMenu;
-        } else if (GetPlayingScene(player)) {
-            // Conditions can't rule this out: IsInScene answers no for the player (ConditionHooks)
-            blockedBy = PlayerBusy::kScene;
-        }
+        // MenuTopicManager's fields (speaker, menuOpen, isGreetingPlayer) stay set after a conversation ends, so
+        // only the open menu counts as one. Scenes are checked here because conditions can't rule them out:
+        // IsInScene answers no for the player (ConditionHooks). Being AI-driven doesn't block a line (idle AI walking
+        // the player is when it should chat); a line already playing on the player's voice does.
+        const auto blockedBy = WhatBlocks(player, BusyChecks(BusyCheck::kSelfDialogue, BusyCheck::kCombat, BusyCheck::kSpeaking,
+                                                      BusyCheck::kScene, BusyCheck::kWindowInactive, BusyCheck::kMenu));
         LogPlayerBusy(_blockedBy, blockedBy, "Idle chatter"sv);
         if (blockedBy != PlayerBusy::kNo) return nullptr;
 
@@ -170,7 +167,7 @@ namespace InTheirShoes {
             return nullptr;
         }
         _foundNothing = false;
-        _lastLineTime = std::chrono::steady_clock::now();
+        _lastLineTime = GameClock::Now();
         return item;
     }
 

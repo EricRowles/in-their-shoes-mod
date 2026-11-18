@@ -94,7 +94,7 @@ namespace InTheirShoes {
         // Perks bought with the session's level-ups. Collected first: RemovePerk changes addedPerks.
         std::vector<RE::BGSPerk*> added;
         for (const auto* rank : a_player->GetPlayerRuntimeData().addedPerks) {
-            if (rank && rank->perk && std::ranges::find(a_snapshot.perks, rank->perk->GetFormID()) == a_snapshot.perks.end()) {
+            if (rank && rank->perk && !std::ranges::contains(a_snapshot.perks, rank->perk->GetFormID())) {
                 added.push_back(rank->perk);
             }
         }

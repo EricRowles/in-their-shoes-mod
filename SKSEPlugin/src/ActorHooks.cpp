@@ -21,12 +21,12 @@ namespace InTheirShoes::ActorHooks {
 
         RE::BGSVoiceType* Hook_GetObjectVoiceType(const RE::TESNPC* a_this) {
             if (a_this) {
-                auto& session = Session::GetSingleton();
+                auto& session = *Session::GetSingleton();
                 auto* donorVoice = session.GetDonorVoiceType();
                 if (session.IsActive() && donorVoice) {
                     auto* player = RE::PlayerCharacter::GetSingleton();
                     if (player && a_this == player->GetActorBase()) {
-                        if (Settings::GetSingleton().IsNPCVoiceEnabled()) {
+                        if (Settings::GetSingleton()->IsNPCVoiceEnabled()) {
                             return donorVoice;
                         }
                         return session.GetOrigPlayerVoiceType();
@@ -55,7 +55,7 @@ namespace InTheirShoes::ActorHooks {
         }
 
         RE::BGSLocation* Hook_Player_GetEditorLocation1(const RE::TESObjectREFR* a_this) {
-            if (a_this && Session::GetSingleton().IsActive()) {
+            if (a_this && Session::GetSingleton()->IsActive()) {
                 if (auto* loc = a_this->GetCurrentLocation()) {
                     return loc;
                 }
@@ -70,7 +70,7 @@ namespace InTheirShoes::ActorHooks {
             RE::TESForm*& a_outWorldOrCell,
             RE::TESObjectCELL* a_fallback)
         {
-            if (a_this && Session::GetSingleton().IsActive()) {
+            if (a_this && Session::GetSingleton()->IsActive()) {
                 a_outPos = a_this->GetPosition();
                 a_outRot = a_this->GetAngle();
                 auto* cell = a_this->GetParentCell();

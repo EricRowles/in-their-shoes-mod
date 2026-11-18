@@ -108,7 +108,7 @@ namespace InTheirShoes::Serialization {
 
         void WriteFaceSnapshot(Serde* a_serde, const FaceSnapshot& a_face) {
             // The player's own base record is saved as none: it is the target the snapshot is applied to
-            const bool faceIsPlayer = a_face.faceNPC && a_face.faceNPC->GetFormID() == Forms::kPlayerBaseID;
+            const bool faceIsPlayer = Forms::IsPlayerBase(a_face.faceNPC);
             WriteFormID(a_serde, a_face.race);
             WriteFormID(a_serde, faceIsPlayer ? nullptr : a_face.faceNPC);
             WriteFormID(a_serde, a_face.hairColor);
@@ -255,20 +255,20 @@ namespace InTheirShoes::Serialization {
         }
 
         void WriteSession(Serde* a_serde) {
-            auto& session = Session::GetSingleton();
+            auto& session = *Session::GetSingleton();
             auto* donor = session.GetDonor();
             if (!session.IsActive() || !donor) return;
             if (!a_serde->OpenRecord(kSessionRecord, kSessionVersion)) return;
 
             WriteFormID(a_serde, donor);
             WriteFormID(a_serde, session.GetPuppet());
-            const auto& aliases = AliasSwapManager::GetSingleton().GetSwappedAliases();
+            const auto& aliases = AliasSwapManager::GetSingleton()->GetSwappedAliases();
             WriteList(a_serde, aliases, [&](const AliasSwapManager::SwappedAlias& a_alias) {
                 Write(a_serde, a_alias.questFormID);
                 Write(a_serde, a_alias.aliasID);
                 WriteFactionRanks(a_serde, a_alias.factions);
             });
-            const auto& questItems = ImpersonationManager::GetSingleton().GetDonorQuestItems();
+            const auto& questItems = ImpersonationManager::GetSingleton()->GetDonorQuestItems();
             WriteList(a_serde, questItems, [&](RE::FormID a_id) { Write(a_serde, a_id); });
             SKSE::log::info("Saved impersonation session ({} swapped aliases, {} donor quest items).",
                 aliases.size(), questItems.size());
@@ -303,14 +303,14 @@ namespace InTheirShoes::Serialization {
             }
 
             auto* donor = donorID != 0 ? RE::TESForm::LookupByID<RE::Actor>(donorID) : nullptr;
-            ImpersonationManager::GetSingleton().RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
+            ImpersonationManager::GetSingleton()->RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
         }
 
         // --- 'FACT': the Dragonborn's factions and the donor's the player was given ---
 
         void WriteFactions(Serde* a_serde) {
-            auto& factions = FactionManager::GetSingleton();
-            if (!factions.IsActive() || !Session::GetSingleton().IsActive()) return;
+            auto& factions = *FactionManager::GetSingleton();
+            if (!factions.IsActive() || !Session::GetSingleton()->IsActive()) return;
             if (!a_serde->OpenRecord(kFactionsRecord, kFactionsVersion)) return;
             WriteFactionRanks(a_serde, factions.GetDragonbornFactions());
             WriteFactionRanks(a_serde, factions.GetGivenFactions());
@@ -323,16 +323,16 @@ namespace InTheirShoes::Serialization {
                 SKSE::log::warn("Factions record is truncated; ignoring it.");
                 return;
             }
-            FactionManager::GetSingleton().Restore(std::move(dragonborn), std::move(given));
+            FactionManager::GetSingleton()->Restore(std::move(dragonborn), std::move(given));
             SKSE::log::info("Loaded session factions ({} Dragonborn, {} donor).",
-                FactionManager::GetSingleton().GetDragonbornFactions().size(), FactionManager::GetSingleton().GetGivenFactions().size());
+                FactionManager::GetSingleton()->GetDragonbornFactions().size(), FactionManager::GetSingleton()->GetGivenFactions().size());
         }
 
         // --- 'CRIM': the Dragonborn's bounty ---
 
         void WriteCrime(Serde* a_serde) {
-            auto& crime = CrimeManager::GetSingleton();
-            if (!crime.IsActive() || !Session::GetSingleton().IsActive()) return;
+            auto& crime = *CrimeManager::GetSingleton();
+            if (!crime.IsActive() || !Session::GetSingleton()->IsActive()) return;
             if (!a_serde->OpenRecord(kCrimeRecord, kCrimeVersion)) return;
             WriteList(a_serde, crime.GetDragonbornBounty(), [&](const CrimeManager::FactionBounty& a_entry) {
                 WriteFormID(a_serde, a_entry.faction);
@@ -352,15 +352,15 @@ namespace InTheirShoes::Serialization {
                 SKSE::log::warn("Bounty record is truncated; ignoring it.");
                 return;
             }
-            CrimeManager::GetSingleton().Restore(std::move(bounty));
-            SKSE::log::info("Loaded the Dragonborn's bounty ({} crime factions).", CrimeManager::GetSingleton().GetDragonbornBounty().size());
+            CrimeManager::GetSingleton()->Restore(std::move(bounty));
+            SKSE::log::info("Loaded the Dragonborn's bounty ({} crime factions).", CrimeManager::GetSingleton()->GetDragonbornBounty().size());
         }
 
         // --- 'SETT': the MCM's settings ---
 
         void WriteSettings(Serde* a_serde) {
             if (!a_serde->OpenRecord(kSettingsRecord, kSettingsVersion)) return;
-            const auto& settings = Settings::GetSingleton();
+            const auto& settings = *Settings::GetSingleton();
             Write(a_serde, settings.IsIdleAIEnabled());
             Write(a_serde, settings.GetIdleTimeout());
             Write(a_serde, settings.GetIdlePackage());
@@ -386,7 +386,7 @@ namespace InTheirShoes::Serialization {
                 SKSE::log::warn("Settings record is truncated; ignoring it.");
                 return;
             }
-            auto& settings = Settings::GetSingleton();
+            auto& settings = *Settings::GetSingleton();
             settings.SetIdleAIEnabled(idleAIEnabled);
             settings.SetIdleTimeout(idleTimeout);
             settings.SetIdlePackage(idlePackage);
@@ -427,14 +427,14 @@ namespace InTheirShoes::Serialization {
         if (!a_serde) return;
 
         WriteSettings(a_serde);
-        auto& mgr = ImpersonationManager::GetSingleton();
+        auto& mgr = *ImpersonationManager::GetSingleton();
         if (const auto& baseline = mgr.GetBaseline()) {
             WriteBaseline(a_serde, *baseline);
         }
         WriteSession(a_serde);
         WriteFactions(a_serde);
         WriteCrime(a_serde);
-        if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton().IsActive() &&
+        if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton()->IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
         }
@@ -457,7 +457,7 @@ namespace InTheirShoes::Serialization {
                     if (!IsReadableVersion(type, version, kBaselineVersion)) break;
                     Baseline baseline;
                     if (ReadBaseline(a_serde, version, baseline)) {
-                        ImpersonationManager::GetSingleton().SetBaseline(std::move(baseline));
+                        ImpersonationManager::GetSingleton()->SetBaseline(std::move(baseline));
                         SKSE::log::info("Loaded Dragonborn baseline from co-save.");
                     } else {
                         SKSE::log::warn("Baseline record is truncated; ignoring it.");
@@ -474,7 +474,7 @@ namespace InTheirShoes::Serialization {
                     if (!IsReadableVersion(type, version, kDonorFaceVersion)) break;
                     FaceSnapshot donorFace;
                     if (ReadFaceSnapshot(a_serde, donorFace)) {
-                        ImpersonationManager::GetSingleton().SetDonorFace(std::move(donorFace));
+                        ImpersonationManager::GetSingleton()->SetDonorFace(std::move(donorFace));
                         SKSE::log::info("Loaded the donor's appearance from co-save.");
                     } else {
                         SKSE::log::warn("Donor appearance record is truncated; ignoring it.");

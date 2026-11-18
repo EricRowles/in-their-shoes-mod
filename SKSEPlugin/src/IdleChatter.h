@@ -1,8 +1,7 @@
 #pragma once
 
-#include "GameUtil.h"
-#include "Singleton.h"
-#include <chrono>
+#include "GameClock.h"
+#include "PlayerBusy.h"
 #include <unordered_map>
 #include <vector>
 #include "RE/D/DialogueItem.h"
@@ -12,7 +11,7 @@ namespace InTheirShoes {
     // Picks idle lines for the impersonating player to say as the donor, and decides when (the interval is
     // Settings::GetIdleChatterInterval).
     // PlayerVoice voices them. Not thread-safe.
-    class IdleChatter : public Singleton<IdleChatter> {
+    class IdleChatter : public REX::Singleton<IdleChatter> {
     public:
         // The idle topic list is rebuilt the next time a line is picked
         void InvalidateTopicCache() { _topicsCached = false; }
@@ -22,10 +21,10 @@ namespace InTheirShoes {
         // conditions pass. Only called while the player isn't voicing another line.
         RE::BSTSmartPointer<RE::DialogueItem> Poll();
         // The interval counts from the end of the last line
-        void OnLineFinished() { _lastLineTime = std::chrono::steady_clock::now(); }
+        void OnLineFinished() { _lastLineTime = GameClock::Now(); }
 
     private:
-        friend Singleton<IdleChatter>;
+        friend REX::Singleton<IdleChatter>;
         IdleChatter() = default;
         ~IdleChatter() = default;
 
@@ -47,8 +46,9 @@ namespace InTheirShoes {
         std::unordered_map<RE::FormID, float> _lastSaidHours;
         PlayerBusy _blockedBy{ PlayerBusy::kNo };
         bool _foundNothing{ false };
-        std::chrono::steady_clock::time_point _lastLineTime{ std::chrono::steady_clock::now() };
-        std::chrono::steady_clock::time_point _lastEvalTime{};
+        // GameClock times, so menus and pauses don't count toward the interval
+        GameClock::TimePoint _lastLineTime{ GameClock::Now() };
+        GameClock::TimePoint _lastEvalTime{};
     };
 
 }

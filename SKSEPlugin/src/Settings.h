@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <atomic>
 #include <cstdint>
 
@@ -9,7 +8,7 @@ namespace InTheirShoes {
     // The MCM's settings. ITS_MCMScript sets them through ITS_NG; they are saved in the co-save, so they are
     // right as soon as a save loads. Defaults match the MCM's. Readable from any thread (the voice and
     // native redirect hooks read them).
-    class Settings : public Singleton<Settings> {
+    class Settings : public REX::Singleton<Settings> {
     public:
         // Idle movement
         bool IsIdleAIEnabled() const { return _idleAIEnabled.load(std::memory_order_relaxed); }
@@ -51,7 +50,7 @@ namespace InTheirShoes {
         }
 
     private:
-        friend Singleton<Settings>;
+        friend REX::Singleton<Settings>;
         Settings() = default;
         ~Settings() = default;
 

@@ -1,23 +1,15 @@
-; Sets idle AI's state for the player: whether it is AI-driven, and which ITS_PackageManager alias it is in.
-; Called by the plugin (IdleAIManager), which passes the quest. The quest's priority puts its packages ahead of
-; other quests' alias packages, such as a follower's Follow.
+; Sets which ITS_PackageManager alias the player is in while idle AI runs. Called by the plugin (IdleAIManager),
+; which passes the quest. The quest's priority puts its packages ahead of other quests' alias packages, such as a
+; follower's Follow. The plugin turns AI-driven on and off itself; it turns it on once this call has finished.
 Scriptname ITS_IdlePackage Hidden
 
 ; Puts the player in alias a_aliasID only (none if -1), and a_destination in alias a_destinationAliasID
 ; (TravelDestination), which the Travel package travels to (left empty if None or -1). Each call carries the whole
 ; state and a sequence number: a call that runs after a later one was sent does nothing, so the order the calls
 ; run in doesn't matter.
-Function Apply(Quest a_quest, Bool a_aiDriven, Int a_aliasID, ObjectReference a_destination, Int a_destinationAliasID, Int a_sequence) Global
-	Int check = ITS_NG.BeginIdlePackageApply(a_sequence, a_aiDriven)
-	If check == 0
+Function Apply(Quest a_quest, Int a_aliasID, ObjectReference a_destination, Int a_destinationAliasID, Int a_sequence) Global
+	If !ITS_NG.BeginIdlePackageApply(a_sequence)
 		Return
-	EndIf
-
-	; Control goes back to the player before the aliases change: each alias call waits a frame, and the plugin
-	; has already cleared aiControlledPackage, so in between the AI's slope pitch drove the camera (straight up
-	; or down when stopping on a slope). Engaging switches over last, once the package is in place.
-	If check == 2 && !a_aiDriven
-		Game.SetPlayerAIDriven(False)
 	EndIf
 
 	Actor player = Game.GetPlayer()
@@ -39,11 +31,8 @@ Function Apply(Quest a_quest, Bool a_aiDriven, Int a_aliasID, ObjectReference a_
 			EndIf
 		EndIf
 	EndIf
-	; Only when it changes: the plugin tracks what was last passed
-	If check == 2 && a_aiDriven
-		Game.SetPlayerAIDriven(True)
-	EndIf
 	player.EvaluatePackage()
+	ITS_NG.EndIdlePackageApply(a_sequence)
 EndFunction
 
 Function ClearAliases(Quest a_quest) Global

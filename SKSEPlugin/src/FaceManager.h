@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Singleton.h"
 #include <array>
 #include <optional>
 #include <string>
@@ -44,7 +43,7 @@ namespace InTheirShoes {
     };
 
     // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline.
-    class FaceManager : public Singleton<FaceManager> {
+    class FaceManager : public REX::Singleton<FaceManager> {
     public:
         // Keeps RaceMenu (the RaceSex Menu) from opening while impersonating
         void InstallHook();
@@ -62,7 +61,7 @@ namespace InTheirShoes {
         void ReapplyTints(RE::Actor* a_actor, const FaceSnapshot& a_snapshot);
 
     private:
-        friend Singleton<FaceManager>;
+        friend REX::Singleton<FaceManager>;
         FaceManager() = default;
         ~FaceManager() = default;
 

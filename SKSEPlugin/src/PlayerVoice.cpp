@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "PlayerVoice.h"
+#include "GameClock.h"
 #include "GameUtil.h"
 #include "Session.h"
 #include "IdleChatter.h"
@@ -33,9 +34,6 @@ namespace InTheirShoes {
     constexpr float kVoiceRetryIntervalSeconds = 0.1f;
     // A voiced line is done this long after its sound's duration has played
     constexpr float kSoundTailSeconds = 0.25f;
-    // A gap between line ticks longer than this counts as paused, not played: ticks stop while the game is
-    // paused, and so does the voice
-    constexpr float kMaxSoundTickSeconds = 0.25f;
     // A stand-in's own voice plays at this volume: the engine times the line by it, and nobody hears it
     constexpr float kStandInVolume = 0.0f;
 
@@ -196,6 +194,10 @@ namespace InTheirShoes {
         return GetSoundSeconds(a_actor) > 0.0f;
     }
 
+    bool PlayerVoice::IsVoiceActive(RE::Actor* a_actor) {
+        return IsSoundActive(a_actor);
+    }
+
     void PlayerVoice::Speak(RE::DialogueResponse* a_response, bool a_unused) {
         SpeakLine(a_response, a_unused, false);
     }
@@ -282,7 +284,7 @@ namespace InTheirShoes {
         // the line itself (with lip sync) when the voice file is loaded. Update retries it while
         // the file loads, and falls back to playing the file without lip sync.
         auto* ui = RE::UI::GetSingleton();
-        line.waitsForMenu = Session::GetSingleton().IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
+        line.waitsForMenu = Session::GetSingleton()->IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
         if (!line.waitsForMenu) {
             // Voiced from the frame when called elsewhere: voices started from the Dialogue Menu's job threads
             // never played (#3)
@@ -292,7 +294,7 @@ namespace InTheirShoes {
             runtime.soundCallBackSet = 1;
         }
 
-        line.start = std::chrono::steady_clock::now();
+        line.start = GameClock::Now();
         line.created = line.start;
         line.hadSound = IsSoundActive(player);
         line.soundStart = line.start;
@@ -316,17 +318,17 @@ namespace InTheirShoes {
         if (line.waitsForMenu) {
             auto* ui = RE::UI::GetSingleton();
             bool menuOpen = ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME);
-            if (!menuOpen && SecondsSince(line.start) < kMenuWaitSeconds) return;
+            if (!menuOpen && GameClock::SecondsSince(line.start) < kMenuWaitSeconds) return;
             line.waitsForMenu = false;
-            line.start = std::chrono::steady_clock::now();  // the line starts now
+            line.start = GameClock::Now();  // the line starts now
             player->GetActorRuntimeData().soundCallBackSet = 1;
         }
 
-        float elapsed = SecondsSince(line.start);
+        float elapsed = GameClock::SecondsSince(line.start);
 
         if (elapsed < kEngineVoiceRetrySeconds) {
-            if (SecondsSince(line.lastVoiceRetry) < kVoiceRetryIntervalSeconds) return;
-            line.lastVoiceRetry = std::chrono::steady_clock::now();
+            if (GameClock::SecondsSince(line.lastVoiceRetry) < kVoiceRetryIntervalSeconds) return;
+            line.lastVoiceRetry = GameClock::Now();
             _engine.updateInDialogue(player, line.pendingVoice, false);
             if (!IsSoundActive(player)) return;
             SKSE::log::info("Engine voiced the player line on retry after {:.2f}s", elapsed);
@@ -341,7 +343,7 @@ namespace InTheirShoes {
         AttachSoundsToHead(player);
         line.pendingVoice = nullptr;
         line.hadSound = true;
-        line.soundStart = std::chrono::steady_clock::now();
+        line.soundStart = GameClock::Now();
         line.lastSoundTick = line.soundStart;
     }
 
@@ -352,17 +354,17 @@ namespace InTheirShoes {
         auto& line = *_line;
         auto standIn = line.standIn.get();
         if (!standIn) return true;
-        if (SecondsSince(line.created) < kLineStartGraceSeconds) return false;
+        if (GameClock::SecondsSince(line.created) < kLineStartGraceSeconds) return false;
         if (!standIn->QSpeakingDone()) {
             line.standInDoneAt.reset();
             return false;
         }
         if (!line.hadSound) return true;
         if (!line.standInDoneAt) {
-            line.standInDoneAt = std::chrono::steady_clock::now();
+            line.standInDoneAt = GameClock::Now();
         }
-        float lag = std::chrono::duration<float>(line.soundStart - line.created).count();
-        return SecondsSince(*line.standInDoneAt) >= lag || !IsSoundActive(RE::PlayerCharacter::GetSingleton());
+        const auto lag = static_cast<float>(line.soundStart - line.created);
+        return GameClock::SecondsSince(*line.standInDoneAt) >= lag || !IsSoundActive(RE::PlayerCharacter::GetSingleton());
     }
 
     // --- Playback ---
@@ -393,14 +395,11 @@ namespace InTheirShoes {
         if (line.followsStandIn) {
             if (!StandInLineDone()) return;
         } else if (line.hadSound) {
-            // Timed from the sound's duration.
-            // Timer is started once its file has loaded, and is paused while the game is paused
-            auto now = std::chrono::steady_clock::now();
-            float delta = std::chrono::duration<float>(now - line.lastSoundTick).count();
+            // Timed from the sound's duration, once its file has loaded. GameClock leaves out pauses, loading
+            // screens and hitches, which the voice doesn't play through either.
+            const auto now = GameClock::Now();
+            const float heard = static_cast<float>(now - line.lastSoundTick);
             line.lastSoundTick = now;
-            bool paused = ui && (ui->GameIsPaused() || ui->IsMenuOpen(RE::LoadingMenu::MENU_NAME));
-            float heard = paused ? 0.0f : std::min(delta, kMaxSoundTickSeconds);
-            line.soundPaused += delta - heard;
             line.soundActive += heard;
             if (line.soundSeconds <= 0.0f) {
                 line.soundSeconds = GetSoundSeconds(player);
@@ -413,12 +412,12 @@ namespace InTheirShoes {
                 if (line.soundActive < kMaxLineSeconds) return;
                 SKSE::log::warn("Player line still playing after {:.0f}s; finishing it", line.soundActive);
             }
-        } else if (line.pendingVoice || SecondsSince(line.start) < line.unvoicedDuration) {
+        } else if (line.pendingVoice || GameClock::SecondsSince(line.start) < line.unvoicedDuration) {
             return;
         }
 
-        SKSE::log::info("Player line finished after {:.2f}s (voiced={}, sound length {:.2f}s, played {:.2f}s, paused {:.2f}s)",
-            SecondsSince(line.start), line.hadSound, line.soundSeconds, line.soundPlayed, line.soundPaused);
+        SKSE::log::info("Player line finished after {:.2f}s (voiced={}, sound length {:.2f}s, played {:.2f}s)",
+            GameClock::SecondsSince(line.start), line.hadSound, line.soundSeconds, line.soundPlayed);
         if (line.isIdleChatter && line.item && SpeakNextIdleResponse()) return;
         Finish();
     }
@@ -440,7 +439,7 @@ namespace InTheirShoes {
             if (line.item) {
                 SendTopicInfoEvent(*line.item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicEnd);
             }
-            IdleChatter::GetSingleton().OnLineFinished();
+            IdleChatter::GetSingleton()->OnLineFinished();
         }
     }
 

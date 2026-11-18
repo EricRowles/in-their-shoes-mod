@@ -25,7 +25,7 @@ Opens when the player activates the puppet, or when a donor package that would g
 
 ## Idle chatter
 
-When the cooldown (MCM) has passed and the player is free and not in a scene, an idle line the donor could say is picked from running quests as the engine picks one: the highest priority quest with a line whose conditions pass, the first such line in its topic (or one at random from a random group), skipping say-once lines already said and lines whose reset hours haven't passed. The player voices each of its responses. The line's fragments run with the donor as the speaker, so it can start a scene (e.g. another follower's reply).
+When the cooldown (MCM, in game time: menus and pauses don't count) has passed and the player is free (not in combat, a scene, a menu or self-dialogue, and not already speaking; idle AI walking the player is fine), an idle line the donor could say is picked from running quests as the engine picks one: the highest priority quest with a line whose conditions pass, the first such line in its topic (or one at random from a random group), skipping say-once lines already said and lines whose reset hours haven't passed. The player voices each of its responses. The line's fragments run with the donor as the speaker, so it can start a scene (e.g. another follower's reply).
 
 ## Follower recruitment
 

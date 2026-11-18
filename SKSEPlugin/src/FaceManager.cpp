@@ -19,10 +19,6 @@
 namespace InTheirShoes {
 
     namespace {
-        RE::NiColor ToNiColor(const RE::Color& a_color) {
-            return { a_color.red / 255.0f, a_color.green / 255.0f, a_color.blue / 255.0f };
-        }
-
         std::uint8_t ToByte(float a_channel) {
             return static_cast<std::uint8_t>(std::clamp(a_channel * 255.0f, 0.0f, 255.0f));
         }
@@ -142,10 +138,10 @@ namespace InTheirShoes {
                 return a_snapshot.skinTintColor;
             }
             if (!IsBlack(a_snapshot.bodyTintColor)) {
-                return ToNiColor(a_snapshot.bodyTintColor);
+                return RE::NiColor(a_snapshot.bodyTintColor);
             }
             if (auto tone = FindRaceSkinTone(a_snapshot.race, a_snapshot.sex, a_snapshot.tintLayers)) {
-                return ToNiColor(*tone);
+                return RE::NiColor(*tone);
             }
             return std::nullopt;
         }
@@ -183,7 +179,7 @@ namespace InTheirShoes {
         // RaceSexMenu reads the player's tint masks at the race's tint indices (ID 52412); with a donor of another race
         // they run past the Dragonborn's masks and crash. kIgnore on kShow drops the menu before it opens (ID 82082),
         // so RaceMenu doesn't save the donor's tints either.
-        if (a_message.type == RE::UI_MESSAGE_TYPE::kShow && Session::GetSingleton().IsActive() && !a_this->AlwaysOpen()) {
+        if (a_message.type == RE::UI_MESSAGE_TYPE::kShow && Session::GetSingleton()->IsActive() && !a_this->AlwaysOpen()) {
             SKSE::log::info("Refused to open RaceMenu while impersonating");
             RE::SendHUDMessage::ShowHUDMessage("You can't change your appearance while impersonating.");
             return RE::UI_MESSAGE_RESULTS::kIgnore;
@@ -205,7 +201,7 @@ namespace InTheirShoes {
         snapshot.race = npc->GetRace();
         snapshot.skin = npc->skin;
         snapshot.farSkin = npc->farSkin;
-        if (npc->GetFormID() == Forms::kPlayerBaseID) {
+        if (Forms::IsPlayerBase(npc)) {
             snapshot.faceNPC = nullptr;
         } else {
             snapshot.faceNPC = (npc->faceNPC && npc->faceNPC != npc) ? npc->faceNPC : npc;
@@ -238,7 +234,7 @@ namespace InTheirShoes {
         if (IsBlack(snapshot.bodyTintColor)) {
             if (auto tone = FindRaceSkinTone(a_actor->GetRace(), snapshot.sex, snapshot.tintLayers)) {
                 SetRGB(snapshot.bodyTintColor, *tone);
-                snapshot.skinTintColor = ToNiColor(*tone);
+                snapshot.skinTintColor = RE::NiColor(*tone);
                 snapshot.hasSkinTintColor = true;
             }
         }
@@ -281,11 +277,7 @@ namespace InTheirShoes {
         if (npc->headParts && npc->numHeadParts > 0) {
             for (std::int8_t i = 0; i < npc->numHeadParts; ++i) {
                 if (npc->headParts[i]) {
-                    bool found = false;
-                    for (auto* existing : snapshot.headParts) {
-                        if (existing == npc->headParts[i]) { found = true; break; }
-                    }
-                    if (!found) snapshot.headParts.push_back(npc->headParts[i]);
+                    if (!std::ranges::contains(snapshot.headParts, npc->headParts[i])) snapshot.headParts.push_back(npc->headParts[i]);
                 }
             }
         }
@@ -323,7 +315,7 @@ namespace InTheirShoes {
         targetNPC->skin = a_snapshot.skin;
         targetNPC->farSkin = a_snapshot.farSkin;
 
-        if (!a_asPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && a_snapshot.faceNPC->GetFormID() != Forms::kPlayerBaseID) {
+        if (!a_asPuppet && a_snapshot.faceNPC && a_snapshot.faceNPC != targetNPC && !Forms::IsPlayerBase(a_snapshot.faceNPC)) {
             targetNPC->faceNPC = a_snapshot.faceNPC;
         } else {
             targetNPC->faceNPC = nullptr;
@@ -331,13 +323,7 @@ namespace InTheirShoes {
 
         if (!a_snapshot.fullName.empty()) {
             targetNPC->fullName = a_snapshot.fullName;
-            auto* textData = a_targetActor->extraList.GetByType<RE::ExtraTextDisplayData>();
-            if (!textData) {
-                textData = new RE::ExtraTextDisplayData(a_snapshot.fullName.c_str());
-                a_targetActor->extraList.Add(textData);
-            } else {
-                textData->SetName(a_snapshot.fullName.c_str());
-            }
+            a_targetActor->SetDisplayName(a_snapshot.fullName, false);
         }
 
         // 2. Sex & Voice Type
@@ -365,10 +351,7 @@ namespace InTheirShoes {
 
         // 5. Face morphs & parts
         if (!targetNPC->faceData) {
-            targetNPC->faceData = RE::calloc<RE::TESNPC::FaceData>(1);
-            if (targetNPC->faceData) {
-                std::memset(targetNPC->faceData, 0, sizeof(RE::TESNPC::FaceData));
-            }
+            targetNPC->faceData = RE::calloc<RE::TESNPC::FaceData>(1);  // zeroed
         }
         if (targetNPC->faceData) {
             std::ranges::copy(a_snapshot.morphs, targetNPC->faceData->morphs);

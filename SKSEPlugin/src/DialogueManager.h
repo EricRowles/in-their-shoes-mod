@@ -1,8 +1,7 @@
 #pragma once
 
-#include "Singleton.h"
+#include "GameClock.h"
 #include <atomic>
-#include <chrono>
 #include <optional>
 #include "RE/D/DialogueItem.h"
 
@@ -18,7 +17,7 @@ namespace InTheirShoes {
     //
     // Whether self-dialogue is on is published in Session, which condition hooks read from AI threads.
     class DialogueManager :
-        public Singleton<DialogueManager>,
+        public REX::Singleton<DialogueManager>,
         public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
     public:
         void Initialize();
@@ -31,8 +30,13 @@ namespace InTheirShoes {
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
 
+        // 1.6.1170 has three start-speech calls outside UpdateInDialogue; more would mean the search went wrong
+        static constexpr std::size_t kMaxStartSpeechCalls = 6;
+        // The trampoline SKSE::Init allocates: the talking idle call and the start-speech calls, 14 bytes each
+        static constexpr std::size_t kTrampolineSize = 14 * (1 + kMaxStartSpeechCalls);
+
     private:
-        friend Singleton<DialogueManager>;
+        friend REX::Singleton<DialogueManager>;
         DialogueManager() = default;
         ~DialogueManager() override = default;
 
@@ -85,16 +89,16 @@ namespace InTheirShoes {
         std::atomic<RE::TESTopic*> _pendingSelfDialogueTopic{ nullptr };
         // After self-dialogue ends (Session::IsPuppetSpeakerPending), the puppet is cleared as the engine's speaker
         // shortly after the menu closes. When the menu was first seen closed, once it has
-        std::optional<std::chrono::steady_clock::time_point> _puppetSpeakerClearAt;
+        std::optional<GameClock::TimePoint> _puppetSpeakerClearAt;
         // The menu line waiting on a voice file that doesn't exist (see AdvancePastUnvoicedLine)
         struct UnvoicedLine {
             const RE::TESTopicInfo* info{ nullptr };
-            std::chrono::steady_clock::time_point since{};
+            GameClock::TimePoint since{};
             bool advanced{ false };
         };
         std::optional<UnvoicedLine> _unvoicedLine;
         // When self-dialogue was opened, until its Dialogue Menu opens (main thread)
-        std::optional<std::chrono::steady_clock::time_point> _awaitingMenuSince;
+        std::optional<GameClock::TimePoint> _awaitingMenuSince;
         static constexpr float kNoMenuSeconds = 2.0f;
         static constexpr float kUnvoicedLineMinSeconds = 1.5f;
     };
