@@ -26,6 +26,9 @@ namespace InTheirShoes::Serialization {
     // The Dragonborn's bounty, set aside for the session (CrimeManager)
     inline constexpr std::uint32_t kCrimeRecord = 'CRIM';
     inline constexpr std::uint32_t kCrimeVersion = 1;
+    // The Dragonborn's linked references, set aside for the session (LinkedRefManager)
+    inline constexpr std::uint32_t kLinkedRefsRecord = 'LINK';
+    inline constexpr std::uint32_t kLinkedRefsVersion = 1;
     // The MCM's settings (Settings)
     inline constexpr std::uint32_t kSettingsRecord = 'SETT';
     inline constexpr std::uint32_t kSettingsVersion = 1;

@@ -243,8 +243,8 @@ namespace InTheirShoes::NativeRedirect {
         }
 
         // Where a package location is, as a reference to move to; null for the types that don't name one (a cell,
-        // an object type, near self). Linked references are the donor's: the player has none of its own.
-        RE::TESObjectREFR* ResolvePackageLocation(const RE::PackageLocation* a_loc, const RE::TESPackage* a_pkg, RE::Actor* a_donor) {
+        // an object type, near self). The player holds the donor's linked references (LinkedRefManager).
+        RE::TESObjectREFR* ResolvePackageLocation(const RE::PackageLocation* a_loc, const RE::TESPackage* a_pkg, RE::Actor* a_player) {
             using Type = RE::PackageLocation::Type;
             switch (a_loc->locType.get()) {
                 case Type::kNearReference:
@@ -254,7 +254,7 @@ namespace InTheirShoes::NativeRedirect {
                     return a_pkg->ownerQuest ? a_pkg->ownerQuest->GetAliasedRef(aliasID).get().get() : nullptr;
                 }
                 case Type::kNearLinkedReference:
-                    return a_donor ? a_donor->GetLinkedRef(a_loc->data.object ? a_loc->data.object->As<RE::BGSKeyword>() : nullptr) : nullptr;
+                    return a_player->GetLinkedRef(a_loc->data.object ? a_loc->data.object->As<RE::BGSKeyword>() : nullptr);
                 default:
                     return nullptr;
             }
@@ -264,7 +264,6 @@ namespace InTheirShoes::NativeRedirect {
         void DoPlayerPackageMove() {
             auto* player = RE::PlayerCharacter::GetSingleton();
             if (!player || !Session::GetSingleton()->IsActive()) return;
-            auto* donor = Session::GetSingleton()->GetDonor();
             RE::TESObjectREFR* target = nullptr;
             auto* pkg = PickPlayerPackage(player);
             RE::PackageLocation::Type type = RE::PackageLocation::Type::kNone;
@@ -272,7 +271,7 @@ namespace InTheirShoes::NativeRedirect {
                 PackageUtil::ForEachPackageLocation(pkg, [&](RE::PackageLocation* a_loc) {
                     if (target || !a_loc) return;
                     type = a_loc->locType.get();
-                    target = ResolvePackageLocation(a_loc, pkg, donor);
+                    target = ResolvePackageLocation(a_loc, pkg, player);
                 });
             }
             SKSE::log::info("MoveToPackageLocation on the player: package {:08X}, location type {}, target {:08X}",

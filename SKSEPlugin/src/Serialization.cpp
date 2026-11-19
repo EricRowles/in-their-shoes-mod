@@ -7,6 +7,7 @@
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
+#include "LinkedRefManager.h"
 #include "Settings.h"
 
 #include <type_traits>
@@ -356,6 +357,39 @@ namespace InTheirShoes::Serialization {
             SKSE::log::info("Loaded the Dragonborn's bounty ({} crime factions).", CrimeManager::GetSingleton()->GetDragonbornBounty().size());
         }
 
+        // --- 'LINK': the Dragonborn's linked references ---
+
+        void WriteLinkedRefs(Serde* a_serde) {
+            auto& links = *LinkedRefManager::GetSingleton();
+            if (!links.IsActive() || !Session::GetSingleton()->IsActive()) return;
+            if (!a_serde->OpenRecord(kLinkedRefsRecord, kLinkedRefsVersion)) return;
+            WriteList(a_serde, links.GetDragonbornLinks(), [&](const LinkedRefManager::Link& a_link) {
+                WriteFormID(a_serde, a_link.keyword);
+                WriteFormID(a_serde, a_link.ref);
+            });
+        }
+
+        void ReadLinkedRefs(Serde* a_serde) {
+            std::vector<LinkedRefManager::Link> links;
+            const bool ok = ReadList(a_serde, [&] {
+                LinkedRefManager::Link link;
+                RE::FormID keywordID = 0;
+                // A keyword saved as none is the default link; one whose plugin is gone drops the link
+                if (!Read(a_serde, keywordID)) return false;
+                const bool keywordGone = keywordID != 0 && !a_serde->ResolveFormID(keywordID, keywordID);
+                link.keyword = keywordID != 0 && !keywordGone ? RE::TESForm::LookupByID<RE::BGSKeyword>(keywordID) : nullptr;
+                if (!ReadForm(a_serde, link.ref)) return false;
+                if (link.ref && !keywordGone && (keywordID == 0 || link.keyword)) links.push_back(link);
+                return true;
+            });
+            if (!ok) {
+                SKSE::log::warn("Linked refs record is truncated; ignoring it.");
+                return;
+            }
+            LinkedRefManager::GetSingleton()->Restore(std::move(links));
+            SKSE::log::info("Loaded the Dragonborn's linked refs ({}).", LinkedRefManager::GetSingleton()->GetDragonbornLinks().size());
+        }
+
         // --- 'SETT': the MCM's settings ---
 
         void WriteSettings(Serde* a_serde) {
@@ -434,6 +468,7 @@ namespace InTheirShoes::Serialization {
         WriteSession(a_serde);
         WriteFactions(a_serde);
         WriteCrime(a_serde);
+        WriteLinkedRefs(a_serde);
         if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton()->IsActive() &&
             a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
             WriteFaceSnapshot(a_serde, *donorFace);
@@ -490,6 +525,11 @@ namespace InTheirShoes::Serialization {
                 case kCrimeRecord:
                     if (!IsReadableVersion(type, version, kCrimeVersion)) break;
                     ReadCrime(a_serde);
+                    break;
+
+                case kLinkedRefsRecord:
+                    if (!IsReadableVersion(type, version, kLinkedRefsVersion)) break;
+                    ReadLinkedRefs(a_serde);
                     break;
 
                 case kSettingsRecord:

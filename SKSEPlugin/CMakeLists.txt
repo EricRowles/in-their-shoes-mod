@@ -37,6 +37,8 @@ add_library(${PROJECT_NAME} SHARED
     src/ConditionHooks.cpp
     src/CrimeManager.h
     src/CrimeManager.cpp
+    src/LinkedRefManager.h
+    src/LinkedRefManager.cpp
     src/AliasSwapManager.h
     src/AliasSwapManager.cpp
     src/FaceManager.h

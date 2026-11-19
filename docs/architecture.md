@@ -18,6 +18,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 - **While impersonating:**
   - The player answers the donor's conditions and holds its quest aliases, so the donor's quests, scenes and idle lines play through the player. This includes aliases that a quest fills with the donor during the session, such as a follower mod's quest that starts on a location change.
   - The player is in the donor's factions instead of the Dragonborn's (the Dragonborn keeps PlayerFaction). The donor's faction allies and enemies react to the player as they would to the donor, and faction-owned beds and goods are the player's to use. When the session ends, the donor gets the player's factions as they are then.
+  - The player has the donor's linked references (e.g. the idle marker its package uses) instead of the Dragonborn's. When the session ends, the donor gets the player's linked references as they are then.
   - The player keeps the Dragonborn's relationships (followers, spouse). Where the Dragonborn has none with an actor, the donor's apply, so the donor's family, friends and enemies treat the player as the donor. The puppet keeps the Dragonborn's. Class checks answer with the donor's class.
   - With the player idle, the player runs the donor's AI packages, its default ones (such as DefaultMasterPackage) included, and sandboxes around the donor's home rather than where it stands. Idle time is game time: menus and the game window being in the background pause it. Not while the player is in furniture it used itself (a chair, a crafting station), or while something else (a scene, another mod) has the player AI-controlled; idle AI never takes that control away. Only input that acts in the world takes control back: moving, attacking, drawing a weapon, activating, jumping, sneaking or shouting. Other keys (menus, hotkeys, the camera, Run) don't, so the player can manage equipment while idle AI walks. A package that would greet the Dragonborn walks to the puppet instead and opens dialogue. A package picked in the MCM comes from a high-priority quest alias, so it outranks the donor's packages, its quest packages (such as a follower's Follow) included.
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
@@ -47,6 +48,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `PackageRetarget` | Owns every runtime package edit: other actors' packages that target the donor (e.g. a companion following it) target the player, and packages the idle player runs that target the player target the puppet |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
 | `FactionManager` | Moves the donor's factions to the player for the session and hands them back |
+| `LinkedRefManager` | Gives the player the donor's linked references for the session and hands them back |
 | `CrimeManager` | Sets the Dragonborn's bounty aside for the session and restores it |
 | `Forms` | Every form looked up by ID |
 | `Serialization` | Co-save records |
