@@ -1,14 +1,5 @@
 #pragma once
 
-#include "RE/B/BGSPackageDataLocation.h"
-#include "RE/B/BGSPackageDataRef.h"
-#include "RE/B/BGSPackageDataTargetSelector.h"
-#include "RE/B/BGSPackageDataTopic.h"
-#include "RE/I/IPackageData.h"
-#include "RE/P/PackageLocation.h"
-#include "RE/T/TESCustomPackageData.h"
-#include "RE/T/TESPackage.h"
-
 #include <algorithm>
 #include <vector>
 

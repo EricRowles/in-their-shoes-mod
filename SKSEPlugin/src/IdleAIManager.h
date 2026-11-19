@@ -4,7 +4,6 @@
 #include "PlayerBusy.h"
 #include <atomic>
 #include <cstdint>
-#include "RE/I/IProcedureTreeItem.h"
 
 namespace InTheirShoes {
 

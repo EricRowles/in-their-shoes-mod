@@ -7,7 +7,7 @@
 #include <cstring>
 #include <limits>
 
-#include "RE/P/PlayerControls.h"
+#include <xbyak/xbyak.h>
 
 namespace InTheirShoes::PlayerMoveSpeed {
 
@@ -25,17 +25,16 @@ namespace InTheirShoes::PlayerMoveSpeed {
         using SetMovementSpeed_t = void(RE::AIProcess* a_process, RE::Actor* a_actor, std::uint32_t a_flags,
             bool a_usePackageSpeed);
 
-        // a_flags is ActorState1 (walking 0x40, running 0x80, plus direction and sneaking bits), or -1 for walk.
+        // a_flags is the actor's ActorState1 with the speed it should move at, or -1 for walk.
         // a_usePackageSpeed: the running package's preferred speed, if it has one, wins.
         std::uintptr_t SetMovementSpeedAddress() {
             return REL::Relocation<std::uintptr_t>{ RELOCATION_ID(38379, 39363) }.address();
         }
 
-        // The speed bits: walk and run, and the jog and fast walk speeds packages can ask for. The engine replaces
-        // them and keeps the other bits when it applies a package's preferred speed; so does the hook.
-        constexpr std::uint32_t kWalk = 0x40;
-        constexpr std::uint32_t kRun = 0x80;
-        constexpr std::uint32_t kSpeedBits = kWalk | kRun | 0x1000 | 0x2000;
+        // Jog (0x1000) and fast walk (0x2000), the speeds besides walk and run that packages can ask for; CommonLib
+        // leaves them unnamed in ActorState1::unk11. The engine clears all four speed bits and keeps the others
+        // when it applies a package's preferred speed; so does the hook.
+        constexpr std::uint32_t kJogAndFastWalk = 0b110;
 
         enum class Speed : std::uint8_t {
             kEngine,  // The AI's own choice
@@ -53,8 +52,14 @@ namespace InTheirShoes::PlayerMoveSpeed {
             if (speed == Speed::kEngine || !a_actor || !a_actor->IsPlayerRef()) {
                 return g_original(a_process, a_actor, a_flags, a_usePackageSpeed);
             }
-            const auto flags = a_flags == std::numeric_limits<std::uint32_t>::max() ? kWalk : a_flags;
-            g_original(a_process, a_actor, (flags & ~kSpeedBits) | (speed == Speed::kRun ? kRun : kWalk), false);
+            RE::ActorState::ActorState1 state{};
+            if (a_flags != std::numeric_limits<std::uint32_t>::max()) {
+                state = std::bit_cast<RE::ActorState::ActorState1>(a_flags);
+            }
+            state.walking = speed == Speed::kWalk;
+            state.running = speed == Speed::kRun;
+            state.unk11 &= ~kJogAndFastWalk;
+            g_original(a_process, a_actor, std::bit_cast<std::uint32_t>(state), false);
         }
     }
 
@@ -69,15 +74,21 @@ namespace InTheirShoes::PlayerMoveSpeed {
             return;
         }
 
-        auto& trampoline = SKSE::GetTrampoline();
-        constexpr std::uint8_t kJmpAbs[] = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };  // jmp [rip+0], then the address
-        const std::uint64_t resume = function + sizeof(kFirstInstructions);
-        auto* stub = static_cast<std::uint8_t*>(trampoline.allocate(sizeof(kFirstInstructions) + sizeof(kJmpAbs) + sizeof(resume)));
-        std::memcpy(stub, kFirstInstructions, sizeof(kFirstInstructions));
-        std::memcpy(stub + sizeof(kFirstInstructions), kJmpAbs, sizeof(kJmpAbs));
-        std::memcpy(stub + sizeof(kFirstInstructions) + sizeof(kJmpAbs), &resume, sizeof(resume));
-        g_original = reinterpret_cast<SetMovementSpeed_t*>(stub);
+        struct Original : Xbyak::CodeGenerator {
+            explicit Original(std::uintptr_t a_resume) {
+                Xbyak::Label resume;
+                mov(rax, rsp);
+                push(rbp);
+                push(rdi);
+                jmp(ptr[rip + resume]);
+                L(resume);
+                dq(a_resume);
+            }
+        } original{ function + sizeof(kFirstInstructions) };
+        original.ready();
 
+        auto& trampoline = SKSE::GetTrampoline();
+        g_original = static_cast<SetMovementSpeed_t*>(trampoline.allocate(original));
         trampoline.write_branch<5>(function, &Hook_SetMovementSpeed);
         SKSE::log::info("Hooked set movement speed at SkyrimSE+{:X}", function - REL::Module::get().base());
     }

@@ -5,9 +5,6 @@
 #include "Session.h"
 
 #include <algorithm>
-#include <RE/B/BGSRefAlias.h>
-#include <RE/E/ExtraAliasInstanceArray.h>
-#include <RE/T/TESQuest.h>
 
 namespace InTheirShoes {
 

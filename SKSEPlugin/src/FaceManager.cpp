@@ -5,16 +5,6 @@
 #include "Session.h"
 
 #include <algorithm>
-#include "RE/B/BSFaceGenNiNode.h"
-#include "RE/B/BSVisit.h"
-#include "RE/B/BSGeometry.h"
-#include "RE/B/BSLightingShaderProperty.h"
-#include "RE/B/BSLightingShaderMaterialBase.h"
-#include "RE/B/BSLightingShaderMaterialHairTint.h"
-#include "RE/B/BSLightingShaderMaterialFacegenTint.h"
-#include "RE/E/ExtraScale.h"
-#include "RE/E/ExtraTextDisplayData.h"
-#include "RE/M/MiddleHighProcessData.h"
 
 namespace InTheirShoes {
 

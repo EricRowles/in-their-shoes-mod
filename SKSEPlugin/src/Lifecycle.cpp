@@ -15,6 +15,7 @@
 #include "ImpersonationManager.h"
 #include "NativeRedirect.h"
 #include "PackageRetarget.h"
+#include "PlayerMoveSpeed.h"
 #include "PlayerVoice.h"
 #include "Session.h"
 #include "Settings.h"
@@ -23,6 +24,7 @@ namespace InTheirShoes::Lifecycle {
 
     void OnInputLoaded() {
         IdleAIManager::GetSingleton()->Initialize();
+        PlayerMoveSpeed::Install();
     }
 
     void OnDataLoaded() {
@@ -62,6 +64,7 @@ namespace InTheirShoes::Lifecycle {
         LinkedRefManager::GetSingleton()->Clear();
         IdleAIManager::GetSingleton()->Clear();
         DialogueManager::GetSingleton()->Clear();
+        PlayerVoice::GetSingleton()->Clear();
         IdleChatter::GetSingleton()->Clear();
         PackageRetarget::GetSingleton()->RestoreAll();
         // A save without settings (from an older version) gets the MCM's once it pushes them

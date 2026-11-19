@@ -8,14 +8,6 @@
 #include <algorithm>
 #include <span>
 
-#include "RE/T/TESQuest.h"
-#include "RE/T/TESTopicInfo.h"
-#include "RE/B/BSAudioManager.h"
-#include "RE/I/ID.h"
-#include "RE/A/AIProcess.h"
-#include "RE/H/HighProcessData.h"
-#include "RE/B/BSFaceGenAnimationData.h"
-
 namespace InTheirShoes {
 
     // Unvoiced lines are shown for roughly this long per character of text

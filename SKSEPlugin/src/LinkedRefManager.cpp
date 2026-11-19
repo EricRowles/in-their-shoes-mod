@@ -1,8 +1,6 @@
 #include "PCH.h"
 #include "LinkedRefManager.h"
 
-#include "RE/E/ExtraLinkedRef.h"
-
 namespace InTheirShoes {
 
     namespace {

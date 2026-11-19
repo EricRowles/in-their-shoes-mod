@@ -4,7 +4,6 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include "RE/N/NiColor.h"
 
 namespace InTheirShoes {
 

@@ -6,10 +6,6 @@
 #include "Session.h"
 #include "Settings.h"
 
-#include <RE/A/ActiveEffect.h>
-#include <RE/B/BSScriptObjectBindPolicy.h>
-#include <RE/E/ExtraAliasInstanceArray.h>
-
 #include <array>
 #include <mutex>
 #include <set>

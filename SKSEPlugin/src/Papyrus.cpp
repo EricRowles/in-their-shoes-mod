@@ -9,9 +9,6 @@
 #include "Session.h"
 #include "Settings.h"
 #include "Version.h"
-#include <RE/C/ControlMap.h>
-#include <RE/T/TESRace.h>
-#include <RE/F/FunctionArguments.h>
 
 namespace InTheirShoes::Papyrus {
 

@@ -17,22 +17,6 @@
 #include <cmath>
 #include <string>
 
-#include "RE/C/ControlMap.h"
-#include "RE/P/PlayerControls.h"
-#include "RE/U/UserEvents.h"
-#include "RE/P/PackageLocation.h"
-#include "RE/T/TESPackage.h"
-#include "RE/T/TESCustomPackageData.h"
-#include "RE/I/IPackageData.h"
-#include "RE/B/BGSDefaultObjectManager.h"
-#include "RE/B/BGSListForm.h"
-#include "RE/B/BGSProcedureTreeBranch.h"
-#include "RE/B/BGSProcedureTreeProcedure.h"
-#include "RE/T/TESQuest.h"
-#include "RE/E/ExtraAliasInstanceArray.h"
-#include "RE/B/BGSRefAlias.h"
-#include "RE/F/FunctionArguments.h"
-
 namespace InTheirShoes {
 
     using namespace PackageUtil;
@@ -200,8 +184,6 @@ namespace InTheirShoes {
         REL::Relocation<std::uintptr_t> playerVtbl{ RE::VTABLE_PlayerCharacter[0] };
         _origPlayerCheckForCurrentAliasPackage = playerVtbl.write_vfunc(0x49, &Hook_Player_CheckForCurrentAliasPackage);
         SKSE::log::info("Hooked PlayerCharacter::CheckForCurrentAliasPackage (0x49)");
-
-        PlayerMoveSpeed::Install();
     }
 
     // Swapped aliases' packages made a player using furniture stand up while not AI-driven (#42), so none is
@@ -466,10 +448,6 @@ namespace InTheirShoes {
         ApplyIdlePackage();
         ClearPlayerPackages();
         a_player->EvaluatePackage(false, false);
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            pc->data.autoMove = false;
-            pc->data.moveInputVec = { 0.0f, 0.0f };
-        }
         _loggedPackage = nullptr;
         _idleSeconds = 0.0f;
         SKSE::log::info("Disengaged autonomous AI: {}", ToString(a_reason));

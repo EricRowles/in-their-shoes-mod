@@ -3,7 +3,6 @@
 #include "GameClock.h"
 #include <atomic>
 #include <optional>
-#include "RE/D/DialogueItem.h"
 
 namespace InTheirShoes {
 

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "RE/B/BSTimer.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cmath>

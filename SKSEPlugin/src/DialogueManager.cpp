@@ -8,14 +8,6 @@
 #include "PlayerVoice.h"
 #include "QuestConditions.h"
 
-#include "RE/T/TESQuest.h"
-#include "RE/T/TESTopic.h"
-#include "RE/T/TESTopicInfo.h"
-#include "RE/T/TESCondition.h"
-#include "RE/S/SubtitleManager.h"
-#include "RE/A/AIProcess.h"
-#include "RE/H/HighProcessData.h"
-
 namespace InTheirShoes {
 
     // The puppet stays the engine's speaker this long after self-dialogue's menu closes (see EndSelfDialogue)
@@ -221,7 +213,6 @@ namespace InTheirShoes {
         Session::GetSingleton()->SetPuppetSpeakerPending(false);
         _puppetSpeakerClearAt.reset();
         _awaitingMenuSince.reset();
-        PlayerVoice::GetSingleton()->Clear();
     }
 
     void DialogueManager::EndSelfDialogueWithoutMenu() {

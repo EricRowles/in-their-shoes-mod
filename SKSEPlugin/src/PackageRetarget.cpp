@@ -4,8 +4,6 @@
 
 #include <algorithm>
 
-#include "RE/P/ProcessLists.h"
-
 namespace InTheirShoes {
 
     using namespace PackageUtil;

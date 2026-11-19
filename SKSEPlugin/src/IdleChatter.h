@@ -4,7 +4,6 @@
 #include "PlayerBusy.h"
 #include <unordered_map>
 #include <vector>
-#include "RE/D/DialogueItem.h"
 
 namespace InTheirShoes {
 

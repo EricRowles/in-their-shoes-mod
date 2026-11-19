@@ -9,9 +9,6 @@
 #include <optional>
 #include <utility>
 
-#include <RE/C/CommandTable.h>
-#include <RE/T/TESCondition.h>
-
 namespace InTheirShoes::ConditionHooks {
 
     namespace {

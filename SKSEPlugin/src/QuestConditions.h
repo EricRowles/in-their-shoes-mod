@@ -1,7 +1,5 @@
 #pragma once
 
-#include "RE/T/TESCondition.h"
-
 namespace InTheirShoes::QuestConditions {
 
     // Whether a condition list passes, with a_isTrue(item) answering each item. Skyrim groups OR'd items first:

@@ -4,8 +4,6 @@
 #include "PlayerVoice.h"
 #include "Session.h"
 
-#include "RE/M/Main.h"
-
 #include <algorithm>
 #include <array>
 

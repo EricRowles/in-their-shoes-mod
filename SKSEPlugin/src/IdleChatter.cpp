@@ -9,12 +9,6 @@
 
 #include <random>
 
-#include "RE/T/TESDataHandler.h"
-#include "RE/T/TESQuest.h"
-#include "RE/T/TESTopic.h"
-#include "RE/T/TESTopicInfo.h"
-#include "RE/C/Calendar.h"
-
 #include <algorithm>
 #include <functional>
 
