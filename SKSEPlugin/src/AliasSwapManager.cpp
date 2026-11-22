@@ -48,6 +48,10 @@ namespace InTheirShoes {
         RE::TESObjectREFR* GetAliasReference(RE::TESQuest* a_quest, std::uint32_t a_aliasID) {
             return a_quest->GetAliasedRef(a_aliasID).get().get();
         }
+
+        std::uint64_t AliasKey(RE::FormID a_questFormID, std::uint32_t a_aliasID) {
+            return static_cast<std::uint64_t>(a_questFormID) << 32 | a_aliasID;
+        }
     }
 
     void AliasSwapManager::SwapDonorAliasesToPlayer(RE::Actor* a_donor, RE::Actor* a_player) {
@@ -57,6 +61,7 @@ namespace InTheirShoes {
                 a_donor->GetFormID(), quest->GetFormID(), aid);
             _swappedAliases.push_back({ quest->GetFormID(), aid, MoveAlias(quest, aid, a_donor, a_player) });
         }
+        PublishKeys();
     }
 
     void AliasSwapManager::RestoreSwappedAliases(RE::Actor* a_donor) {
@@ -82,6 +87,7 @@ namespace InTheirShoes {
         }
         // The aliases gave their factions back
         _swappedAliases.clear();
+        PublishKeys();
     }
 
     void AliasSwapManager::AdoptPuppetAliases(RE::Actor* a_puppet, RE::Actor* a_player) {
@@ -126,6 +132,16 @@ namespace InTheirShoes {
         } else {
             _swappedAliases.push_back({ a_quest->GetFormID(), a_aliasID, std::move(factions) });
         }
+        PublishKeys();
+    }
+
+    void AliasSwapManager::PublishKeys() {
+        std::unordered_set<std::uint64_t> keys;
+        for (const auto& entry : _swappedAliases) {
+            keys.insert(AliasKey(entry.questFormID, entry.aliasID));
+        }
+        std::scoped_lock guard(_keysLock);
+        _keys = std::move(keys);
     }
 
     void AliasSwapManager::Initialize() {
@@ -155,17 +171,17 @@ namespace InTheirShoes {
         });
         if (released.empty()) return;
         _swappedAliases.erase(released.begin(), released.end());
+        PublishKeys();
     }
 
     bool AliasSwapManager::IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const {
-        for (const auto& entry : _swappedAliases) {
-            if (entry.questFormID == a_questFormID && entry.aliasID == a_aliasID) return true;
-        }
-        return false;
+        std::scoped_lock guard(_keysLock);
+        return _keys.contains(AliasKey(a_questFormID, a_aliasID));
     }
 
     void AliasSwapManager::Clear() {
         _swappedAliases.clear();
+        PublishKeys();
     }
 
     bool AliasSwapManager::IsAliasFaction(const RE::TESFaction* a_faction) const {
@@ -176,6 +192,7 @@ namespace InTheirShoes {
 
     void AliasSwapManager::SetSwappedAliases(std::vector<SwappedAlias> a_aliases) {
         _swappedAliases = std::move(a_aliases);
+        PublishKeys();
     }
 
 }

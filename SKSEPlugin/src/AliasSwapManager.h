@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+#include <unordered_set>
 #include <vector>
 
 namespace InTheirShoes {
@@ -8,7 +10,7 @@ namespace InTheirShoes {
     // rather than only answering GetIsAliasRef for the player, is needed because scenes only run an alias's
     // actions when the actor filling it is loaded, and the parked donor isn't.
     // Don't hook TESQuest::ForceRefIntoAlias: a 5-byte context hook split a prologue instruction and froze the game.
-    // Not thread-safe; the quest start sink hands its work to the main thread.
+    // Not thread-safe, except IsSwappedAlias; the quest start sink hands its work to the main thread.
     class AliasSwapManager :
         public REX::Singleton<AliasSwapManager>,
         public RE::BSTEventSink<RE::TESQuestStartStopEvent> {
@@ -43,6 +45,7 @@ namespace InTheirShoes {
         // Stops tracking swapped aliases a quest has cleared or given to someone else
         void DropReleasedAliases();
 
+        // Any thread (ScriptEventFilter asks from the VM's event hook)
         bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const;
         std::size_t GetSwappedAliasCount() const { return _swappedAliases.size(); }
         void Clear();
@@ -62,8 +65,13 @@ namespace InTheirShoes {
 
         // Moves a_from's alias to a_to and tracks it as swapped, so the donor gets it on revert
         void TakeAlias(RE::TESQuest* a_quest, std::uint32_t a_aliasID, RE::Actor* a_from, RE::Actor* a_to);
+        // Copies _swappedAliases' keys for IsSwappedAlias; called after every change to it. Copied after the engine
+        // calls rather than locked around them: ForceRefIntoAlias sends script events, whose hook calls IsSwappedAlias.
+        void PublishKeys();
 
         std::vector<SwappedAlias> _swappedAliases;
+        mutable std::mutex _keysLock;
+        std::unordered_set<std::uint64_t> _keys;  // quest form ID << 32 | alias ID
     };
 
 }

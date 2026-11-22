@@ -1,6 +1,7 @@
 #include "PCH.h"
 #include "InventoryManager.h"
 #include "Forms.h"
+#include "ScriptEventFilter.h"
 #include <unordered_set>
 
 namespace InTheirShoes {
@@ -327,6 +328,7 @@ namespace InTheirShoes {
             SKSE::log::warn("TransferAllItems called with null actor pointer.");
             return false;
         }
+        const ScriptEventFilter::TransferScope noScriptEvents;
 
         ClearInventory(a_toActor);
 
@@ -369,6 +371,7 @@ namespace InTheirShoes {
 
     void InventoryManager::TakeAllItems(RE::TESObjectREFR* a_container, RE::Actor* a_toActor) {
         if (!a_container || !a_toActor) return;
+        const ScriptEventFilter::TransferScope noScriptEvents;
         // Collected first: removing items while walking the inventory would invalidate it
         std::vector<ItemStack> toMove;
         for (const auto& [object, entry] : a_container->GetInventory()) {

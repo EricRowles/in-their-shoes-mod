@@ -6,6 +6,7 @@
 #include "DialogueManager.h"
 #include "GameUtil.h"
 #include "ImpersonationManager.h"
+#include "ScriptEventFilter.h"
 #include "Session.h"
 #include "Settings.h"
 #include "Version.h"
@@ -200,9 +201,10 @@ namespace InTheirShoes::Papyrus {
 
         using VM = RE::BSScript::IVirtualMachine;
 
-        // --- Trigger events ---
+        // --- Script events ---
         // A trigger with a script property set to the donor also gets the player's enter/leave events for the donor.
-        // Runs on any thread: reads only Session and the VM's locked script table.
+        // Item and equip events the donor's scripts shouldn't see are dropped (ScriptEventFilter).
+        // Runs on any thread: reads only Session, the VM's locked script table and ScriptEventFilter's locked state.
 
         using SendEvent_t = void(VM*, RE::VMHandle, const RE::BSFixedString&, RE::BSScript::IFunctionArguments*);
         REL::Relocation<SendEvent_t> _origSendEvent;
@@ -233,6 +235,8 @@ namespace InTheirShoes::Papyrus {
         void SendEvent(VM* a_vm, RE::VMHandle a_handle, const RE::BSFixedString& a_eventName, RE::BSScript::IFunctionArguments* a_args) {
             static const RE::BSFixedString onTriggerEnter{ "OnTriggerEnter" };
             static const RE::BSFixedString onTriggerLeave{ "OnTriggerLeave" };
+            // Not sent at all: whoever sends the event owns a_args (RelayEvent passes the same ones to every receiver)
+            if (ScriptEventFilter::ShouldDrop(a_vm, a_handle, a_eventName)) return;
             auto& session = *Session::GetSingleton();
             auto* donor = session.IsActive() ? session.GetDonor() : nullptr;
             // The VM owns a_args once the event is sent, so they're read first
@@ -249,7 +253,7 @@ namespace InTheirShoes::Papyrus {
             if (_origSendEvent.address()) return;
             REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_BSScript__Internal__VirtualMachine[0] };
             _origSendEvent = vtbl.write_vfunc(0x24, &SendEvent);
-            SKSE::log::info("Hooked VirtualMachine::SendEvent (0x24) to send trigger events for the donor.");
+            SKSE::log::info("Hooked VirtualMachine::SendEvent (0x24) for trigger events and item event filtering.");
         }
     }
 

@@ -66,6 +66,8 @@ add_library(${PROJECT_NAME} SHARED
     src/Papyrus.cpp
     src/NativeRedirect.h
     src/NativeRedirect.cpp
+    src/ScriptEventFilter.h
+    src/ScriptEventFilter.cpp
     src/Serialization.h
     src/Serialization.cpp
     src/ImpersonationManager.h
