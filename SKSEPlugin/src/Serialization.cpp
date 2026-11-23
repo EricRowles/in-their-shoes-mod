@@ -398,7 +398,6 @@ namespace InTheirShoes::Serialization {
             Write(a_serde, settings.IsIdleAIEnabled());
             Write(a_serde, settings.GetIdleTimeout());
             Write(a_serde, settings.GetIdlePackage());
-            Write(a_serde, settings.GetTravelDestination());
             Write(a_serde, settings.IsNPCVoiceEnabled());
             Write(a_serde, settings.GetIdleChatterInterval());
             Write(a_serde, settings.IsNativeRedirectEnabled());
@@ -409,13 +408,12 @@ namespace InTheirShoes::Serialization {
             bool idleAIEnabled = false;
             float idleTimeout = 0.0f;
             std::int32_t idlePackage = 0;
-            std::int32_t travelDestination = 0;
             bool npcVoiceEnabled = false;
             float idleChatterInterval = 0.0f;
             bool nativeRedirectEnabled = false;
             bool puppetFollows = false;
             if (!Read(a_serde, idleAIEnabled) || !Read(a_serde, idleTimeout) || !Read(a_serde, idlePackage) ||
-                !Read(a_serde, travelDestination) || !Read(a_serde, npcVoiceEnabled) || !Read(a_serde, idleChatterInterval) ||
+                !Read(a_serde, npcVoiceEnabled) || !Read(a_serde, idleChatterInterval) ||
                 !Read(a_serde, nativeRedirectEnabled) || !Read(a_serde, puppetFollows)) {
                 SKSE::log::warn("Settings record is truncated; ignoring it.");
                 return;
@@ -424,7 +422,6 @@ namespace InTheirShoes::Serialization {
             settings.SetIdleAIEnabled(idleAIEnabled);
             settings.SetIdleTimeout(idleTimeout);
             settings.SetIdlePackage(idlePackage);
-            settings.SetTravelDestination(travelDestination);
             settings.SetNPCVoiceEnabled(npcVoiceEnabled);
             settings.SetIdleChatterInterval(idleChatterInterval);
             settings.SetNativeRedirectEnabled(nativeRedirectEnabled);

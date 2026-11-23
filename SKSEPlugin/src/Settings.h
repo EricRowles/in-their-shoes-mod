@@ -15,8 +15,6 @@ namespace InTheirShoes {
         float GetIdleTimeout() const { return _idleTimeoutSeconds.load(std::memory_order_relaxed); }
         // 0 runs the donor's own packages; n puts the player in ITS_PackageManager's alias n - 1
         std::int32_t GetIdlePackage() const { return _idlePackage.load(std::memory_order_relaxed); }
-        // An index into Forms::travelDestinations
-        std::int32_t GetTravelDestination() const { return _travelDestination.load(std::memory_order_relaxed); }
 
         // NPC voice
         bool IsNPCVoiceEnabled() const { return _npcVoiceEnabled.load(std::memory_order_relaxed); }
@@ -28,7 +26,6 @@ namespace InTheirShoes {
         void SetIdleAIEnabled(bool a_enabled) { _idleAIEnabled.store(a_enabled, std::memory_order_relaxed); }
         void SetIdleTimeout(float a_seconds) { _idleTimeoutSeconds.store(a_seconds, std::memory_order_relaxed); }
         void SetIdlePackage(std::int32_t a_index) { _idlePackage.store(a_index, std::memory_order_relaxed); }
-        void SetTravelDestination(std::int32_t a_index) { _travelDestination.store(a_index, std::memory_order_relaxed); }
         void SetNPCVoiceEnabled(bool a_enabled) { _npcVoiceEnabled.store(a_enabled, std::memory_order_relaxed); }
         // Below the MCM slider's minimum (from an old save) falls back to the default
         void SetIdleChatterInterval(float a_seconds) {
@@ -42,7 +39,6 @@ namespace InTheirShoes {
             SetIdleAIEnabled(true);
             SetIdleTimeout(10.0f);
             SetIdlePackage(0);
-            SetTravelDestination(0);
             SetNPCVoiceEnabled(true);
             SetIdleChatterInterval(kDefaultIdleChatterSeconds);
             SetNativeRedirectEnabled(true);
@@ -60,7 +56,6 @@ namespace InTheirShoes {
         std::atomic<bool> _idleAIEnabled{ true };
         std::atomic<float> _idleTimeoutSeconds{ 10.0f };
         std::atomic<std::int32_t> _idlePackage{ 0 };
-        std::atomic<std::int32_t> _travelDestination{ 0 };
         std::atomic<bool> _npcVoiceEnabled{ true };
         std::atomic<float> _idleChatterSeconds{ kDefaultIdleChatterSeconds };
         std::atomic<bool> _nativeRedirectEnabled{ true };

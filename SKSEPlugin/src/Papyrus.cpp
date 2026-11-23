@@ -38,11 +38,6 @@ namespace InTheirShoes::Papyrus {
             IdleAIManager::GetSingleton()->OnIdlePackageChanged();
         }
 
-        void SetIdleTravelDestination(RE::StaticFunctionTag*, std::int32_t a_index) {
-            Settings::GetSingleton()->SetTravelDestination(a_index);
-            IdleAIManager::GetSingleton()->OnTravelDestinationChanged();
-        }
-
         void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
             Settings::GetSingleton()->SetIdleChatterInterval(a_seconds);
         }
@@ -58,15 +53,6 @@ namespace InTheirShoes::Papyrus {
         void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
             Settings::GetSingleton()->SetPuppetFollowsPlayer(a_follows);
             ImpersonationManager::GetSingleton()->OnPuppetFollowsChanged();
-        }
-
-        // ITS_IdlePackage.Apply: see IdleAIManager::BeginIdlePackageApply
-        bool BeginIdlePackageApply(RE::StaticFunctionTag*, std::int32_t a_sequence) {
-            return IdleAIManager::GetSingleton()->BeginIdlePackageApply(a_sequence);
-        }
-
-        void EndIdlePackageApply(RE::StaticFunctionTag*, std::int32_t a_sequence) {
-            IdleAIManager::GetSingleton()->EndIdlePackageApply(a_sequence);
         }
 
         RE::BSFixedString GetCurrentSceneName(RE::StaticFunctionTag*) {
@@ -272,7 +258,6 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
         a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
         a_vm->RegisterFunction("SetIdleAIPackage", className, SetIdleAIPackage);
-        a_vm->RegisterFunction("SetIdleTravelDestination", className, SetIdleTravelDestination);
         a_vm->RegisterFunction("GetCurrentSceneName", className, GetCurrentSceneName);
         a_vm->RegisterFunction("GetTemporaryFactionCount", className, GetTemporaryFactionCount);
         a_vm->RegisterFunction("GetTemporaryAliasCount", className, GetTemporaryAliasCount);
@@ -288,8 +273,6 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("GetDonor", className, GetDonor);
         a_vm->RegisterFunction("GetPuppet", className, GetPuppet);
         a_vm->RegisterFunction("GetDonorName", className, GetDonorName);
-        a_vm->RegisterFunction("BeginIdlePackageApply", className, BeginIdlePackageApply);
-        a_vm->RegisterFunction("EndIdlePackageApply", className, EndIdlePackageApply);
 
         SKSE::log::info("Registered ITS_NG Papyrus functions.");
         return true;

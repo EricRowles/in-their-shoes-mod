@@ -31,7 +31,7 @@ namespace InTheirShoes::Serialization {
     inline constexpr std::uint32_t kLinkedRefsVersion = 1;
     // The MCM's settings (Settings)
     inline constexpr std::uint32_t kSettingsRecord = 'SETT';
-    inline constexpr std::uint32_t kSettingsVersion = 1;
+    inline constexpr std::uint32_t kSettingsVersion = 2;
 
     void Register();
     void SaveCallback(SKSE::SerializationInterface* a_serde);
