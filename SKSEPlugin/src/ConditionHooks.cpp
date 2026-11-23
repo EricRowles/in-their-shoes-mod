@@ -22,6 +22,7 @@ namespace InTheirShoes::ConditionHooks {
             const Session& session;
             RE::Actor* player;
             RE::Actor* donor;
+            RE::Actor* puppet;
 
             // The original condition, asked of a_ref instead of the subject
             bool Ask(RE::TESObjectREFR* a_ref, double& a_result) const { return orig(a_ref, param1, param2, a_result); }
@@ -117,15 +118,10 @@ namespace InTheirShoes::ConditionHooks {
             return a_q.Ask(a_q.player, a_result);
         }
 
-        bool AskSubject(const Query& a_q, double& a_result) {
-            return a_q.Ask(a_q.subject, a_result);
-        }
-
         // The puppet's body has the Dragonborn's race and sex, as the player's has the donor's. In self-dialogue
         // the bodies are the wrong way round, so race and sex are asked of the other body.
         bool AskPuppet(const Query& a_q, double& a_result) {
-            auto* puppet = a_q.session.GetPuppet();
-            return a_q.Ask(puppet ? puppet : a_q.subject, a_result);
+            return a_q.Ask(a_q.puppet ? a_q.puppet : a_q.subject, a_result);
         }
 
         bool IsIDAsDragonborn(const Query& a_q, double& a_result) {
@@ -169,87 +165,18 @@ namespace InTheirShoes::ConditionHooks {
             return AskPlayer(a_q, a_result);
         }
 
-        // The conditions that ask who an actor is. While impersonating, the player tests as the donor and the
-        // puppet as the Dragonborn; in self-dialogue, where the puppet speaks for the donor, it's reversed.
-        struct IdentityCondition {
-            std::string_view name;
-            Answer_t* asDonor;
-            Answer_t* asDragonborn;
-        };
-
-        // A reference the donor's stand-in is asked about comes to these as the stand-in itself (the condition
-        // evaluation hook swaps it), so "is this the donor" is the subject's own answer.
-        constexpr IdentityCondition kIdentityConditions[] = {
-            // The player is really in the donor's factions and its aliases' (FactionManager)
-            { "GetInFaction"sv, &AskPlayer, &InFactionAsDragonborn },
-            { "GetIsID"sv, &IsIDAsDonor, &IsIDAsDragonborn },
-            { "GetFactionRank"sv, &AskPlayer, &FactionRankAsDragonborn },
-            { "GetIsReference"sv, &AskSubject, &IsReferenceAsDragonborn },
-            { "GetIsAliasRef"sv, &IsAliasRefAsDonor, &AskPlayer },
-            { "GetIsVoiceType"sv, &IsVoiceTypeAsDonor, &IsVoiceTypeAsDragonborn },
-            { "IsInList"sv, &IsInListAsDonor, &AskPlayer },
-            { "GetIsClass"sv, &AskDonor, &AskPlayer },
-            { "GetIsCrimeFaction"sv, &AskDonor, &AskPlayer },
-            { "IsInScene"sv, &IsInSceneAsDonor, &AskSubject },
-            { "GetIsRace"sv, &AskPlayer, &AskPuppet },
-            { "GetIsSex"sv, &AskPlayer, &AskPuppet },
-        };
-        constexpr std::size_t kIdentityCount = std::size(kIdentityConditions);
-
-        constexpr std::size_t IdentityIndex(std::string_view a_name) {
-            for (std::size_t i = 0; i < kIdentityCount; ++i) {
-                if (kIdentityConditions[i].name == a_name) return i;
-            }
-            return kIdentityCount;
-        }
-        constexpr std::size_t kGetIsRace = IdentityIndex("GetIsRace"sv);
-        constexpr std::size_t kGetIsSex = IdentityIndex("GetIsSex"sv);
-        static_assert(kGetIsRace < kIdentityCount && kGetIsSex < kIdentityCount);
-        std::array<Condition_t*, kIdentityCount> s_originalIdentity{};
-
-        template <std::size_t I>
-        bool IdentityThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            auto* orig = s_originalIdentity[I];
-            if (!orig) return false;
-            auto& session = *Session::GetSingleton();
-            if (!session.IsActive()) {
-                return orig(a_thisObj, a_p1, a_p2, a_result);
-            }
-
-            const Query query{ orig, a_thisObj, a_p1, a_p2, session, session.GetPlayer(), session.GetDonor() };
-            auto* puppet = session.GetPuppet();
-            const bool isPlayer = a_thisObj == query.player;
-            const bool isPuppet = puppet && a_thisObj == puppet;
-            const bool selfDialogue = session.IsInSelfDialogue();
-
-            if (selfDialogue ? isPuppet : isPlayer) {
-                return kIdentityConditions[I].asDonor(query, a_result);
-            }
-            if (selfDialogue ? isPlayer : isPuppet) {
-                return kIdentityConditions[I].asDragonborn(query, a_result);
-            }
-            return orig(a_thisObj, a_p1, a_p2, a_result);
-        }
-
         // --- Bleedout: the player, as the donor, is down at no health ---
-
-        Condition_t* s_originalIsBleedingOut{ nullptr };
 
         // The player only enters the bleedout life state when essential, so while it plays the donor it counts as
         // bleeding out at no health too (e.g. a mod that makes the player kneel instead of die). Not when dead.
         // Conditions asked of the donor come here as the player (the condition evaluation hook).
-        bool IsBleedingOutThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            if (!s_originalIsBleedingOut) return false;
-            const auto& session = *Session::GetSingleton();
-            auto* player = session.GetPlayer();
-            if (!session.IsActive() || a_thisObj != player) {
-                return s_originalIsBleedingOut(a_thisObj, a_p1, a_p2, a_result);
-            }
-            const auto state = player->AsActorState()->GetLifeState();
+        bool IsBleedingOutAsDonor(const Query& a_q, double& a_result) {
+            if (a_q.subject != a_q.player) return a_q.Ask(a_q.subject, a_result);
+            const auto state = a_q.player->AsActorState()->GetLifeState();
             using enum RE::ACTOR_LIFE_STATE;
             const bool alive = state != kDead && state != kDying;
             const bool down = state == kBleedout || state == kEssentialDown ||
-                              player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kHealth) <= 0.0f;
+                              a_q.player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kHealth) <= 0.0f;
             a_result = alive && down ? 1.0 : 0.0;
             return true;
         }
@@ -257,105 +184,141 @@ namespace InTheirShoes::ConditionHooks {
         // --- Relationships: the Dragonborn's apply first, then the donor's. The puppet keeps the Dragonborn's;
         // in self-dialogue the puppet is the donor and the player the Dragonborn. ---
 
-        constexpr std::string_view kRelationshipConditions[] = {
-            "GetRelationshipRank"sv,
-            "HasFamilyRelationship"sv,
-            "HasParentRelationship"sv,
-        };
-        constexpr std::size_t kRelationshipCount = std::size(kRelationshipConditions);
-        std::array<Condition_t*, kRelationshipCount> s_originalRelationship{};
-
-        RE::TESObjectREFR* ResolveRelationshipRef(const Session& a_session, RE::TESObjectREFR* a_ref) {
-            auto* player = a_session.GetPlayer();
-            auto* puppet = a_session.GetPuppet();
-            auto* donor = a_session.GetDonor();
-            if (!a_ref || !donor) return a_ref;
-            if (a_session.IsInSelfDialogue()) {
-                return a_ref == puppet ? donor : a_ref;
+        RE::TESObjectREFR* ResolveRelationshipRef(const Query& a_q, RE::TESObjectREFR* a_ref) {
+            if (!a_ref || !a_q.donor) return a_ref;
+            if (a_q.session.IsInSelfDialogue()) {
+                return a_ref == a_q.puppet ? a_q.donor : a_ref;
             }
-            if (a_ref == player) return donor;
-            if (puppet && a_ref == puppet) return player;
+            if (a_ref == a_q.player) return a_q.donor;
+            if (a_q.puppet && a_ref == a_q.puppet) return a_q.player;
             return a_ref;
         }
 
+        bool Relationship(const Query& a_q, double& a_result) {
+            auto* ref = static_cast<RE::TESObjectREFR*>(a_q.param1);
+            auto* evalThis = ResolveRelationshipRef(a_q, a_q.subject);
+            auto* evalRef = ResolveRelationshipRef(a_q, ref);
+            // The Dragonborn's own relationship first: the player's side asked as the player rather than the donor.
+            // A rank of 0 (acquaintance) or false means the Dragonborn has none, so the donor's answers.
+            const bool thisIsDonor = a_q.subject == a_q.player && evalThis != a_q.player;
+            const bool refIsDonor = ref == a_q.player && evalRef != a_q.player;
+            if (thisIsDonor != refIsDonor) {
+                auto* ownThis = thisIsDonor ? a_q.player : evalThis;
+                auto* ownRef = refIsDonor ? a_q.player : evalRef;
+                if (ownThis != ownRef && a_q.orig(ownThis, ownRef, a_q.param2, a_result) && a_result != 0.0) {
+                    return true;
+                }
+            }
+            return a_q.orig(evalThis, evalRef, a_q.param2, a_result);
+        }
+
+        // --- The PC: the donor's race, sex and factions, the Dragonborn's class; the Dragonborn in self-dialogue ---
+
+        bool PCIsRace(const Query& a_q, double& a_result);
+        bool PCIsSex(const Query& a_q, double& a_result);
+
+        bool PCIsClass(const Query& a_q, double& a_result) {
+            auto* donorBase = a_q.donor ? a_q.donor->GetActorBase() : nullptr;
+            if (a_q.session.IsInSelfDialogue() || !donorBase) return a_q.Ask(a_q.subject, a_result);
+            a_result = donorBase->npcClass && donorBase->npcClass == static_cast<RE::TESClass*>(a_q.param1) ? 1.0 : 0.0;
+            return true;
+        }
+
+        bool PCInFaction(const Query& a_q, double& a_result) {
+            if (a_q.session.IsInSelfDialogue()) {
+                if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+                    a_result = *rank >= 0 ? 1.0 : 0.0;
+                    return true;
+                }
+            }
+            return a_q.Ask(a_q.subject, a_result);
+        }
+
+        // --- The hooked conditions ---
+
+        // How each hooked condition answers while impersonating; null asks the original. The donor's stand-in is the
+        // player, or the puppet in self-dialogue; the Dragonborn's is the puppet, or the player in self-dialogue.
+        struct HookedCondition {
+            std::string_view name;
+            Answer_t* asDonor;       // The subject is the donor's stand-in
+            Answer_t* asDragonborn;  // The subject is the Dragonborn's stand-in
+            Answer_t* always;        // Whoever the subject is, unless one of the above answers
+        };
+
+        // A reference the donor's stand-in is asked about comes to these as the stand-in itself (the condition
+        // evaluation hook swaps it), so "is this the donor" is the subject's own answer. The ones that answer for a
+        // stand-in (asDonor or asDragonborn) get the puppet in self-dialogue as itself; the rest get the player.
+        constexpr HookedCondition kHooked[] = {
+            // The player is really in the donor's factions and its aliases' (FactionManager)
+            { "GetInFaction"sv, &AskPlayer, &InFactionAsDragonborn, nullptr },
+            { "GetFactionRank"sv, &AskPlayer, &FactionRankAsDragonborn, nullptr },
+            { "GetIsID"sv, &IsIDAsDonor, &IsIDAsDragonborn, nullptr },
+            { "GetIsReference"sv, nullptr, &IsReferenceAsDragonborn, nullptr },
+            { "GetIsAliasRef"sv, &IsAliasRefAsDonor, &AskPlayer, nullptr },
+            { "GetIsVoiceType"sv, &IsVoiceTypeAsDonor, &IsVoiceTypeAsDragonborn, nullptr },
+            { "IsInList"sv, &IsInListAsDonor, &AskPlayer, nullptr },
+            { "GetIsClass"sv, &AskDonor, &AskPlayer, nullptr },
+            { "GetIsCrimeFaction"sv, &AskDonor, &AskPlayer, nullptr },
+            { "IsInScene"sv, &IsInSceneAsDonor, nullptr, nullptr },
+            { "GetIsRace"sv, &AskPlayer, &AskPuppet, nullptr },
+            { "GetIsSex"sv, &AskPlayer, &AskPuppet, nullptr },
+            { "GetRelationshipRank"sv, &Relationship, &Relationship, &Relationship },
+            { "HasFamilyRelationship"sv, &Relationship, &Relationship, &Relationship },
+            { "HasParentRelationship"sv, &Relationship, &Relationship, &Relationship },
+            { "IsBleedingOut"sv, nullptr, nullptr, &IsBleedingOutAsDonor },
+            { "GetPCIsClass"sv, nullptr, nullptr, &PCIsClass },
+            { "GetPCInFaction"sv, nullptr, nullptr, &PCInFaction },
+            { "GetPCIsRace"sv, nullptr, nullptr, &PCIsRace },
+            { "GetPCIsSex"sv, nullptr, nullptr, &PCIsSex },
+        };
+        constexpr std::size_t kHookedCount = std::size(kHooked);
+
+        constexpr std::size_t HookedIndex(std::string_view a_name) {
+            for (std::size_t i = 0; i < kHookedCount; ++i) {
+                if (kHooked[i].name == a_name) return i;
+            }
+            return kHookedCount;
+        }
+        constexpr std::size_t kGetIsRace = HookedIndex("GetIsRace"sv);
+        constexpr std::size_t kGetIsSex = HookedIndex("GetIsSex"sv);
+        static_assert(kGetIsRace < kHookedCount && kGetIsSex < kHookedCount);
+
+        std::array<Condition_t*, kHookedCount> s_original{};
+
+        // In self-dialogue the PC is the Dragonborn, whose race and sex the puppet's body has. The PC conditions
+        // take the same parameter as GetIsRace and GetIsSex, so those are asked of the puppet.
+        bool AskOfPuppetInSelfDialogue(const Query& a_q, std::size_t a_isCondition, double& a_result) {
+            auto* isCondition = s_original[a_isCondition];
+            if (a_q.session.IsInSelfDialogue() && a_q.puppet && isCondition) {
+                return isCondition(a_q.puppet, a_q.param1, a_q.param2, a_result);
+            }
+            return a_q.Ask(a_q.subject, a_result);
+        }
+        bool PCIsRace(const Query& a_q, double& a_result) { return AskOfPuppetInSelfDialogue(a_q, kGetIsRace, a_result); }
+        bool PCIsSex(const Query& a_q, double& a_result) { return AskOfPuppetInSelfDialogue(a_q, kGetIsSex, a_result); }
+
         template <std::size_t I>
-        bool RelationshipThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            auto* orig = s_originalRelationship[I];
+        bool ConditionThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            auto* orig = s_original[I];
             if (!orig) return false;
             auto& session = *Session::GetSingleton();
             if (!session.IsActive()) {
                 return orig(a_thisObj, a_p1, a_p2, a_result);
             }
-            auto* ref = static_cast<RE::TESObjectREFR*>(a_p1);
-            auto* evalThis = ResolveRelationshipRef(session, a_thisObj);
-            auto* evalRef = ResolveRelationshipRef(session, ref);
-            // The Dragonborn's own relationship first: the player's side asked as the player rather than the donor.
-            // A rank of 0 (acquaintance) or false means the Dragonborn has none, so the donor's answers.
-            auto* player = session.GetPlayer();
-            const bool thisIsDonor = a_thisObj == player && evalThis != player;
-            const bool refIsDonor = ref == player && evalRef != player;
-            if (thisIsDonor != refIsDonor) {
-                auto* ownThis = thisIsDonor ? player : evalThis;
-                auto* ownRef = refIsDonor ? player : evalRef;
-                if (ownThis != ownRef && orig(ownThis, ownRef, a_p2, a_result) && a_result != 0.0) {
-                    return true;
-                }
+
+            const Query query{ orig, a_thisObj, a_p1, a_p2, session, session.GetPlayer(), session.GetDonor(), session.GetPuppet() };
+            const bool isPlayer = a_thisObj == query.player;
+            const bool isPuppet = query.puppet && a_thisObj == query.puppet;
+            const bool selfDialogue = session.IsInSelfDialogue();
+            const auto& hooked = kHooked[I];
+            Answer_t* answer = nullptr;
+            if (selfDialogue ? isPuppet : isPlayer) {
+                answer = hooked.asDonor;
+            } else if (selfDialogue ? isPlayer : isPuppet) {
+                answer = hooked.asDragonborn;
             }
-            return orig(evalThis, evalRef, a_p2, a_result);
-        }
-
-        // --- The PC: the donor's race, sex and factions, the Dragonborn's class; the Dragonborn in self-dialogue ---
-
-        // In self-dialogue the PC is the Dragonborn, whose race and sex the puppet's body has. The PC conditions
-        // take the same parameter as GetIsRace and GetIsSex, so those are asked of the puppet.
-        template <std::size_t IsCondition>
-        bool PCIsAsPuppet(Condition_t* a_orig, RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            auto& session = *Session::GetSingleton();
-            auto* puppet = session.GetPuppet();
-            auto* isCondition = s_originalIdentity[IsCondition];
-            if (session.IsActive() && session.IsInSelfDialogue() && puppet && isCondition) {
-                return isCondition(puppet, a_p1, a_p2, a_result);
-            }
-            return a_orig(a_thisObj, a_p1, a_p2, a_result);
-        }
-
-        Condition_t* s_originalPCIsRace{ nullptr };
-        Condition_t* s_originalPCIsSex{ nullptr };
-
-        bool PCIsRaceThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            return s_originalPCIsRace && PCIsAsPuppet<kGetIsRace>(s_originalPCIsRace, a_thisObj, a_p1, a_p2, a_result);
-        }
-
-        bool PCIsSexThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            return s_originalPCIsSex && PCIsAsPuppet<kGetIsSex>(s_originalPCIsSex, a_thisObj, a_p1, a_p2, a_result);
-        }
-
-        Condition_t* s_originalPCIsClass{ nullptr };
-
-        bool PCIsClassThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            if (!s_originalPCIsClass) return false;
-            auto& session = *Session::GetSingleton();
-            auto* donor = session.GetDonor();
-            auto* donorBase = donor ? donor->GetActorBase() : nullptr;
-            if (!session.IsActive() || session.IsInSelfDialogue() || !donorBase) {
-                return s_originalPCIsClass(a_thisObj, a_p1, a_p2, a_result);
-            }
-            a_result = donorBase->npcClass && donorBase->npcClass == static_cast<RE::TESClass*>(a_p1) ? 1.0 : 0.0;
-            return true;
-        }
-
-        Condition_t* s_originalPCInFaction{ nullptr };
-
-        bool PCInFactionThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
-            if (!s_originalPCInFaction) return false;
-            auto& session = *Session::GetSingleton();
-            if (session.IsActive() && session.IsInSelfDialogue()) {
-                if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_p1))) {
-                    a_result = *rank >= 0 ? 1.0 : 0.0;
-                    return true;
-                }
-            }
-            return s_originalPCInFaction(a_thisObj, a_p1, a_p2, a_result);
+            if (!answer) answer = hooked.always;
+            return answer ? answer(query, a_result) : orig(a_thisObj, a_p1, a_p2, a_result);
         }
 
         // --- Every condition: one about the donor is asked of its stand-in ---
@@ -368,8 +331,8 @@ namespace InTheirShoes::ConditionHooks {
         // the script function table. So the item is evaluated with the donor's stand-in in its place:
         // - The player, whose body and place are the donor's: where it is, its health, combat, equipment and so on.
         //   "Distance between the donor and the player" is then the player's to itself.
-        // - In self-dialogue, the puppet for the identity and relationship conditions, whose own hooks answer as
-        //   the donor for it. The puppet as the subject is the player for every other condition.
+        // - In self-dialogue, the puppet for the hooked conditions that answer for a stand-in, which answer as the
+        //   donor for it. The puppet as the subject is the player for every other condition.
         // The donor as the subject is swapped only in a quest's context (params.quest): the fill conditions of an
         // alias a quest started during the session fills with the donor, before AliasSwapManager moves it. Without
         // one it's the parked donor's own spells and AI, which stay its own (a self-cast ability has the donor as its
@@ -378,7 +341,7 @@ namespace InTheirShoes::ConditionHooks {
         IsTrue_t* g_originalIsTrue{ nullptr };
 
         constexpr auto kFunctionCount = static_cast<std::size_t>(RE::FUNCTION_DATA::FunctionID::kTotal);
-        // The identity and relationship conditions, whose hooks answer as the donor for the puppet in self-dialogue
+        // The hooked conditions that answer as the donor for the puppet in self-dialogue
         std::array<bool, kFunctionCount> s_answersForPuppet{};
 
         // Answers that stay the donor's
@@ -505,57 +468,39 @@ namespace InTheirShoes::ConditionHooks {
             SKSE::log::info("Hooked condition evaluation at SkyrimSE+{:X}", function - REL::Module::get().base());
         }
 
-        // Swaps in a_thunk as the named condition's function, keeping the original in a_original.
-        // a_answersForPuppet: the thunk answers as the donor for the puppet in self-dialogue.
-        bool HookCondition(Condition_t*& a_original, std::string_view a_name, Condition_t* a_thunk, bool a_answersForPuppet = false) {
-            auto* func = RE::SCRIPT_FUNCTION::LocateScriptCommand(a_name);
+        // Swaps in ConditionThunk<I> as the condition function of kHooked[I]
+        template <std::size_t I>
+        bool HookCondition() {
+            const auto name = kHooked[I].name;
+            auto* func = RE::SCRIPT_FUNCTION::LocateScriptCommand(name);
             if (!func) {
-                SKSE::log::error("Failed to locate script command '{}'!", a_name);
+                SKSE::log::error("Failed to locate script command '{}'!", name);
                 return false;
             }
             if (const auto index = static_cast<std::size_t>(func - RE::SCRIPT_FUNCTION::GetFirstScriptCommand()); index < kFunctionCount) {
-                s_answersForPuppet[index] = a_answersForPuppet;
+                s_answersForPuppet[index] = kHooked[I].asDonor || kHooked[I].asDragonborn;
             }
-            a_original = func->conditionFunction;
-            REL::safe_write(reinterpret_cast<std::uintptr_t>(&func->conditionFunction), reinterpret_cast<std::uintptr_t>(a_thunk));
-            SKSE::log::info("Hooked condition '{}' via LocateScriptCommand (orig: {:016X})",
-                a_name, reinterpret_cast<std::uintptr_t>(a_original));
+            s_original[I] = func->conditionFunction;
+            REL::safe_write(reinterpret_cast<std::uintptr_t>(&func->conditionFunction), reinterpret_cast<std::uintptr_t>(&ConditionThunk<I>));
             return true;
         }
 
         template <std::size_t... I>
-        std::size_t HookIdentityConditions(std::index_sequence<I...>) {
-            std::size_t hooked = 0;
-            ((hooked += HookCondition(s_originalIdentity[I], kIdentityConditions[I].name, &IdentityThunk<I>, true)), ...);
-            return hooked;
-        }
-
-        template <std::size_t... I>
-        std::size_t HookRelationshipConditions(std::index_sequence<I...>) {
-            std::size_t hooked = 0;
-            ((hooked += HookCondition(s_originalRelationship[I], kRelationshipConditions[I], &RelationshipThunk<I>, true)), ...);
-            return hooked;
+        std::size_t HookConditions(std::index_sequence<I...>) {
+            return (std::size_t{ 0 } + ... + HookCondition<I>());
         }
 
     }
 
     void Install() {
         HookIsTrue();
-        const std::size_t hookedCount = HookIdentityConditions(std::make_index_sequence<kIdentityCount>{}) +
-                                        HookCondition(s_originalIsBleedingOut, "IsBleedingOut"sv, &IsBleedingOutThunk) +
-                                        HookRelationshipConditions(std::make_index_sequence<kRelationshipCount>{}) +
-                                        HookCondition(s_originalPCIsClass, "GetPCIsClass"sv, &PCIsClassThunk) +
-                                        HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk) +
-                                        HookCondition(s_originalPCIsRace, "GetPCIsRace"sv, &PCIsRaceThunk) +
-                                        HookCondition(s_originalPCIsSex, "GetPCIsSex"sv, &PCIsSexThunk);
-
-        constexpr auto kExpectedHooks = kIdentityCount + kRelationshipCount + 5;
-        if (hookedCount == kExpectedHooks) {
+        const std::size_t hookedCount = HookConditions(std::make_index_sequence<kHookedCount>{});
+        if (hookedCount == kHookedCount) {
             SKSE::log::info("Installed all {} script condition hooks.", hookedCount);
         } else {
             // A missing hook leaves the donor's conditions answered for the wrong actor; the errors above name it
             SKSE::log::error("Installed only {} of {} script condition hooks; impersonation conditions will be wrong.",
-                hookedCount, kExpectedHooks);
+                hookedCount, kHookedCount);
         }
     }
 
