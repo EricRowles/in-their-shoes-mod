@@ -170,6 +170,17 @@ namespace InTheirShoes::ConditionHooks {
             return true;
         }
 
+        // --- Identity: the donor as the subject ---
+
+        // The player holds the donor's factions for the session, its alias factions included, so they're asked of
+        // the player. PlayerFaction is the one the player keeps from the Dragonborn, so the donor answers for it.
+        // A condition reaching the donor from another actor already asks the player (the condition evaluation
+        // hook); this covers the donor as the subject, e.g. the fill conditions of an alias it's about to fill.
+        bool FactionAsParkedDonor(const Query& a_q, double& a_result) {
+            const bool own = static_cast<RE::TESFaction*>(a_q.param1) == Forms::playerFaction;
+            return a_q.Ask(own ? a_q.subject : a_q.player, a_result);
+        }
+
         bool IsReferenceAsDragonborn(const Query& a_q, double& a_result) {
             if (static_cast<RE::TESObjectREFR*>(a_q.param1) == a_q.player) {
                 a_result = 1.0;
@@ -184,13 +195,15 @@ namespace InTheirShoes::ConditionHooks {
             std::string_view name;
             Answer_t* asDonor;
             Answer_t* asDragonborn;
+            // Asked of the donor as the subject; null when the donor answers as usual
+            Answer_t* asParkedDonor{ nullptr };
         };
 
         constexpr IdentityCondition kIdentityConditions[] = {
             // The player is really in the donor's factions and its aliases' (FactionManager)
-            { "GetInFaction"sv, &AskPlayer, &InFactionAsDragonborn },
+            { "GetInFaction"sv, &AskPlayer, &InFactionAsDragonborn, &FactionAsParkedDonor },
             { "GetIsID"sv, &IsIDAsDonor, &IsIDAsDragonborn },
-            { "GetFactionRank"sv, &AskPlayer, &FactionRankAsDragonborn },
+            { "GetFactionRank"sv, &AskPlayer, &FactionRankAsDragonborn, &FactionAsParkedDonor },
             { "GetIsReference"sv, &IsReferenceAsDonor, &IsReferenceAsDragonborn },
             { "GetIsAliasRef"sv, &IsAliasRefAsDonor, &AskPlayer },
             { "GetIsVoiceType"sv, &IsVoiceTypeAsDonor, &IsVoiceTypeAsDragonborn },
@@ -235,11 +248,19 @@ namespace InTheirShoes::ConditionHooks {
             if (selfDialogue ? isPlayer : isPuppet) {
                 return kIdentityConditions[I].asDragonborn(query, a_result);
             }
+            if (a_thisObj == query.donor && kIdentityConditions[I].asParkedDonor) {
+                return kIdentityConditions[I].asParkedDonor(query, a_result);
+            }
             return orig(a_thisObj, a_p1, a_p2, a_result);
         }
 
-        // --- Spatial: the parked donor is where the player is (Session::ResolveSpatialRef) ---
+        // --- Spatial and state: the donor is where the player is, with the player's health, combat and so on
+        // (Session::ResolveSpatialRef) ---
 
+        // Conditions that reach the donor from another actor get the player from the condition evaluation hook
+        // (References, below). These cover what that hook leaves alone: the donor as the subject (the fill
+        // conditions of an alias a quest started during the session fills with the donor, before AliasSwapManager
+        // moves it) and the puppet while it speaks for the donor.
         struct SpatialCondition {
             std::string_view name;
             // When both resolve to the player, checks between the donor and the player pass (requirements.md).
@@ -258,6 +279,11 @@ namespace InTheirShoes::ConditionHooks {
             { "GetAngle"sv, std::nullopt },
             { "GetSitting"sv, std::nullopt },
             { "GetSleeping"sv, std::nullopt },
+            // Bleedout isn't here: the player doesn't bleed out as an NPC does, so IsBleedingOut has its own answer
+            { "GetHealthPercentage"sv, std::nullopt },
+            { "IsInCombat"sv, std::nullopt },
+            { "GetCombatState"sv, std::nullopt },
+            { "IsSneaking"sv, std::nullopt },
         };
         constexpr std::size_t kSpatialCount = std::size(kSpatialConditions);
         std::array<Condition_t*, kSpatialCount> s_originalSpatial{};
@@ -282,6 +308,26 @@ namespace InTheirShoes::ConditionHooks {
                 evalP1 = evalRef;
             }
             return orig(evalThis, evalP1, a_p2, a_result);
+        }
+
+        Condition_t* s_originalIsBleedingOut{ nullptr };
+
+        // The player only enters the bleedout life state when essential, so asked of the donor it counts as
+        // bleeding out at no health too (e.g. a mod that makes the player kneel instead of die). Not when dead.
+        bool IsBleedingOutThunk(RE::TESObjectREFR* a_thisObj, void* a_p1, void* a_p2, double& a_result) {
+            if (!s_originalIsBleedingOut) return false;
+            const auto& session = *Session::GetSingleton();
+            if (!session.StandsForDonor(a_thisObj)) {
+                return s_originalIsBleedingOut(a_thisObj, a_p1, a_p2, a_result);
+            }
+            auto* player = session.GetPlayer();
+            const auto state = player->AsActorState()->GetLifeState();
+            using enum RE::ACTOR_LIFE_STATE;
+            const bool alive = state != kDead && state != kDying;
+            const bool down = state == kBleedout || state == kEssentialDown ||
+                              player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kHealth) <= 0.0f;
+            a_result = alive && down ? 1.0 : 0.0;
+            return true;
         }
 
         // --- Relationships: the Dragonborn's apply first, then the donor's. The puppet keeps the Dragonborn's;
@@ -388,6 +434,134 @@ namespace InTheirShoes::ConditionHooks {
             return s_originalPCInFaction(a_thisObj, a_p1, a_p2, a_result);
         }
 
+        // --- References: any condition that reaches the parked donor through its run-on reference, its target or a
+        // reference parameter is asked of the player ---
+
+        // TESConditionItem::IsTrue (29090, 29924) evaluates one condition: it resolves the subject from the item
+        // (run-on Reference looks up data.runOnRef, Target takes params.targetRef), takes the parameters as stored
+        // in data.functionData (unless they're alias or package data IDs, which reach the player through the alias
+        // swap and PackageRetarget) and calls the condition function. Every condition list goes through it
+        // (TESCondition::IsTrue -> 29895 -> here), and nothing else calls condition functions from the script
+        // function table. So the item is evaluated with the player in the donor's place instead.
+        // An evaluation whose subject (params.actionRef) is the donor is left alone, whatever else it asks about:
+        // that's the parked donor's own spells and AI (a self-cast ability has the donor as its target too; letting
+        // those through swapped dozens of the donor's own idle and ability conditions in testing). The spatial and
+        // state conditions and the faction rule above still answer for the player there.
+        using IsTrue_t = bool(const RE::TESConditionItem*, RE::ConditionCheckParams&);
+        IsTrue_t* g_originalIsTrue{ nullptr };
+
+        // Answers that stay the donor's
+        bool KeepsDonor(const RE::FUNCTION_DATA& a_function) {
+            using enum RE::FUNCTION_DATA::FunctionID;
+            switch (a_function.function.get()) {
+            case kGetPlayerTeammate:
+                return true;  // Teammate status stays on the donor
+            case kGetInFaction:
+            case kGetFactionRank:
+                // The player keeps PlayerFaction from the Dragonborn; only the donor's own membership answers
+                return a_function.params[0] == Forms::playerFaction;
+            default:
+                return false;
+            }
+        }
+
+        // The donor's handle, made once per donor. Run-on references are handles, so they're compared by value
+        // rather than looked up.
+        std::uint32_t DonorHandle(RE::Actor* a_donor) {
+            static std::atomic<RE::Actor*> s_donor{ nullptr };
+            static std::atomic<std::uint32_t> s_handle{ 0 };
+            if (s_donor.load(std::memory_order_acquire) != a_donor) {
+                s_handle.store(a_donor->GetHandle().native_handle(), std::memory_order_relaxed);
+                s_donor.store(a_donor, std::memory_order_release);
+            }
+            return s_handle.load(std::memory_order_relaxed);
+        }
+
+        // Logs the first swap of each condition function in a session, to show what reaches the donor
+        void LogSwap(RE::Actor* a_donor, RE::FUNCTION_DATA::FunctionID a_function, std::string_view a_how,
+            const RE::TESObjectREFR* a_subject) {
+            constexpr auto kCount = static_cast<std::size_t>(RE::FUNCTION_DATA::FunctionID::kTotal);
+            static std::array<std::atomic<bool>, kCount> s_logged{};
+            static std::atomic<RE::Actor*> s_loggedFor{ nullptr };
+            if (s_loggedFor.exchange(a_donor) != a_donor) {
+                for (auto& logged : s_logged) logged.store(false, std::memory_order_relaxed);
+            }
+            const auto index = static_cast<std::size_t>(a_function);
+            if (index >= kCount || s_logged[index].exchange(true)) return;
+            const auto* command = RE::SCRIPT_FUNCTION::GetFirstScriptCommand();
+            SKSE::log::info("Condition {} ({}) reached the donor through its {} (subject {:08X} '{}'); asked of the player",
+                command ? command[index].functionName : "?", index, a_how, a_subject ? a_subject->GetFormID() : 0,
+                a_subject ? a_subject->GetName() : "");
+        }
+
+        bool IsTrueThunk(const RE::TESConditionItem* a_item, RE::ConditionCheckParams& a_params) {
+            const auto& session = *Session::GetSingleton();
+            auto* donor = session.IsActive() ? session.GetDonor() : nullptr;
+            if (!donor || !a_item || a_params.actionRef == donor) return g_originalIsTrue(a_item, a_params);
+
+            const auto& data = a_item->data;
+            const bool byReference = data.object == RE::CONDITIONITEMOBJECT::kRef &&
+                                     data.runOnRef.native_handle() == DonorHandle(donor);
+            const bool byTarget = a_params.targetRef == donor;
+            const bool plainParams = !data.flags.usesAliases && !data.flags.usePackData;
+            const bool byParam0 = plainParams && data.functionData.params[0] == donor;
+            const bool byParam1 = plainParams && data.functionData.params[1] == donor;
+            if (!(byReference || byTarget || byParam0 || byParam1) || KeepsDonor(data.functionData)) {
+                return g_originalIsTrue(a_item, a_params);
+            }
+
+            auto* player = session.GetPlayer();
+            static const RE::ObjectRefHandle s_playerHandle = player->GetHandle();
+            LogSwap(donor, data.functionData.function.get(),
+                byReference ? "run-on reference"sv : byTarget ? "target"sv : "parameter"sv, a_params.actionRef);
+
+            // A copy of the item, which only this call sees
+            alignas(RE::TESConditionItem) std::byte buffer[sizeof(RE::TESConditionItem)];
+            std::memcpy(buffer, a_item, sizeof(RE::TESConditionItem));
+            auto* copy = reinterpret_cast<RE::TESConditionItem*>(buffer);
+            copy->next = nullptr;
+            if (byReference) copy->data.runOnRef = s_playerHandle;
+            if (byParam0) copy->data.functionData.params[0] = player;
+            if (byParam1) copy->data.functionData.params[1] = player;
+
+            // The params belong to the caller's evaluation (built on its stack), so the target is swapped in place
+            // for the call and put back
+            auto* target = a_params.targetRef;
+            if (byTarget) a_params.targetRef = player;
+            const bool result = g_originalIsTrue(copy, a_params);
+            a_params.targetRef = target;
+            return result;
+        }
+
+        void HookIsTrue() {
+            // The function's start is replaced by a jump to the hook; its first instruction (5 bytes, position
+            // independent) runs in a stub that then jumps back. It's checked first, in case another mod hooked it
+            // or the game version differs.
+            const auto function = REL::Relocation<std::uintptr_t>{ RELOCATION_ID(29090, 29924) }.address();
+            constexpr std::uint8_t kFirstInstruction[] = { 0x48, 0x89, 0x4C, 0x24, 0x08 };  // mov [rsp+8], rcx
+            if (std::memcmp(reinterpret_cast<const void*>(function), kFirstInstruction, sizeof(kFirstInstruction)) != 0) {
+                SKSE::log::error("Condition evaluation starts differently than expected; conditions on the donor's "
+                                 "reference won't answer for the player");
+                return;
+            }
+
+            struct Original : Xbyak::CodeGenerator {
+                explicit Original(std::uintptr_t a_resume) {
+                    Xbyak::Label resume;
+                    mov(ptr[rsp + 8], rcx);
+                    jmp(ptr[rip + resume]);
+                    L(resume);
+                    dq(a_resume);
+                }
+            } original{ function + sizeof(kFirstInstruction) };
+            original.ready();
+
+            auto& trampoline = SKSE::GetTrampoline();
+            g_originalIsTrue = static_cast<IsTrue_t*>(trampoline.allocate(original));
+            trampoline.write_branch<5>(function, &IsTrueThunk);
+            SKSE::log::info("Hooked condition evaluation at SkyrimSE+{:X}", function - REL::Module::get().base());
+        }
+
         // Swaps in a_thunk as the named condition's function, keeping the original in a_original
         bool HookCondition(Condition_t*& a_original, std::string_view a_name, Condition_t* a_thunk) {
             auto* func = RE::SCRIPT_FUNCTION::LocateScriptCommand(a_name);
@@ -422,18 +596,21 @@ namespace InTheirShoes::ConditionHooks {
             ((hooked += HookCondition(s_originalSpatial[I], kSpatialConditions[I].name, &SpatialThunk<I>)), ...);
             return hooked;
         }
+
     }
 
     void Install() {
+        HookIsTrue();
         const std::size_t hookedCount = HookIdentityConditions(std::make_index_sequence<kIdentityCount>{}) +
                                         HookSpatialConditions(std::make_index_sequence<kSpatialCount>{}) +
+                                        HookCondition(s_originalIsBleedingOut, "IsBleedingOut"sv, &IsBleedingOutThunk) +
                                         HookRelationshipConditions(std::make_index_sequence<kRelationshipCount>{}) +
                                         HookCondition(s_originalPCIsClass, "GetPCIsClass"sv, &PCIsClassThunk) +
                                         HookCondition(s_originalPCInFaction, "GetPCInFaction"sv, &PCInFactionThunk) +
                                         HookCondition(s_originalPCIsRace, "GetPCIsRace"sv, &PCIsRaceThunk) +
                                         HookCondition(s_originalPCIsSex, "GetPCIsSex"sv, &PCIsSexThunk);
 
-        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 4;
+        constexpr auto kExpectedHooks = kIdentityCount + kSpatialCount + kRelationshipCount + 5;
         if (hookedCount == kExpectedHooks) {
             SKSE::log::info("Installed all {} script condition hooks.", hookedCount);
         } else {

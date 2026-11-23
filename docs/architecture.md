@@ -8,7 +8,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | **Player** | Looks, sounds and fights like the donor (appearance, voice, stats, spells, items). Belongs to the donor's factions, holds its quest aliases and answers its conditions. |
 | **Puppet** (`ITS_TempPlayer`) | Looks like the Dragonborn and follows the player. Talking to it opens the donor's dialogue. |
-| **Donor** | Parked out of sight in a holding cell. Conditions that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. With the MCM's script redirect on, other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor, and scripts on the donor's own body (its magic effects) still act on it. Scripts that reach the donor through its quest aliases (which the player holds) act on the player: moving it to its package's location moves the player there once any conversation ends, and changing its outfit sets the donor's outfit and dresses the player in it. Actors whose AI packages follow or go to the donor follow or go to the player. |
+| **Donor** | Parked out of sight in a holding cell. Conditions that ask about the donor (another actor's package checking its health, a spell checking its factions, where it is) get the player's answer, except its teammate status, and triggers waiting for the donor see it enter or leave when the player does. With the MCM's script redirect on, other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor, and scripts on the donor's own body (its magic effects) still act on it. Scripts that reach the donor through its quest aliases (which the player holds) act on the player: moving it to its package's location moves the player there once any conversation ends, and changing its outfit sets the donor's outfit and dresses the player in it. Actors whose AI packages follow or go to the donor follow or go to the player. |
 
 ## What happens
 
@@ -37,7 +37,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `Settings` | The MCM's settings, saved in the co-save, readable from any thread |
 | `GameClock` | Time the game has been running, without pauses, loading screens or hitches. Gameplay timers use it |
 | `PlayerBusy` | Why the player can't be given something to do (combat, a menu, a scene, ...), for idle AI and idle chatter |
-| `ConditionHooks` | Identity, relationship and location conditions answer for the right actor |
+| `ConditionHooks` | Identity, relationship, location and state (health, combat, ...) conditions answer for the right actor |
 | `ActorHooks` | Voice type, editor location and per-frame player update hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |
 | `DialogueManager` | Self-dialogue, routing the engine's lines to the player |

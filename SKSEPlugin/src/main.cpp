@@ -1,4 +1,5 @@
 #include "PCH.h"
+#include "ConditionHooks.h"
 #include "DialogueManager.h"
 #include "GameUtil.h"
 #include "Lifecycle.h"
@@ -38,7 +39,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse) {
         .logLevel = spdlog::level::info,
         .logPattern = "[%Y-%m-%d %H:%M:%S.%e] [%l] [%t] [%s:%#] %v",
         .trampoline = true,
-        .trampolineSize = InTheirShoes::DialogueManager::kTrampolineSize + InTheirShoes::PlayerMoveSpeed::kTrampolineSize,
+        .trampolineSize = InTheirShoes::DialogueManager::kTrampolineSize + InTheirShoes::PlayerMoveSpeed::kTrampolineSize +
+                          InTheirShoes::ConditionHooks::kTrampolineSize,
     });
 
     auto* plugin = SKSE::PluginDeclaration::GetSingleton();
