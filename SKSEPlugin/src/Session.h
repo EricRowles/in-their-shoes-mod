@@ -33,11 +33,6 @@ namespace InTheirShoes {
             return a_ref == GetDonor() || (a_ref == GetPuppet() && IsPuppetSpeakingForDonor());
         }
 
-        // Where a reference counts as being for spatial conditions: the player's place, if it stands for the donor
-        RE::TESObjectREFR* ResolveSpatialRef(RE::TESObjectREFR* a_ref) const {
-            return StandsForDonor(a_ref) ? GetPlayer() : a_ref;
-        }
-
         void SetActive(bool a_active) { _active.store(a_active, std::memory_order_release); }
         void SetDonor(RE::Actor* a_donor, RE::BGSVoiceType* a_voiceType) {
             _donor.store(a_donor, std::memory_order_release);
