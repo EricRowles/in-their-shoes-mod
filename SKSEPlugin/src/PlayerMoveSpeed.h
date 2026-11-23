@@ -7,9 +7,6 @@ namespace InTheirShoes::PlayerMoveSpeed {
     // Whether the AI walks or runs the player (#49). While idle AI drives the player, every walk/run the AI sets for
     // it becomes the player's Always Run setting; otherwise the engine's own choice stands.
 
-    // Trampoline space the hook uses (main.cpp adds it to the plugin's trampoline)
-    inline constexpr std::size_t kTrampolineSize = 48;
-
     // Hooks the engine's "set movement speed", which every walk/run the AI applies goes through
     void Install();
 

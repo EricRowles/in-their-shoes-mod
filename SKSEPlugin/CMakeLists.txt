@@ -22,6 +22,7 @@ add_library(${PROJECT_NAME} SHARED
     src/Forms.h
     src/Forms.cpp
     src/GameUtil.h
+    src/HookUtil.h
     src/GameClock.h
     src/PlayerBusy.h
     src/PlayerBusy.cpp

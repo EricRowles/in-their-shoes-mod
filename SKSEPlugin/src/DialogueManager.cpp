@@ -2,6 +2,7 @@
 #include "DialogueManager.h"
 #include "Lifecycle.h"
 #include "GameUtil.h"
+#include "HookUtil.h"
 #include "Session.h"
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
@@ -43,49 +44,8 @@ namespace InTheirShoes {
             }
         }
 
-        // Finds the call that plays a speaker's talking idle (SetupSpecialIdle with kActionTalkingIdle, loaded by
-        // "lea r8d, [reg+0x5C]") by searching the code, so no per-version offset. A call another plugin already
-        // redirected also matches, and our hook chains to it. Returns 0 unless exactly one call matches.
-        std::uintptr_t FindTalkingIdleCall() {
-            constexpr std::uint8_t kArgSetup[] = { 0x44, 0x8D, 0x46, 0x5C, 0x49, 0x8B, 0xD6, 0x49, 0x8B, 0x8E, 0xF8, 0x00, 0x00, 0x00 };
-            constexpr std::size_t kLookBack = 16;
-            const auto text = REL::Module::get().segment(REL::Segment::textx);
-            const auto setupSpecialIdle = REL::RelocationID(38290, 39256).address();
-            const auto* code = reinterpret_cast<const std::uint8_t*>(text.address());
-
-            std::uintptr_t direct = 0, redirected = 0;
-            int directCount = 0, redirectedCount = 0;
-            for (std::size_t i = kLookBack; i + 5 <= text.size(); ++i) {
-                if (code[i] != 0xE8) continue;
-                bool loadsAction = false;
-                for (std::size_t back = kLookBack; back >= 3 && !loadsAction; --back) {
-                    loadsAction = code[i - back] == 0x8D && code[i - back + 2] == 0x5C;
-                }
-                if (!loadsAction) continue;
-
-                const auto at = text.address() + i;
-                std::int32_t rel;
-                std::memcpy(&rel, code + i + 1, sizeof(rel));
-                if (at + 5 + rel == setupSpecialIdle) {
-                    direct = at;
-                    ++directCount;
-                } else if (std::memcmp(code + i - sizeof(kArgSetup), kArgSetup, sizeof(kArgSetup)) == 0) {
-                    redirected = at;
-                    ++redirectedCount;
-                }
-            }
-            if (directCount == 1) return direct;
-            if (directCount == 0 && redirectedCount == 1) return redirected;
-            SKSE::log::warn("Talking idle call search: {} direct, {} redirected by another plugin", directCount, redirectedCount);
-            return 0;
-        }
-
-        // Where the game function holding a_address starts, from the exe's unwind table; 0 if none
-        std::uintptr_t FunctionStart(std::uintptr_t a_address) {
-            DWORD64 imageBase = 0;
-            const auto* entry = RtlLookupFunctionEntry(a_address, &imageBase, nullptr);
-            return entry ? static_cast<std::uintptr_t>(imageBase + entry->BeginAddress) : 0;
-        }
+        // Set while Character::UpdateInDialogue runs on this thread: lines it starts are already routed there
+        thread_local bool t_inUpdateInDialogue = false;
 
         // The puppet in self-dialogue speaks the donor's lines. (Lines scripts give the parked donor go to the
         // player when NativeRedirect is on: it sends their Say() there.)
@@ -124,45 +84,14 @@ namespace InTheirShoes {
 
         SKSE::log::info("Hooked Character (0x41, 0x4C) and PlayerCharacter (0x4C, 0x107, 0x108) dialogue vfuncs");
 
-        // The trampoline (kTrampolineSize) is allocated by SKSE::Init in main.cpp
-        if (auto call = FindTalkingIdleCall()) {
-            _origTalkingIdle = SKSE::GetTrampoline().write_call<5>(call, &Hook_TalkingIdle);
-            SKSE::log::info("Hooked the speaker's talking idle call");
-            InstallStartSpeechHooks(call);
-        } else {
-            SKSE::log::warn("Talking idle call not found; the puppet will gesture during self-dialogue");
-        }
-    }
-
-    void DialogueManager::InstallStartSpeechHooks(std::uintptr_t a_talkingIdleCall) {
-        // The talking idle call sits in the start-speech function, so this finds it on any game version. Its
-        // calls from Character::UpdateInDialogue are left alone: those lines are already routed there.
-        const auto startSpeech = FunctionStart(a_talkingIdleCall);
-        const auto updateInDialogue = FunctionStart(_origCharUpdateInDialogue.address());
-        if (!startSpeech || !updateInDialogue) {
-            SKSE::log::warn("Start-speech function not found; one-line greetings from the puppet stay on the puppet");
-            return;
-        }
-        const auto text = REL::Module::get().segment(REL::Segment::textx);
-        const auto* code = reinterpret_cast<const std::uint8_t*>(text.address());
-        std::vector<std::uintptr_t> calls;
-        for (std::size_t i = 0; i + 5 <= text.size(); ++i) {
-            if (code[i] != 0xE8) continue;
-            std::int32_t rel;
-            std::memcpy(&rel, code + i + 1, sizeof(rel));
-            const auto at = text.address() + i;
-            if (at + 5 + rel == startSpeech && FunctionStart(at) != updateInDialogue) {
-                calls.push_back(at);
-            }
-        }
-        if (calls.empty() || calls.size() > kMaxStartSpeechCalls) {
-            SKSE::log::warn("Start-speech hook skipped: {} calls found", calls.size());
-            return;
-        }
-        for (auto at : calls) {
-            _origStartSpeech = SKSE::GetTrampoline().write_call<5>(at, &Hook_StartSpeech);
-        }
-        SKSE::log::info("Hooked {} start-speech calls outside UpdateInDialogue", calls.size());
+        // SetupSpecialIdle plays an actor's idles, the talking idle (gestures) among them
+        constexpr std::uint8_t kSetupSpecialIdlePrologue[] = { 0x44, 0x89, 0x44, 0x24, 0x18 };  // mov [rsp+18h], r8d
+        _origTalkingIdle = HookUtil::HookFunctionStart(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(38290, 39256) }.address(),
+            kSetupSpecialIdlePrologue, &Hook_TalkingIdle, "special idle setup"sv);
+        // The start-speech function (AE 37542; the SE ID was matched by function layout, not tested on SE)
+        constexpr std::uint8_t kStartSpeechPrologue[] = { 0x48, 0x8B, 0xC4, 0x44, 0x89, 0x48, 0x20 };  // mov rax, rsp / mov [rax+20h], r9d
+        _origStartSpeech = HookUtil::HookFunctionStart(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(36541, 37542) }.address(),
+            kStartSpeechPrologue, &Hook_StartSpeech, "start speech"sv);
     }
 
     // One-line greetings open no Dialogue Menu and start their voice here, not in UpdateInDialogue, so the puppet
@@ -172,8 +101,8 @@ namespace InTheirShoes {
         std::uint64_t a11, std::uint64_t a12, std::uint64_t a13, std::uint64_t a14) {
         auto& session = *Session::GetSingleton();
         auto* ui = RE::UI::GetSingleton();
-        if (a_speaker && session.IsActive() && a_speaker == session.GetPuppet() && session.IsPuppetSpeakingForDonor() &&
-            !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
+        if (!t_inUpdateInDialogue && a_speaker && session.IsActive() && a_speaker == session.GetPuppet() &&
+            session.IsPuppetSpeakingForDonor() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
                 SKSE::log::info("Puppet line outside a conversation: voicing it on the player");
                 PlayerVoice::GetSingleton()->Finish();
@@ -407,6 +336,10 @@ namespace InTheirShoes {
     // --- Hooks ---
 
     bool DialogueManager::Hook_Character_UpdateInDialogue(RE::Actor* a_this, RE::DialogueResponse* a_response, bool a_unused) {
+        struct InUpdate {
+            bool was = std::exchange(t_inUpdateInDialogue, true);
+            ~InUpdate() { t_inUpdateInDialogue = was; }
+        } inUpdate;
         auto& session = *Session::GetSingleton();
         if (!a_this || !session.IsActive()) {
             return _origCharUpdateInDialogue(a_this, a_response, a_unused);
@@ -445,7 +378,7 @@ namespace InTheirShoes {
     bool DialogueManager::Hook_TalkingIdle(RE::AIProcess* a_process, RE::Actor* a_actor, RE::DEFAULT_OBJECT a_action,
         RE::TESIdleForm* a_idle, bool a_arg5, bool a_arg6, RE::TESObjectREFR* a_target) {
         auto& session = *Session::GetSingleton();
-        if (a_actor && session.IsActive() && a_actor == session.GetPuppet()) {
+        if (a_action == RE::DEFAULT_OBJECT::kActionTalkingIdle && a_actor && session.IsActive() && a_actor == session.GetPuppet()) {
             return false;
         }
         return _origTalkingIdle(a_process, a_actor, a_action, a_idle, a_arg5, a_arg6, a_target);

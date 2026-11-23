@@ -15,7 +15,4 @@ namespace InTheirShoes::ConditionHooks {
     // The hooks may run on AI threads and only read Session and the donor's alias factions.
     void Install();
 
-    // Trampoline space the condition evaluation hook uses (main.cpp adds it to the plugin's trampoline)
-    inline constexpr std::size_t kTrampolineSize = 64;
-
 }

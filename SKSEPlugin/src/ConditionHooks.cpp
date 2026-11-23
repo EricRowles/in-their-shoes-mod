@@ -2,6 +2,7 @@
 #include "ConditionHooks.h"
 #include "FactionManager.h"
 #include "Forms.h"
+#include "HookUtil.h"
 #include "IdleAIManager.h"
 #include "Session.h"
 #include "Settings.h"
@@ -440,32 +441,12 @@ namespace InTheirShoes::ConditionHooks {
         }
 
         void HookIsTrue() {
-            // The function's start is replaced by a jump to the hook; its first instruction (5 bytes, position
-            // independent) runs in a stub that then jumps back. It's checked first, in case another mod hooked it
-            // or the game version differs.
-            const auto function = REL::Relocation<std::uintptr_t>{ RELOCATION_ID(29090, 29924) }.address();
-            constexpr std::uint8_t kFirstInstruction[] = { 0x48, 0x89, 0x4C, 0x24, 0x08 };  // mov [rsp+8], rcx
-            if (std::memcmp(reinterpret_cast<const void*>(function), kFirstInstruction, sizeof(kFirstInstruction)) != 0) {
-                SKSE::log::error("Condition evaluation starts differently than expected; conditions on the donor's "
-                                 "reference won't answer for the player");
-                return;
+            constexpr std::uint8_t kPrologue[] = { 0x48, 0x89, 0x4C, 0x24, 0x08 };  // mov [rsp+8], rcx
+            g_originalIsTrue = HookUtil::HookFunctionStart(REL::Relocation<std::uintptr_t>{ RELOCATION_ID(29090, 29924) }.address(),
+                kPrologue, &IsTrueThunk, "condition evaluation"sv);
+            if (!g_originalIsTrue) {
+                SKSE::log::error("Conditions about the donor won't answer for the player");
             }
-
-            struct Original : Xbyak::CodeGenerator {
-                explicit Original(std::uintptr_t a_resume) {
-                    Xbyak::Label resume;
-                    mov(ptr[rsp + 8], rcx);
-                    jmp(ptr[rip + resume]);
-                    L(resume);
-                    dq(a_resume);
-                }
-            } original{ function + sizeof(kFirstInstruction) };
-            original.ready();
-
-            auto& trampoline = SKSE::GetTrampoline();
-            g_originalIsTrue = static_cast<IsTrue_t*>(trampoline.allocate(original));
-            trampoline.write_branch<5>(function, &IsTrueThunk);
-            SKSE::log::info("Hooked condition evaluation at SkyrimSE+{:X}", function - REL::Module::get().base());
         }
 
         // Swaps in ConditionThunk<I> as the condition function of kHooked[I]
