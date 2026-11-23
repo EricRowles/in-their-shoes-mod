@@ -2,12 +2,12 @@
 #include "Papyrus.h"
 #include "IdleAIManager.h"
 #include "AliasSwapManager.h"
-#include "FactionManager.h"
 #include "DialogueManager.h"
 #include "GameUtil.h"
 #include "ImpersonationManager.h"
 #include "ScriptEventFilter.h"
 #include "Session.h"
+#include "SessionStash.h"
 #include "Settings.h"
 #include "Version.h"
 
@@ -63,7 +63,7 @@ namespace InTheirShoes::Papyrus {
         }
 
         std::int32_t GetTemporaryFactionCount(RE::StaticFunctionTag*) {
-            return static_cast<std::int32_t>(FactionManager::GetSingleton()->GetGivenFactions().size());
+            return static_cast<std::int32_t>(SessionStashes::Factions().GetGivenCount());
         }
 
         std::int32_t GetTemporaryAliasCount(RE::StaticFunctionTag*) {

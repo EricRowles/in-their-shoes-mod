@@ -2,7 +2,6 @@
 #include "ImpersonationManager.h"
 #include "ActorHooks.h"
 #include "AliasSwapManager.h"
-#include "FactionManager.h"
 #include "FaceManager.h"
 #include "Forms.h"
 #include "GameUtil.h"
@@ -211,10 +210,7 @@ namespace InTheirShoes {
 
         // After its items have moved to the player
         RemoveUniqueDonorOutfit(a_donor);
-        auto& factions = *FactionManager::GetSingleton();
-        factions.CaptureDragonborn(player);
         AliasSwapManager::GetSingleton()->SwapDonorAliasesToPlayer(a_donor, player);
-        factions.TakeOnDonorFactions(a_donor, player);
 
         if (auto* puppet = GetPuppet()) {
             ApplyPuppetFollowState(puppet);
@@ -229,10 +225,8 @@ namespace InTheirShoes {
         SKSE::log::info("Ending impersonation of donor {:08X}", donor ? donor->GetFormID() : 0u);
 
         // While the player still holds the aliases, whose factions stay with them
-        FactionManager::GetSingleton()->ReturnFactions(donor, GetPlayer());
-        AliasSwapManager::GetSingleton()->RestoreSwappedAliases(donor);
-
         Lifecycle::OnSessionEnd();
+        AliasSwapManager::GetSingleton()->RestoreSwappedAliases(donor);
 
         Session::GetSingleton()->SetActive(false);
         DetachDonor();
@@ -401,19 +395,11 @@ namespace InTheirShoes {
     void ImpersonationManager::OnPostLoadGame() {
         if (!IsActive()) return;
 
-        if (auto* donor = GetDonor()) {
-            // Reapply the donor's look captured at the start: the parked donor has no 3D to re-capture tints from.
-            if (_donorFace) {
-                SKSE::GetTaskInterface()->AddTask([face = *_donorFace]() {
-                    FaceManager::GetSingleton()->ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);
-                });
-            } else {
-                SKSE::GetTaskInterface()->AddTask([donorHandle = donor->GetHandle()]() {
-                    if (auto d = donorHandle.get()) {
-                        FaceManager::GetSingleton()->CopyAppearance(d.get(), RE::PlayerCharacter::GetSingleton());
-                    }
-                });
-            }
+        // Reapply the donor's look captured at the start: the parked donor has no 3D to re-capture tints from
+        if (_donorFace) {
+            SKSE::GetTaskInterface()->AddTask([face = *_donorFace]() {
+                FaceManager::GetSingleton()->ApplySnapshot(RE::PlayerCharacter::GetSingleton(), face);
+            });
         }
 
         // The puppet's base record is not saved, so its appearance must be reapplied every load

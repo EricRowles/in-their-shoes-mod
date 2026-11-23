@@ -1,6 +1,6 @@
 #include "PCH.h"
 #include "ConditionHooks.h"
-#include "FactionManager.h"
+#include "SessionStash.h"
 #include "Forms.h"
 #include "HookUtil.h"
 #include "IdleAIManager.h"
@@ -133,10 +133,10 @@ namespace InTheirShoes::ConditionHooks {
             return AskPlayer(a_q, a_result);
         }
 
-        // The player is in the donor's factions for the session (FactionManager), so the Dragonborn's are
+        // The player is in the donor's factions for the session (FactionStash), so the Dragonborn's are
         // answered from what they were when it began
         bool InFactionAsDragonborn(const Query& a_q, double& a_result) {
-            if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+            if (auto rank = SessionStashes::Factions().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
                 a_result = *rank >= 0 ? 1.0 : 0.0;
                 return true;
             }
@@ -144,7 +144,7 @@ namespace InTheirShoes::ConditionHooks {
         }
 
         bool FactionRankAsDragonborn(const Query& a_q, double& a_result) {
-            if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+            if (auto rank = SessionStashes::Factions().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
                 a_result = *rank;
                 return true;
             }
@@ -227,7 +227,7 @@ namespace InTheirShoes::ConditionHooks {
 
         bool PCInFaction(const Query& a_q, double& a_result) {
             if (a_q.session.IsInSelfDialogue()) {
-                if (auto rank = FactionManager::GetSingleton()->GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
+                if (auto rank = SessionStashes::Factions().GetDragonbornFactionRank(static_cast<RE::TESFaction*>(a_q.param1))) {
                     a_result = *rank >= 0 ? 1.0 : 0.0;
                     return true;
                 }
@@ -250,7 +250,7 @@ namespace InTheirShoes::ConditionHooks {
         // evaluation hook swaps it), so "is this the donor" is the subject's own answer. The ones that answer for a
         // stand-in (asDonor or asDragonborn) get the puppet in self-dialogue as itself; the rest get the player.
         constexpr HookedCondition kHooked[] = {
-            // The player is really in the donor's factions and its aliases' (FactionManager)
+            // The player is really in the donor's factions and its aliases' (FactionStash)
             { "GetInFaction"sv, &AskPlayer, &InFactionAsDragonborn, nullptr },
             { "GetFactionRank"sv, &AskPlayer, &FactionRankAsDragonborn, nullptr },
             { "GetIsID"sv, &IsIDAsDonor, &IsIDAsDragonborn, nullptr },

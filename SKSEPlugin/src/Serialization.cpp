@@ -1,86 +1,16 @@
 #include "PCH.h"
 #include "Serialization.h"
 #include "AliasSwapManager.h"
-#include "CrimeManager.h"
 #include "FaceManager.h"
-#include "FactionManager.h"
 #include "Forms.h"
 #include "ImpersonationManager.h"
 #include "Lifecycle.h"
-#include "LinkedRefManager.h"
+#include "SessionStash.h"
 #include "Settings.h"
-
-#include <type_traits>
 
 namespace InTheirShoes::Serialization {
 
     namespace {
-        using Serde = SKSE::SerializationInterface;
-
-        // --- Primitives ---
-        // Every record is written and read with these, so a record's layout is the sequence of calls in its
-        // Write/Read pair below. Readers return false only when the record ends early; callers then drop the
-        // whole record rather than apply part of it.
-
-        // Saved as raw bytes: plain data, never a pointer (forms are saved by ID). Engine types such as
-        // RE::Color define copy operators, so "trivially copyable" is too strict.
-        template <class T>
-        constexpr bool kIsRawData = std::is_standard_layout_v<T> && std::is_trivially_destructible_v<T> && !std::is_pointer_v<T>;
-
-        template <class T>
-        void Write(Serde* a_serde, const T& a_value) {
-            static_assert(kIsRawData<T>);
-            a_serde->WriteRecordData(&a_value, sizeof(T));
-        }
-
-        template <class T>
-        bool Read(Serde* a_serde, T& a_out) {
-            static_assert(kIsRawData<T>);
-            return a_serde->ReadRecordData(&a_out, sizeof(T)) == sizeof(T);
-        }
-
-        void WriteFormID(Serde* a_serde, const RE::TESForm* a_form) {
-            Write(a_serde, a_form ? a_form->GetFormID() : RE::FormID{ 0 });
-        }
-
-        // A saved form ID mapped to the current load order; 0 if it was saved as none or its plugin is gone
-        bool ReadFormID(Serde* a_serde, RE::FormID& a_out) {
-            if (!Read(a_serde, a_out)) return false;
-            if (a_out != 0 && !a_serde->ResolveFormID(a_out, a_out)) {
-                a_out = 0;
-            }
-            return true;
-        }
-
-        // A form that no longer exists (or was saved as none) reads as nullptr
-        template <class T>
-        bool ReadForm(Serde* a_serde, T*& a_out) {
-            RE::FormID id = 0;
-            if (!ReadFormID(a_serde, id)) return false;
-            a_out = id != 0 ? RE::TESForm::LookupByID<T>(id) : nullptr;
-            return true;
-        }
-
-        // A count, then a_writeItem for each element
-        template <class Range, class WriteItem>
-        void WriteList(Serde* a_serde, const Range& a_range, WriteItem&& a_writeItem) {
-            Write(a_serde, static_cast<std::uint32_t>(std::size(a_range)));
-            for (const auto& item : a_range) {
-                a_writeItem(item);
-            }
-        }
-
-        // Reads a count, then calls a_readItem (which returns false if the record ends) that many times
-        template <class ReadItem>
-        bool ReadList(Serde* a_serde, ReadItem&& a_readItem) {
-            std::uint32_t count = 0;
-            if (!Read(a_serde, count)) return false;
-            for (std::uint32_t i = 0; i < count; ++i) {
-                if (!a_readItem()) return false;
-            }
-            return true;
-        }
-
         // Guards against allocating from a corrupt length
         constexpr std::uint32_t kMaxStringLength = 1024;
 
@@ -110,10 +40,10 @@ namespace InTheirShoes::Serialization {
         void WriteFaceSnapshot(Serde* a_serde, const FaceSnapshot& a_face) {
             // The player's own base record is saved as none: it is the target the snapshot is applied to
             const bool faceIsPlayer = Forms::IsPlayerBase(a_face.faceNPC);
-            WriteFormID(a_serde, a_face.race);
-            WriteFormID(a_serde, faceIsPlayer ? nullptr : a_face.faceNPC);
-            WriteFormID(a_serde, a_face.hairColor);
-            WriteFormID(a_serde, a_face.voiceType);
+            WriteForm(a_serde, a_face.race);
+            WriteForm(a_serde, faceIsPlayer ? nullptr : a_face.faceNPC);
+            WriteForm(a_serde, a_face.hairColor);
+            WriteForm(a_serde, a_face.voiceType);
             Write(a_serde, a_face.bodyTintColor);
             Write(a_serde, a_face.height);
             Write(a_serde, a_face.scale);
@@ -121,36 +51,32 @@ namespace InTheirShoes::Serialization {
             Write(a_serde, static_cast<std::uint8_t>(a_face.sex));
             Write(a_serde, a_face.morphs);
             Write(a_serde, a_face.parts);
-            WriteList(a_serde, a_face.headParts, [&](const RE::BGSHeadPart* a_part) { WriteFormID(a_serde, a_part); });
+            WriteList(a_serde, a_face.headParts, [&](const RE::BGSHeadPart* a_part) { WriteForm(a_serde, a_part); });
             Write(a_serde, a_face.hasHairTintColor);
             Write(a_serde, a_face.hairTintColor);
             WriteList(a_serde, a_face.tintLayers, [&](const RE::TESNPC::Layer& a_layer) { Write(a_serde, a_layer); });
             Write(a_serde, a_face.hasSkinTintColor);
             Write(a_serde, a_face.skinTintColor);
             WriteString(a_serde, a_face.fullName.c_str());
-            WriteFormID(a_serde, a_face.faceDetails);
-            WriteFormID(a_serde, a_face.skin);
-            WriteFormID(a_serde, a_face.farSkin);
+            WriteForm(a_serde, a_face.faceDetails);
+            WriteForm(a_serde, a_face.skin);
+            WriteForm(a_serde, a_face.farSkin);
         }
 
         bool ReadFaceSnapshot(Serde* a_serde, FaceSnapshot& a_out) {
             std::uint8_t sex = 0;
-            if (!ReadForm(a_serde, a_out.race) ||
-                !ReadForm(a_serde, a_out.faceNPC) ||
-                !ReadForm(a_serde, a_out.hairColor) ||
-                !ReadForm(a_serde, a_out.voiceType) ||
-                !Read(a_serde, a_out.bodyTintColor) ||
-                !Read(a_serde, a_out.height) ||
-                !Read(a_serde, a_out.scale) ||
-                !Read(a_serde, a_out.weight) ||
-                !Read(a_serde, sex) ||
-                !Read(a_serde, a_out.morphs) ||
-                !Read(a_serde, a_out.parts)) {
-                return false;
-            }
-            a_out.sex = static_cast<RE::SEX>(sex);
-
             const bool ok =
+                ReadForm(a_serde, a_out.race) &&
+                ReadForm(a_serde, a_out.faceNPC) &&
+                ReadForm(a_serde, a_out.hairColor) &&
+                ReadForm(a_serde, a_out.voiceType) &&
+                Read(a_serde, a_out.bodyTintColor) &&
+                Read(a_serde, a_out.height) &&
+                Read(a_serde, a_out.scale) &&
+                Read(a_serde, a_out.weight) &&
+                Read(a_serde, sex) &&
+                Read(a_serde, a_out.morphs) &&
+                Read(a_serde, a_out.parts) &&
                 ReadList(a_serde, [&] {
                     RE::BGSHeadPart* part = nullptr;
                     if (!ReadForm(a_serde, part)) return false;
@@ -171,34 +97,35 @@ namespace InTheirShoes::Serialization {
                 ReadForm(a_serde, a_out.faceDetails) &&
                 ReadForm(a_serde, a_out.skin) &&
                 ReadForm(a_serde, a_out.farSkin);
+            a_out.sex = static_cast<RE::SEX>(sex);
             return ok;
         }
 
-        // --- 'BASE': the Dragonborn's face, stats and spells ---
+        // --- 'BASE': the Dragonborn's face, stats, spells and character progress ---
 
         void WriteBaseline(Serde* a_serde, const Baseline& a_baseline) {
-            if (!a_serde->OpenRecord(kBaselineRecord, kBaselineVersion)) return;
             WriteFaceSnapshot(a_serde, a_baseline.face);
             WriteList(a_serde, a_baseline.stats.baseValues, [&](const auto& a_entry) {
                 Write(a_serde, a_entry.first);
                 Write(a_serde, a_entry.second);
             });
             const auto& spells = a_baseline.spells;
-            WriteList(a_serde, spells.addedSpells, [&](RE::FormID a_id) { Write(a_serde, a_id); });
-            WriteFormID(a_serde, spells.leftSpell);
-            WriteFormID(a_serde, spells.rightSpell);
-            WriteFormID(a_serde, spells.shout);
-            WriteList(a_serde, spells.abilities, [&](RE::FormID a_id) { Write(a_serde, a_id); });
+            WriteFormIDs(a_serde, spells.addedSpells);
+            WriteForm(a_serde, spells.leftSpell);
+            WriteForm(a_serde, spells.rightSpell);
+            WriteForm(a_serde, spells.shout);
+            WriteFormIDs(a_serde, spells.abilities);
             const auto& progress = a_baseline.progress;
-            Write(a_serde, progress.recorded);
             Write(a_serde, progress.level);
             Write(a_serde, progress.perkPoints);
             Write(a_serde, progress.skills);
-            WriteList(a_serde, progress.perks, [&](RE::FormID a_id) { Write(a_serde, a_id); });
+            WriteFormIDs(a_serde, progress.perks);
         }
 
-        bool ReadBaseline(Serde* a_serde, std::uint32_t a_version, Baseline& a_out) {
-            const bool ok = ReadFaceSnapshot(a_serde, a_out.face) &&
+        bool ReadBaseline(Serde* a_serde, Baseline& a_out) {
+            auto& spells = a_out.spells;
+            auto& progress = a_out.progress;
+            return ReadFaceSnapshot(a_serde, a_out.face) &&
                    ReadList(a_serde, [&] {
                        std::uint32_t av = 0;
                        float value = 0.0f;
@@ -206,80 +133,37 @@ namespace InTheirShoes::Serialization {
                        a_out.stats.baseValues[av] = value;
                        return true;
                    }) &&
-                   ReadList(a_serde, [&] {
-                       RE::FormID id = 0;
-                       if (!ReadFormID(a_serde, id)) return false;
-                       if (id != 0) a_out.spells.addedSpells.push_back(id);
-                       return true;
-                   }) &&
-                   ReadForm(a_serde, a_out.spells.leftSpell) &&
-                   ReadForm(a_serde, a_out.spells.rightSpell) &&
-                   ReadForm(a_serde, a_out.spells.shout);
-            // v1 has no abilities (and didn't give the player the donor's): revert leaves them alone
-            if (!ok || a_version < 2) return ok;
-            a_out.spells.abilitiesRecorded = true;
-            const bool abilitiesOk = ReadList(a_serde, [&] {
-                RE::FormID id = 0;
-                if (!ReadFormID(a_serde, id)) return false;
-                if (id != 0) a_out.spells.abilities.push_back(id);
-                return true;
-            });
-            // v2 has no character progress: revert leaves the level alone
-            if (!abilitiesOk || a_version < 3) return abilitiesOk;
-            auto& progress = a_out.progress;
-            return Read(a_serde, progress.recorded) && Read(a_serde, progress.level) && Read(a_serde, progress.perkPoints) &&
-                   Read(a_serde, progress.skills) && ReadList(a_serde, [&] {
-                       RE::FormID id = 0;
-                       if (!ReadFormID(a_serde, id)) return false;
-                       if (id != 0) progress.perks.push_back(id);
-                       return true;
-                   });
+                   ReadFormIDs(a_serde, spells.addedSpells) &&
+                   ReadForm(a_serde, spells.leftSpell) &&
+                   ReadForm(a_serde, spells.rightSpell) &&
+                   ReadForm(a_serde, spells.shout) &&
+                   ReadFormIDs(a_serde, spells.abilities) &&
+                   Read(a_serde, progress.level) &&
+                   Read(a_serde, progress.perkPoints) &&
+                   Read(a_serde, progress.skills) &&
+                   ReadFormIDs(a_serde, progress.perks);
         }
 
         // --- 'SESS': donor, puppet, swapped aliases and donor quest items carried by the player ---
 
-        void WriteFactionRanks(Serde* a_serde, const std::vector<AliasSwapManager::FactionRank>& a_factions) {
-            WriteList(a_serde, a_factions, [&](const AliasSwapManager::FactionRank& a_entry) {
-                WriteFormID(a_serde, a_entry.first);
-                Write(a_serde, a_entry.second);
-            });
-        }
-
-        bool ReadFactionRanks(Serde* a_serde, std::vector<AliasSwapManager::FactionRank>& a_out) {
-            return ReadList(a_serde, [&] {
-                RE::TESFaction* faction = nullptr;
-                std::int8_t rank = 0;
-                if (!ReadForm(a_serde, faction) || !Read(a_serde, rank)) return false;
-                if (faction) a_out.emplace_back(faction, rank);
-                return true;
-            });
-        }
-
         void WriteSession(Serde* a_serde) {
-            auto& session = *Session::GetSingleton();
-            auto* donor = session.GetDonor();
-            if (!session.IsActive() || !donor) return;
-            if (!a_serde->OpenRecord(kSessionRecord, kSessionVersion)) return;
-
-            WriteFormID(a_serde, donor);
-            WriteFormID(a_serde, session.GetPuppet());
-            const auto& aliases = AliasSwapManager::GetSingleton()->GetSwappedAliases();
-            WriteList(a_serde, aliases, [&](const AliasSwapManager::SwappedAlias& a_alias) {
+            auto* donor = Session::GetSingleton()->GetDonor();
+            WriteForm(a_serde, donor);
+            WriteForm(a_serde, Session::GetSingleton()->GetPuppet());
+            WriteList(a_serde, AliasSwapManager::GetSingleton()->GetSwappedAliases(), [&](const AliasSwapManager::SwappedAlias& a_alias) {
                 Write(a_serde, a_alias.questFormID);
                 Write(a_serde, a_alias.aliasID);
                 WriteFactionRanks(a_serde, a_alias.factions);
             });
             const auto& questItems = ImpersonationManager::GetSingleton()->GetDonorQuestItems();
             WriteList(a_serde, questItems, [&](RE::FormID a_id) { Write(a_serde, a_id); });
-            SKSE::log::info("Saved impersonation session ({} swapped aliases, {} donor quest items).",
-                aliases.size(), questItems.size());
         }
 
-        void ReadSession(Serde* a_serde) {
+        bool ReadSession(Serde* a_serde) {
             RE::FormID donorID = 0;
             RE::Actor* puppet = nullptr;
             std::vector<AliasSwapManager::SwappedAlias> aliases;
-            std::unordered_set<RE::FormID> questItems;
+            std::vector<RE::FormID> questItems;
             const bool ok =
                 ReadFormID(a_serde, donorID) &&
                 ReadForm(a_serde, puppet) &&
@@ -292,137 +176,121 @@ namespace InTheirShoes::Serialization {
                     if (alias.questFormID != 0) aliases.push_back(alias);
                     return true;
                 }) &&
-                ReadList(a_serde, [&] {
-                    RE::FormID id = 0;
-                    if (!ReadFormID(a_serde, id)) return false;
-                    if (id != 0) questItems.insert(id);
-                    return true;
-                });
-            if (!ok) {
-                SKSE::log::warn("Impersonation session record is truncated; ignoring it.");
-                return;
-            }
+                ReadFormIDs(a_serde, questItems);
+            if (!ok) return false;
 
             auto* donor = donorID != 0 ? RE::TESForm::LookupByID<RE::Actor>(donorID) : nullptr;
-            ImpersonationManager::GetSingleton()->RestoreSession(donor, puppet, std::move(aliases), std::move(questItems));
-        }
-
-        // --- 'FACT': the Dragonborn's factions and the donor's the player was given ---
-
-        void WriteFactions(Serde* a_serde) {
-            auto& factions = *FactionManager::GetSingleton();
-            if (!factions.IsActive() || !Session::GetSingleton()->IsActive()) return;
-            if (!a_serde->OpenRecord(kFactionsRecord, kFactionsVersion)) return;
-            WriteFactionRanks(a_serde, factions.GetDragonbornFactions());
-            WriteFactionRanks(a_serde, factions.GetGivenFactions());
-        }
-
-        void ReadFactions(Serde* a_serde) {
-            std::vector<FactionManager::FactionRank> dragonborn;
-            std::vector<FactionManager::FactionRank> given;
-            if (!ReadFactionRanks(a_serde, dragonborn) || !ReadFactionRanks(a_serde, given)) {
-                SKSE::log::warn("Factions record is truncated; ignoring it.");
-                return;
-            }
-            FactionManager::GetSingleton()->Restore(std::move(dragonborn), std::move(given));
-            SKSE::log::info("Loaded session factions ({} Dragonborn, {} donor).",
-                FactionManager::GetSingleton()->GetDragonbornFactions().size(), FactionManager::GetSingleton()->GetGivenFactions().size());
-        }
-
-        // --- 'CRIM': the Dragonborn's bounty ---
-
-        void WriteCrime(Serde* a_serde) {
-            auto& crime = *CrimeManager::GetSingleton();
-            if (!crime.IsActive() || !Session::GetSingleton()->IsActive()) return;
-            if (!a_serde->OpenRecord(kCrimeRecord, kCrimeVersion)) return;
-            WriteList(a_serde, crime.GetDragonbornBounty(), [&](const CrimeManager::FactionBounty& a_entry) {
-                WriteFormID(a_serde, a_entry.faction);
-                Write(a_serde, a_entry.gold);
-            });
-        }
-
-        void ReadCrime(Serde* a_serde) {
-            std::vector<CrimeManager::FactionBounty> bounty;
-            const bool ok = ReadList(a_serde, [&] {
-                CrimeManager::FactionBounty entry;
-                if (!ReadForm(a_serde, entry.faction) || !Read(a_serde, entry.gold)) return false;
-                if (entry.faction) bounty.push_back(entry);
-                return true;
-            });
-            if (!ok) {
-                SKSE::log::warn("Bounty record is truncated; ignoring it.");
-                return;
-            }
-            CrimeManager::GetSingleton()->Restore(std::move(bounty));
-            SKSE::log::info("Loaded the Dragonborn's bounty ({} crime factions).", CrimeManager::GetSingleton()->GetDragonbornBounty().size());
-        }
-
-        // --- 'LINK': the Dragonborn's linked references ---
-
-        void WriteLinkedRefs(Serde* a_serde) {
-            auto& links = *LinkedRefManager::GetSingleton();
-            if (!links.IsActive() || !Session::GetSingleton()->IsActive()) return;
-            if (!a_serde->OpenRecord(kLinkedRefsRecord, kLinkedRefsVersion)) return;
-            WriteList(a_serde, links.GetDragonbornLinks(), [&](const LinkedRefManager::Link& a_link) {
-                WriteFormID(a_serde, a_link.keyword);
-                WriteFormID(a_serde, a_link.ref);
-            });
-        }
-
-        void ReadLinkedRefs(Serde* a_serde) {
-            std::vector<LinkedRefManager::Link> links;
-            const bool ok = ReadList(a_serde, [&] {
-                LinkedRefManager::Link link;
-                RE::FormID keywordID = 0;
-                // A keyword saved as none is the default link; one whose plugin is gone drops the link
-                if (!Read(a_serde, keywordID)) return false;
-                const bool keywordGone = keywordID != 0 && !a_serde->ResolveFormID(keywordID, keywordID);
-                link.keyword = keywordID != 0 && !keywordGone ? RE::TESForm::LookupByID<RE::BGSKeyword>(keywordID) : nullptr;
-                if (!ReadForm(a_serde, link.ref)) return false;
-                if (link.ref && !keywordGone && (keywordID == 0 || link.keyword)) links.push_back(link);
-                return true;
-            });
-            if (!ok) {
-                SKSE::log::warn("Linked refs record is truncated; ignoring it.");
-                return;
-            }
-            LinkedRefManager::GetSingleton()->Restore(std::move(links));
-            SKSE::log::info("Loaded the Dragonborn's linked refs ({}).", LinkedRefManager::GetSingleton()->GetDragonbornLinks().size());
+            ImpersonationManager::GetSingleton()->RestoreSession(donor, puppet, std::move(aliases),
+                std::unordered_set<RE::FormID>(questItems.begin(), questItems.end()));
+            return true;
         }
 
         // --- 'SETT': the MCM's settings ---
 
         void WriteSettings(Serde* a_serde) {
-            if (!a_serde->OpenRecord(kSettingsRecord, kSettingsVersion)) return;
             const auto& settings = *Settings::GetSingleton();
             for (std::size_t i = 0; i < Settings::kCount; ++i) {
                 Write(a_serde, settings.Get(static_cast<Settings::Id>(i)));
             }
         }
 
-        void ReadSettings(Serde* a_serde) {
+        bool ReadSettings(Serde* a_serde) {
             std::array<float, Settings::kCount> values{};
             for (auto& value : values) {
-                if (!Read(a_serde, value)) {
-                    SKSE::log::warn("Settings record is truncated; ignoring it.");
-                    return;
-                }
+                if (!Read(a_serde, value)) return false;
             }
             auto& settings = *Settings::GetSingleton();
             for (std::size_t i = 0; i < Settings::kCount; ++i) {
                 settings.Set(static_cast<Settings::Id>(i), values[i]);
             }
-            SKSE::log::info("Loaded settings from co-save.");
+            return true;
         }
 
-        // Whether this build can read a record saved at a_version (it reads a_current and every older
-        // version back to a_min)
-        bool IsReadableVersion(std::uint32_t a_type, std::uint32_t a_version, std::uint32_t a_current,
-            std::uint32_t a_min = kMinSupportedVersion) {
-            if (a_version >= a_min && a_version <= a_current) return true;
-            SKSE::log::warn("Skipping record {:08X}: saved at version {}, this build reads versions {} to {}.",
-                a_type, a_version, a_min, a_current);
-            return false;
+        // --- Callbacks ---
+
+        void SaveCallback(Serde* a_serde) {
+            if (a_serde->OpenRecord(kSettingsRecord, kSettingsVersion)) {
+                WriteSettings(a_serde);
+            }
+            auto& mgr = *ImpersonationManager::GetSingleton();
+            if (const auto& baseline = mgr.GetBaseline(); baseline && a_serde->OpenRecord(kBaselineRecord, kBaselineVersion)) {
+                WriteBaseline(a_serde, *baseline);
+            }
+            const auto& session = *Session::GetSingleton();
+            if (!session.IsActive() || !session.GetDonor()) return;
+            if (a_serde->OpenRecord(kSessionRecord, kSessionVersion)) {
+                WriteSession(a_serde);
+            }
+            if (const auto& donorFace = mgr.GetDonorFace(); donorFace && a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
+                WriteFaceSnapshot(a_serde, *donorFace);
+            }
+            for (const auto* stash : SessionStash::All()) {
+                if (stash->IsActive() && a_serde->OpenRecord(stash->record, stash->version)) {
+                    stash->Save(a_serde);
+                }
+            }
+            SKSE::log::info("Saved the impersonation session.");
+        }
+
+        // Reads a record saved at a_version with a_read, if this build reads that version
+        template <class ReadRecord>
+        void LoadRecord(std::uint32_t a_version, std::uint32_t a_current, std::string_view a_name, ReadRecord&& a_read) {
+            if (a_version != a_current) {
+                SKSE::log::warn("Skipped the {} record: saved at version {}, this build reads version {}.", a_name, a_version, a_current);
+            } else if (!a_read()) {
+                SKSE::log::warn("The {} record is truncated; ignored it.", a_name);
+            } else {
+                SKSE::log::info("Loaded the {} record.", a_name);
+            }
+        }
+
+        void LoadCallback(Serde* a_serde) {
+            Lifecycle::OnGameRevert();
+
+            std::uint32_t type = 0;
+            std::uint32_t version = 0;
+            std::uint32_t length = 0;
+            while (a_serde->GetNextRecordInfo(type, version, length)) {
+                switch (type) {
+                    case kSettingsRecord:
+                        LoadRecord(version, kSettingsVersion, "settings"sv, [&] { return ReadSettings(a_serde); });
+                        break;
+                    case kBaselineRecord:
+                        LoadRecord(version, kBaselineVersion, "Dragonborn baseline"sv, [&] {
+                            Baseline baseline;
+                            if (!ReadBaseline(a_serde, baseline)) return false;
+                            ImpersonationManager::GetSingleton()->SetBaseline(std::move(baseline));
+                            return true;
+                        });
+                        break;
+                    case kSessionRecord:
+                        LoadRecord(version, kSessionVersion, "session"sv, [&] { return ReadSession(a_serde); });
+                        break;
+                    case kDonorFaceRecord:
+                        LoadRecord(version, kDonorFaceVersion, "donor appearance"sv, [&] {
+                            FaceSnapshot donorFace;
+                            if (!ReadFaceSnapshot(a_serde, donorFace)) return false;
+                            ImpersonationManager::GetSingleton()->SetDonorFace(std::move(donorFace));
+                            return true;
+                        });
+                        break;
+                    default: {
+                        const auto stashes = SessionStash::All();
+                        auto it = std::ranges::find(stashes, type, &SessionStash::record);
+                        if (it != stashes.end()) {
+                            auto* stash = *it;
+                            LoadRecord(version, stash->version, stash->name, [&] { return stash->Load(a_serde); });
+                        } else {
+                            SKSE::log::warn("Unknown record type {:08X} in co-save", type);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        void RevertCallback(Serde*) {
+            Lifecycle::OnGameRevert();
         }
     }
 
@@ -432,103 +300,10 @@ namespace InTheirShoes::Serialization {
             SKSE::log::error("Failed to obtain SKSE Serialization Interface!");
             return;
         }
-
-        serde->SetUniqueID('ALTA');
+        serde->SetUniqueID(kUniqueID);
         serde->SetSaveCallback(SaveCallback);
         serde->SetLoadCallback(LoadCallback);
         serde->SetRevertCallback(RevertCallback);
-        SKSE::log::info("Registered SKSE Co-Save Serialization callbacks for ALTA.");
-    }
-
-    void SaveCallback(SKSE::SerializationInterface* a_serde) {
-        if (!a_serde) return;
-
-        WriteSettings(a_serde);
-        auto& mgr = *ImpersonationManager::GetSingleton();
-        if (const auto& baseline = mgr.GetBaseline()) {
-            WriteBaseline(a_serde, *baseline);
-        }
-        WriteSession(a_serde);
-        WriteFactions(a_serde);
-        WriteCrime(a_serde);
-        WriteLinkedRefs(a_serde);
-        if (const auto& donorFace = mgr.GetDonorFace(); donorFace && Session::GetSingleton()->IsActive() &&
-            a_serde->OpenRecord(kDonorFaceRecord, kDonorFaceVersion)) {
-            WriteFaceSnapshot(a_serde, *donorFace);
-        }
-
-        SKSE::log::info("Completed SKSE Co-Save serialization write.");
-    }
-
-    void LoadCallback(SKSE::SerializationInterface* a_serde) {
-        if (!a_serde) return;
-
-        RevertCallback(a_serde);
-
-        std::uint32_t type;
-        std::uint32_t version;
-        std::uint32_t length;
-
-        while (a_serde->GetNextRecordInfo(type, version, length)) {
-            switch (type) {
-                case kBaselineRecord: {
-                    if (!IsReadableVersion(type, version, kBaselineVersion)) break;
-                    Baseline baseline;
-                    if (ReadBaseline(a_serde, version, baseline)) {
-                        ImpersonationManager::GetSingleton()->SetBaseline(std::move(baseline));
-                        SKSE::log::info("Loaded Dragonborn baseline from co-save.");
-                    } else {
-                        SKSE::log::warn("Baseline record is truncated; ignoring it.");
-                    }
-                    break;
-                }
-
-                case kSessionRecord:
-                    if (!IsReadableVersion(type, version, kSessionVersion, kSessionMinVersion)) break;
-                    ReadSession(a_serde);
-                    break;
-
-                case kDonorFaceRecord: {
-                    if (!IsReadableVersion(type, version, kDonorFaceVersion)) break;
-                    FaceSnapshot donorFace;
-                    if (ReadFaceSnapshot(a_serde, donorFace)) {
-                        ImpersonationManager::GetSingleton()->SetDonorFace(std::move(donorFace));
-                        SKSE::log::info("Loaded the donor's appearance from co-save.");
-                    } else {
-                        SKSE::log::warn("Donor appearance record is truncated; ignoring it.");
-                    }
-                    break;
-                }
-
-                case kFactionsRecord:
-                    if (!IsReadableVersion(type, version, kFactionsVersion)) break;
-                    ReadFactions(a_serde);
-                    break;
-
-                case kCrimeRecord:
-                    if (!IsReadableVersion(type, version, kCrimeVersion)) break;
-                    ReadCrime(a_serde);
-                    break;
-
-                case kLinkedRefsRecord:
-                    if (!IsReadableVersion(type, version, kLinkedRefsVersion)) break;
-                    ReadLinkedRefs(a_serde);
-                    break;
-
-                case kSettingsRecord:
-                    if (!IsReadableVersion(type, version, kSettingsVersion)) break;
-                    ReadSettings(a_serde);
-                    break;
-
-                default:
-                    SKSE::log::warn("Unknown record type {:08X} in co-save", type);
-                    break;
-            }
-        }
-    }
-
-    void RevertCallback(SKSE::SerializationInterface*) {
-        Lifecycle::OnGameRevert();
     }
 
 }

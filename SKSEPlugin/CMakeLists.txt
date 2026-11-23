@@ -36,10 +36,8 @@ add_library(${PROJECT_NAME} SHARED
     src/ActorHooks.cpp
     src/ConditionHooks.h
     src/ConditionHooks.cpp
-    src/CrimeManager.h
-    src/CrimeManager.cpp
-    src/LinkedRefManager.h
-    src/LinkedRefManager.cpp
+    src/SessionStash.h
+    src/SessionStash.cpp
     src/AliasSwapManager.h
     src/AliasSwapManager.cpp
     src/FaceManager.h
@@ -48,8 +46,6 @@ add_library(${PROJECT_NAME} SHARED
     src/InventoryManager.cpp
     src/StatManager.h
     src/StatManager.cpp
-    src/FactionManager.h
-    src/FactionManager.cpp
     src/IdleAIManager.h
     src/IdleAIManager.cpp
     src/PackageUtil.h

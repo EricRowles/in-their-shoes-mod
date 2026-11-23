@@ -14,8 +14,7 @@ namespace InTheirShoes {
     // gains while impersonating belong to the donor (they're in its stats); the Dragonborn's level goes back to
     // this on revert, with the perks bought since.
     struct ProgressSnapshot {
-        bool recorded{ false };  // false for a baseline saved before this was kept
-        std::uint16_t level{ 0 };
+        std::uint16_t level{ 0 };  // 0 if it couldn't be recorded
         std::uint8_t perkPoints{ 0 };
         RE::PlayerCharacter::PlayerSkills::Data skills{};
         std::vector<RE::FormID> perks;

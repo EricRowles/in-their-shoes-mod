@@ -416,22 +416,6 @@ namespace InTheirShoes {
         return true;
     }
 
-    bool FaceManager::CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
-        if (!a_donor || !a_target) {
-            SKSE::log::warn("CopyAppearance called with null actor pointers.");
-            return false;
-        }
-
-        auto donorSnapshot = CaptureSnapshot(a_donor);
-        if (!donorSnapshot) {
-            SKSE::log::error("Failed to capture appearance of donor actor {:08X}.",
-                a_donor->GetFormID());
-            return false;
-        }
-
-        return ApplySnapshot(a_target, *donorSnapshot);
-    }
-
     void FaceManager::ReapplyTints(RE::Actor* a_actor, const FaceSnapshot& a_snapshot) {
         auto* npc = a_actor ? skyrim_cast<RE::TESNPC*>(a_actor->GetActorBase()) : nullptr;
         if (!npc) return;
