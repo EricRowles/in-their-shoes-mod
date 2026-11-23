@@ -10,17 +10,13 @@ Bool Function Impersonate(Actor a_donor, Actor a_puppet) Global Native
 ; gets their own appearance, stats, spells and gear back. Move the actors afterwards.
 Bool Function Revert() Global Native
 
-; Settings: the plugin saves them in its co-save. ITS_MCMScript sets them.
-
-; Enables or disables autonomous idle AI pathing on the player when inactive.
-Function SetIdleAIEnabled(Bool a_enabled) Global Native
-
-; Sets the idle timeout in seconds before autonomous AI pathing begins (default 10.0s).
-Function SetIdleAITimeout(Float a_seconds) Global Native
-
-; Picks what the player runs during idle AI: 0 runs the donor's own packages, n puts the player in
-; ITS_PackageManager's alias n - 1, whose package outranks the donor's (a follower's Follow too).
-Function SetIdleAIPackage(Int a_index) Global Native
+; Settings, by name: IdleAIEnabled, IdleAITimeout, IdleAIPackage, NPCVoiceEnabled, IdleChatterTime,
+; NativeRedirectEnabled, PuppetFollowsPlayer (Settings.h in the plugin). Toggles are 0 or 1. The plugin owns them and
+; saves them in its co-save; values are clamped to the setting's range.
+Float Function GetSetting(String a_name) Global Native
+Function SetSetting(String a_name, Float a_value) Global Native
+; The setting's default, minimum and maximum
+Float[] Function GetSettingRange(String a_name) Global Native
 
 ; The scene the player is in: its editor ID (or form ID, when editor IDs aren't loaded), or "" when there is none
 String Function GetCurrentSceneName() Global Native
@@ -31,21 +27,8 @@ Int Function GetTemporaryFactionCount() Global Native
 ; How many of the donor's quest aliases the player holds for the session
 Int Function GetTemporaryAliasCount() Global Native
 
-; Sets the idle chatter cooldown in seconds between ambient dialogue lines while impersonating an NPC (default 60.0s).
-Function SetIdleChatterTime(Float a_seconds) Global Native
-
 ; Opens the Dialogue Menu with the puppet, showing the donor's topics.
 Bool Function OpenSelfDialogue(Actor a_speaker = None) Global Native
-
-; Enables or disables donor NPC voice comments and voice identity on the player.
-Function SetNPCVoiceEnabled(Bool a_enabled) Global Native
-
-; Enables or disables running other mods' script calls on the donor (and the puppet in self-dialogue) on the player.
-Function SetNativeRedirectEnabled(Bool a_enabled) Global Native
-
-; Sets the puppet's teammate status and teleports it to the player when re-enabled.
-; The follow package itself is gated by the ITS_PuppetFollows global, which the caller sets.
-Function SetPuppetFollowsPlayer(Bool a_follows) Global Native
 
 ; Validates whether a_target can be impersonated by the player.
 ; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost,

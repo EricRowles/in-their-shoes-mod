@@ -395,37 +395,23 @@ namespace InTheirShoes::Serialization {
         void WriteSettings(Serde* a_serde) {
             if (!a_serde->OpenRecord(kSettingsRecord, kSettingsVersion)) return;
             const auto& settings = *Settings::GetSingleton();
-            Write(a_serde, settings.IsIdleAIEnabled());
-            Write(a_serde, settings.GetIdleTimeout());
-            Write(a_serde, settings.GetIdlePackage());
-            Write(a_serde, settings.IsNPCVoiceEnabled());
-            Write(a_serde, settings.GetIdleChatterInterval());
-            Write(a_serde, settings.IsNativeRedirectEnabled());
-            Write(a_serde, settings.DoesPuppetFollowPlayer());
+            for (std::size_t i = 0; i < Settings::kCount; ++i) {
+                Write(a_serde, settings.Get(static_cast<Settings::Id>(i)));
+            }
         }
 
         void ReadSettings(Serde* a_serde) {
-            bool idleAIEnabled = false;
-            float idleTimeout = 0.0f;
-            std::int32_t idlePackage = 0;
-            bool npcVoiceEnabled = false;
-            float idleChatterInterval = 0.0f;
-            bool nativeRedirectEnabled = false;
-            bool puppetFollows = false;
-            if (!Read(a_serde, idleAIEnabled) || !Read(a_serde, idleTimeout) || !Read(a_serde, idlePackage) ||
-                !Read(a_serde, npcVoiceEnabled) || !Read(a_serde, idleChatterInterval) ||
-                !Read(a_serde, nativeRedirectEnabled) || !Read(a_serde, puppetFollows)) {
-                SKSE::log::warn("Settings record is truncated; ignoring it.");
-                return;
+            std::array<float, Settings::kCount> values{};
+            for (auto& value : values) {
+                if (!Read(a_serde, value)) {
+                    SKSE::log::warn("Settings record is truncated; ignoring it.");
+                    return;
+                }
             }
             auto& settings = *Settings::GetSingleton();
-            settings.SetIdleAIEnabled(idleAIEnabled);
-            settings.SetIdleTimeout(idleTimeout);
-            settings.SetIdlePackage(idlePackage);
-            settings.SetNPCVoiceEnabled(npcVoiceEnabled);
-            settings.SetIdleChatterInterval(idleChatterInterval);
-            settings.SetNativeRedirectEnabled(nativeRedirectEnabled);
-            settings.SetPuppetFollowsPlayer(puppetFollows);
+            for (std::size_t i = 0; i < Settings::kCount; ++i) {
+                settings.Set(static_cast<Settings::Id>(i), values[i]);
+            }
             SKSE::log::info("Loaded settings from co-save.");
         }
 

@@ -67,7 +67,7 @@ namespace InTheirShoes::Lifecycle {
         PlayerVoice::GetSingleton()->Clear();
         IdleChatter::GetSingleton()->Clear();
         PackageRetarget::GetSingleton()->RestoreAll();
-        // A save without settings (from an older version) gets the MCM's once it pushes them
+        // A save without settings (a new game) gets the defaults
         Settings::GetSingleton()->Reset();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }

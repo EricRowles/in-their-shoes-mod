@@ -1,7 +1,5 @@
 Scriptname ITS_QuestScript extends Quest
 
-ITS_MCMScript Property ITS_MCM Auto
-
 ReferenceAlias Property Alias_OriginalDonor Auto 	; Original Donor NPC
 ReferenceAlias Property Alias_PlayerPuppet Auto 	; Temp Actor currently behaving as player
 
@@ -29,9 +27,6 @@ Function ITS_Maintenance()
 	EndIf
 	; The session (donor, puppet) and the settings are restored natively from the co-save
 	SyncWithPlugin()
-
-	; For saves from before the plugin saved its settings
-	ITS_MCM.PushConfig()
 EndFunction
 
 ; The plugin decides whether the player is impersonating (ITS_NG.IsImpersonating). The aliases and the Revert spell

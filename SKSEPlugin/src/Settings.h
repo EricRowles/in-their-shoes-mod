@@ -1,65 +1,91 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace InTheirShoes {
 
-    // The MCM's settings. ITS_MCMScript sets them through ITS_NG; they are saved in the co-save, so they are
-    // right as soon as a save loads. Defaults match the MCM's. Readable from any thread (the voice and
+    // The MCM's settings. The plugin owns them: they're saved in the co-save, so they're right as soon as a save
+    // loads, and ITS_MCMScript reads and sets them by name through ITS_NG. Readable from any thread (the voice and
     // native redirect hooks read them).
     class Settings : public REX::Singleton<Settings> {
     public:
-        // Idle movement
-        bool IsIdleAIEnabled() const { return _idleAIEnabled.load(std::memory_order_relaxed); }
-        float GetIdleTimeout() const { return _idleTimeoutSeconds.load(std::memory_order_relaxed); }
-        // 0 runs the donor's own packages; n puts the player in ITS_PackageManager's alias n - 1
-        std::int32_t GetIdlePackage() const { return _idlePackage.load(std::memory_order_relaxed); }
+        enum class Id : std::uint32_t {
+            kIdleAIEnabled,
+            kIdleTimeout,           // Seconds of game time
+            kIdlePackage,           // 0 runs the donor's own packages; n puts the player in ITS_PackageManager's alias n - 1
+            kNPCVoiceEnabled,
+            kIdleChatterInterval,   // Seconds of game time
+            kNativeRedirectEnabled,
+            kPuppetFollows,
+            kTotal
+        };
+        static constexpr auto kCount = static_cast<std::size_t>(Id::kTotal);
 
-        // NPC voice
-        bool IsNPCVoiceEnabled() const { return _npcVoiceEnabled.load(std::memory_order_relaxed); }
-        float GetIdleChatterInterval() const { return _idleChatterSeconds.load(std::memory_order_relaxed); }
+        struct Info {
+            std::string_view name;  // As ITS_MCMScript names it
+            float defaultValue;
+            float min;
+            float max;
+            bool whole;  // A toggle or an index, stored as a whole number
+        };
+        // In Id's order, which is also the co-save's
+        static constexpr std::array<Info, kCount> kInfo{ {
+            { "IdleAIEnabled", 1.0f, 0.0f, 1.0f, true },
+            { "IdleAITimeout", 10.0f, 1.0f, 120.0f, false },
+            { "IdleAIPackage", 0.0f, 0.0f, 2.0f, true },  // ITS_MCMScript.GetIdlePackageNames
+            { "NPCVoiceEnabled", 1.0f, 0.0f, 1.0f, true },
+            { "IdleChatterTime", 60.0f, 10.0f, 600.0f, false },
+            { "NativeRedirectEnabled", 1.0f, 0.0f, 1.0f, true },
+            { "PuppetFollowsPlayer", 1.0f, 0.0f, 1.0f, true },
+        } };
 
-        bool IsNativeRedirectEnabled() const { return _nativeRedirectEnabled.load(std::memory_order_relaxed); }
-        bool DoesPuppetFollowPlayer() const { return _puppetFollows.load(std::memory_order_relaxed); }
-
-        void SetIdleAIEnabled(bool a_enabled) { _idleAIEnabled.store(a_enabled, std::memory_order_relaxed); }
-        void SetIdleTimeout(float a_seconds) { _idleTimeoutSeconds.store(a_seconds, std::memory_order_relaxed); }
-        void SetIdlePackage(std::int32_t a_index) { _idlePackage.store(a_index, std::memory_order_relaxed); }
-        void SetNPCVoiceEnabled(bool a_enabled) { _npcVoiceEnabled.store(a_enabled, std::memory_order_relaxed); }
-        // Below the MCM slider's minimum (from an old save) falls back to the default
-        void SetIdleChatterInterval(float a_seconds) {
-            _idleChatterSeconds.store(a_seconds < kMinIdleChatterSeconds ? kDefaultIdleChatterSeconds : a_seconds, std::memory_order_relaxed);
+        // Case-insensitive, as Papyrus strings are
+        static std::optional<Id> Find(std::string_view a_name) {
+            for (std::size_t i = 0; i < kCount; ++i) {
+                if (_strnicmp(kInfo[i].name.data(), a_name.data(), a_name.size()) == 0 && kInfo[i].name.size() == a_name.size()) {
+                    return static_cast<Id>(i);
+                }
+            }
+            return std::nullopt;
         }
-        void SetNativeRedirectEnabled(bool a_enabled) { _nativeRedirectEnabled.store(a_enabled, std::memory_order_relaxed); }
-        void SetPuppetFollowsPlayer(bool a_follows) { _puppetFollows.store(a_follows, std::memory_order_relaxed); }
+
+        float Get(Id a_id) const { return _values[Index(a_id)].load(std::memory_order_relaxed); }
+        // Clamped to the setting's range
+        void Set(Id a_id, float a_value) {
+            const auto& info = kInfo[Index(a_id)];
+            a_value = std::clamp(info.whole ? std::round(a_value) : a_value, info.min, info.max);
+            _values[Index(a_id)].store(a_value, std::memory_order_relaxed);
+        }
+
+        bool IsIdleAIEnabled() const { return Get(Id::kIdleAIEnabled) != 0.0f; }
+        float GetIdleTimeout() const { return Get(Id::kIdleTimeout); }
+        std::int32_t GetIdlePackage() const { return static_cast<std::int32_t>(Get(Id::kIdlePackage)); }
+        bool IsNPCVoiceEnabled() const { return Get(Id::kNPCVoiceEnabled) != 0.0f; }
+        float GetIdleChatterInterval() const { return Get(Id::kIdleChatterInterval); }
+        bool IsNativeRedirectEnabled() const { return Get(Id::kNativeRedirectEnabled) != 0.0f; }
+        bool DoesPuppetFollowPlayer() const { return Get(Id::kPuppetFollows) != 0.0f; }
 
         // Back to the defaults, before a save loads or a new game starts
         void Reset() {
-            SetIdleAIEnabled(true);
-            SetIdleTimeout(10.0f);
-            SetIdlePackage(0);
-            SetNPCVoiceEnabled(true);
-            SetIdleChatterInterval(kDefaultIdleChatterSeconds);
-            SetNativeRedirectEnabled(true);
-            SetPuppetFollowsPlayer(true);
+            for (std::size_t i = 0; i < kCount; ++i) {
+                _values[i].store(kInfo[i].defaultValue, std::memory_order_relaxed);
+            }
         }
 
     private:
         friend REX::Singleton<Settings>;
-        Settings() = default;
+        Settings() { Reset(); }
         ~Settings() = default;
 
-        static constexpr float kMinIdleChatterSeconds = 10.0f;
-        static constexpr float kDefaultIdleChatterSeconds = 60.0f;
+        static constexpr std::size_t Index(Id a_id) { return static_cast<std::size_t>(a_id); }
 
-        std::atomic<bool> _idleAIEnabled{ true };
-        std::atomic<float> _idleTimeoutSeconds{ 10.0f };
-        std::atomic<std::int32_t> _idlePackage{ 0 };
-        std::atomic<bool> _npcVoiceEnabled{ true };
-        std::atomic<float> _idleChatterSeconds{ kDefaultIdleChatterSeconds };
-        std::atomic<bool> _nativeRedirectEnabled{ true };
-        std::atomic<bool> _puppetFollows{ true };
+        std::array<std::atomic<float>, kCount> _values;
     };
 
 }

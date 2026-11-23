@@ -241,7 +241,12 @@ namespace InTheirShoes {
     void ImpersonationManager::ApplyPuppetFollowState(RE::Actor* a_puppet) {
         // The follow package itself lives on the PlayerPuppet alias, gated by the ITS_PuppetFollows global.
         // Teammate status lets the puppet travel through load doors with the player.
-        if (Settings::GetSingleton()->DoesPuppetFollowPlayer()) {
+        const bool follows = Settings::GetSingleton()->DoesPuppetFollowPlayer();
+        if (Forms::puppetFollows) {
+            Forms::puppetFollows->value = follows ? 1.0f : 0.0f;
+        }
+        if (!a_puppet) return;
+        if (follows) {
             a_puppet->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kPlayerTeammate);
         } else {
             a_puppet->GetActorRuntimeData().boolBits.reset(RE::Actor::BOOL_BITS::kPlayerTeammate);
@@ -274,11 +279,11 @@ namespace InTheirShoes {
     }
 
     void ImpersonationManager::OnPuppetFollowsChanged() {
-        auto* puppet = GetPuppet();
-        if (!puppet || !IsActive()) return;
+        auto* puppet = IsActive() ? GetPuppet() : nullptr;
+        ApplyPuppetFollowState(puppet);
+        if (!puppet) return;
 
         const bool follows = Settings::GetSingleton()->DoesPuppetFollowPlayer();
-        ApplyPuppetFollowState(puppet);
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (follows && player &&
             (puppet->GetParentCell() != player->GetParentCell() || puppet->GetPosition().GetDistance(player->GetPosition()) > 1000.0f)) {

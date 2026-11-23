@@ -1,16 +1,8 @@
 Scriptname ITS_MCMScript extends SKI_ConfigBase
 
 ITS_QuestScript Property ITS_Quest Auto
-GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the PlayerPuppet alias
 
-; MCM Property Variables
-Bool Property IdleAIEnabled = True Auto
-Float Property IdleAITimeout = 10.0 Auto
-Int Property IdleAIPackage = 0 Auto
-Float Property IdleChatterTime = 60.0 Auto
-Bool Property NPCVoiceEnabled = True Auto
-Bool Property NativeRedirectEnabled = True Auto
-Bool Property PuppetFollowsPlayer = True Auto
+; The settings live in the plugin (ITS_NG.GetSetting / SetSetting), which saves them in its co-save
 
 ; Option IDs
 Int _oid_idleAI
@@ -28,41 +20,10 @@ Int _oid_tempAliases
 Bool _pendingRevert = False
 
 Int Function GetVersion()
-	Return 1
+	Return 2
 EndFunction
 
-; Pushes every MCM setting to the native plugin, which saves them in its co-save. Runs on first init, on version
-; update and on every game load (via ITS_QuestScript.ITS_Maintenance), for saves made before the plugin saved them.
-Function PushConfig()
-	; Below the slider's minimum, from an old save
-	If IdleChatterTime < 10.0
-		IdleChatterTime = 60.0
-	EndIf
-	If IdleAIPackage < 0 || IdleAIPackage >= GetIdlePackageNames().Length
-		IdleAIPackage = 0
-	EndIf
-
-	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
-	ITS_NG.SetIdleAITimeout(IdleAITimeout)
-	ITS_NG.SetIdleAIPackage(IdleAIPackage)
-	ITS_NG.SetIdleChatterTime(IdleChatterTime)
-	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
-	ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
-	ApplyPuppetFollows()
-EndFunction
-
-Function ApplyPuppetFollows()
-	If ITS_PuppetFollows
-		If PuppetFollowsPlayer
-			ITS_PuppetFollows.SetValue(1.0)
-		Else
-			ITS_PuppetFollows.SetValue(0.0)
-		EndIf
-	EndIf
-	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
-EndFunction
-
-; Default, then the ITS_PackageManager aliases in alias ID order
+; Default, then the ITS_PackageManager aliases in alias ID order (the plugin's IdleAIPackage range matches)
 String[] Function GetIdlePackageNames()
 	String[] names = new String[3]
 	names[0] = "Default"
@@ -71,24 +32,27 @@ String[] Function GetIdlePackageNames()
 	Return names
 EndFunction
 
-; Each section's options are disabled while its Enabled toggle is off
-Int Function IdleOptionFlags()
-	If IdleAIEnabled
+Bool Function IsOn(String a_setting)
+	Return ITS_NG.GetSetting(a_setting) != 0.0
+EndFunction
+
+; Flips a toggle setting and shows its new value
+Function Toggle(Int a_option, String a_setting)
+	Bool on = !IsOn(a_setting)
+	If on
+		ITS_NG.SetSetting(a_setting, 1.0)
+	Else
+		ITS_NG.SetSetting(a_setting, 0.0)
+	EndIf
+	SetToggleOptionValue(a_option, on, True)
+EndFunction
+
+; A section's options are disabled while its Enabled toggle is off
+Int Function FlagsFor(String a_toggle)
+	If IsOn(a_toggle)
 		Return OPTION_FLAG_NONE
 	EndIf
 	Return OPTION_FLAG_DISABLED
-EndFunction
-
-Int Function VoiceOptionFlags()
-	If NPCVoiceEnabled
-		Return OPTION_FLAG_NONE
-	EndIf
-	Return OPTION_FLAG_DISABLED
-EndFunction
-
-Function UpdateIdleOptionFlags()
-	SetOptionFlags(_oid_idleTimeout, IdleOptionFlags(), True)
-	SetOptionFlags(_oid_idlePackage, IdleOptionFlags())
 EndFunction
 
 Event OnVersionUpdate(Int a_version)
@@ -102,7 +66,6 @@ EndEvent
 Function SetUpMenu()
 	ModName = "In Their Shoes"
 	Pages = None
-	PushConfig()
 EndFunction
 
 Event OnPageReset(String page)
@@ -124,24 +87,24 @@ Event OnPageReset(String page)
 	SetCursorPosition(4)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("Idle Movement")
-	_oid_idleAI = AddToggleOption("Enabled", IdleAIEnabled)
-	_oid_idleTimeout = AddSliderOption("Idle Delay", IdleAITimeout, "{1} s", IdleOptionFlags())
-	_oid_idlePackage = AddMenuOption("Idle Package", GetIdlePackageNames()[IdleAIPackage], IdleOptionFlags())
+	_oid_idleAI = AddToggleOption("Enabled", IsOn("IdleAIEnabled"))
+	_oid_idleTimeout = AddSliderOption("Idle Delay", ITS_NG.GetSetting("IdleAITimeout"), "{1} s", FlagsFor("IdleAIEnabled"))
+	_oid_idlePackage = AddMenuOption("Idle Package", GetIdlePackageNames()[ITS_NG.GetSetting("IdleAIPackage") as Int], FlagsFor("IdleAIEnabled"))
 
-	SetCursorPosition(16)
+	SetCursorPosition(14)
 	AddHeaderOption("Advanced")
-	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", NativeRedirectEnabled)
+	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", IsOn("NativeRedirectEnabled"))
 
 	; Right column: NPC Voice, then Dragonborn
 	SetCursorPosition(5)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("NPC Voice")
-	_oid_npcVoice = AddToggleOption("Enabled", NPCVoiceEnabled)
-	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s", VoiceOptionFlags())
+	_oid_npcVoice = AddToggleOption("Enabled", IsOn("NPCVoiceEnabled"))
+	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", ITS_NG.GetSetting("IdleChatterTime"), "{0} s", FlagsFor("NPCVoiceEnabled"))
 
 	SetCursorPosition(13)
 	AddHeaderOption("Dragonborn")
-	_oid_puppetFollows = AddToggleOption("Dragonborn Follows You", PuppetFollowsPlayer)
+	_oid_puppetFollows = AddToggleOption("Dragonborn Follows You", IsOn("PuppetFollowsPlayer"))
 
 	; Read when the page opens; the game is paused while the menu is open
 	SetCursorPosition(17)
@@ -158,23 +121,16 @@ EndEvent
 
 Event OnOptionSelect(Int option)
 	If option == _oid_idleAI
-		IdleAIEnabled = !IdleAIEnabled
-		SetToggleOptionValue(_oid_idleAI, IdleAIEnabled, True)
-		UpdateIdleOptionFlags()
-		ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
+		Toggle(option, "IdleAIEnabled")
+		SetOptionFlags(_oid_idleTimeout, FlagsFor("IdleAIEnabled"), True)
+		SetOptionFlags(_oid_idlePackage, FlagsFor("IdleAIEnabled"))
 	ElseIf option == _oid_npcVoice
-		NPCVoiceEnabled = !NPCVoiceEnabled
-		SetToggleOptionValue(_oid_npcVoice, NPCVoiceEnabled, True)
-		SetOptionFlags(_oid_idleChatterTime, VoiceOptionFlags())
-		ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+		Toggle(option, "NPCVoiceEnabled")
+		SetOptionFlags(_oid_idleChatterTime, FlagsFor("NPCVoiceEnabled"))
 	ElseIf option == _oid_nativeRedirect
-		NativeRedirectEnabled = !NativeRedirectEnabled
-		SetToggleOptionValue(_oid_nativeRedirect, NativeRedirectEnabled)
-		ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
+		Toggle(option, "NativeRedirectEnabled")
 	ElseIf option == _oid_puppetFollows
-		PuppetFollowsPlayer = !PuppetFollowsPlayer
-		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
-		ApplyPuppetFollows()
+		Toggle(option, "PuppetFollowsPlayer")
 	ElseIf option == _oid_revert
 		If ITS_NG.IsImpersonating()
 			Debug.Notification("Close the menu to return to your body.")
@@ -200,45 +156,55 @@ EndEvent
 Event OnOptionKeyMapChange(Int option, Int keyCode, String conflictControl, String conflictName)
 EndEvent
 
+; The slider's setting, or "" for another option
+String Function SliderSetting(Int a_option)
+	If a_option == _oid_idleTimeout
+		Return "IdleAITimeout"
+	ElseIf a_option == _oid_idleChatterTime
+		Return "IdleChatterTime"
+	EndIf
+	Return ""
+EndFunction
+
 Event OnOptionSliderOpen(Int option)
-	If option == _oid_idleTimeout
-		SetSliderDialogStartValue(IdleAITimeout)
-		SetSliderDialogDefaultValue(10.0)
-		SetSliderDialogRange(1.0, 120.0)
-		SetSliderDialogInterval(1.0)
-	ElseIf option == _oid_idleChatterTime
-		SetSliderDialogStartValue(IdleChatterTime)
-		SetSliderDialogDefaultValue(60.0)
-		SetSliderDialogRange(10.0, 600.0)
-		SetSliderDialogInterval(10.0)
+	String setting = SliderSetting(option)
+	If setting != ""
+		Float[] range = ITS_NG.GetSettingRange(setting)
+		SetSliderDialogStartValue(ITS_NG.GetSetting(setting))
+		SetSliderDialogDefaultValue(range[0])
+		SetSliderDialogRange(range[1], range[2])
+		If option == _oid_idleTimeout
+			SetSliderDialogInterval(1.0)
+		Else
+			SetSliderDialogInterval(10.0)
+		EndIf
 	EndIf
 EndEvent
 
 Event OnOptionSliderAccept(Int option, Float value)
-	If option == _oid_idleTimeout
-		IdleAITimeout = value
-		SetSliderOptionValue(_oid_idleTimeout, IdleAITimeout, "{1} s")
-		ITS_NG.SetIdleAITimeout(IdleAITimeout)
-	ElseIf option == _oid_idleChatterTime
-		IdleChatterTime = value
-		SetSliderOptionValue(_oid_idleChatterTime, IdleChatterTime, "{0} s")
-		ITS_NG.SetIdleChatterTime(IdleChatterTime)
+	String setting = SliderSetting(option)
+	If setting != ""
+		ITS_NG.SetSetting(setting, value)
+		If option == _oid_idleTimeout
+			SetSliderOptionValue(option, ITS_NG.GetSetting(setting), "{1} s")
+		Else
+			SetSliderOptionValue(option, ITS_NG.GetSetting(setting), "{0} s")
+		EndIf
 	EndIf
 EndEvent
 
 Event OnOptionMenuOpen(Int option)
 	If option == _oid_idlePackage
 		SetMenuDialogOptions(GetIdlePackageNames())
-		SetMenuDialogStartIndex(IdleAIPackage)
+		SetMenuDialogStartIndex(ITS_NG.GetSetting("IdleAIPackage") as Int)
 		SetMenuDialogDefaultIndex(0)
 	EndIf
 EndEvent
 
 Event OnOptionMenuAccept(Int option, Int index)
 	If option == _oid_idlePackage && index >= 0
-		IdleAIPackage = index
+		ITS_NG.SetSetting("IdleAIPackage", index)
 		SetMenuOptionValue(_oid_idlePackage, GetIdlePackageNames()[index])
-		ITS_NG.SetIdleAIPackage(IdleAIPackage)
 	EndIf
 EndEvent
 

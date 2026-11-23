@@ -24,35 +24,34 @@ namespace InTheirShoes::Papyrus {
 
         // --- Settings (ITS_MCMScript) ---
 
-        void SetIdleAIEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-            Settings::GetSingleton()->SetIdleAIEnabled(a_enabled);
+        std::optional<Settings::Id> FindSetting(const RE::BSFixedString& a_name) {
+            auto id = Settings::Find(a_name.c_str());
+            if (!id) SKSE::log::error("ITS_NG: no setting named '{}'", a_name.c_str());
+            return id;
         }
 
-        void SetIdleAITimeout(RE::StaticFunctionTag*, float a_seconds) {
-            Settings::GetSingleton()->SetIdleTimeout(a_seconds);
+        float GetSetting(RE::StaticFunctionTag*, RE::BSFixedString a_name) {
+            const auto id = FindSetting(a_name);
+            return id ? Settings::GetSingleton()->Get(*id) : 0.0f;
         }
 
-        // IdleAIManager handles these in its next update, on the main thread
-        void SetIdleAIPackage(RE::StaticFunctionTag*, std::int32_t a_index) {
-            Settings::GetSingleton()->SetIdlePackage(a_index);
-            IdleAIManager::GetSingleton()->OnIdlePackageChanged();
+        // The setting's default, minimum and maximum
+        std::vector<float> GetSettingRange(RE::StaticFunctionTag*, RE::BSFixedString a_name) {
+            const auto id = FindSetting(a_name);
+            if (!id) return { 0.0f, 0.0f, 0.0f };
+            const auto& info = Settings::kInfo[static_cast<std::size_t>(*id)];
+            return { info.defaultValue, info.min, info.max };
         }
 
-        void SetIdleChatterTime(RE::StaticFunctionTag*, float a_seconds) {
-            Settings::GetSingleton()->SetIdleChatterInterval(a_seconds);
-        }
-
-        void SetNPCVoiceEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-            Settings::GetSingleton()->SetNPCVoiceEnabled(a_enabled);
-        }
-
-        void SetNativeRedirectEnabled(RE::StaticFunctionTag*, bool a_enabled) {
-            Settings::GetSingleton()->SetNativeRedirectEnabled(a_enabled);
-        }
-
-        void SetPuppetFollowsPlayer(RE::StaticFunctionTag*, bool a_follows) {
-            Settings::GetSingleton()->SetPuppetFollowsPlayer(a_follows);
-            ImpersonationManager::GetSingleton()->OnPuppetFollowsChanged();
+        void SetSetting(RE::StaticFunctionTag*, RE::BSFixedString a_name, float a_value) {
+            const auto id = FindSetting(a_name);
+            if (!id) return;
+            Settings::GetSingleton()->Set(*id, a_value);
+            if (*id == Settings::Id::kIdlePackage) {
+                IdleAIManager::GetSingleton()->OnIdlePackageChanged();
+            } else if (*id == Settings::Id::kPuppetFollows) {
+                ImpersonationManager::GetSingleton()->OnPuppetFollowsChanged();
+            }
         }
 
         RE::BSFixedString GetCurrentSceneName(RE::StaticFunctionTag*) {
@@ -255,17 +254,13 @@ namespace InTheirShoes::Papyrus {
 
         a_vm->RegisterFunction("Impersonate", className, Impersonate);
         a_vm->RegisterFunction("Revert", className, Revert);
-        a_vm->RegisterFunction("SetIdleAIEnabled", className, SetIdleAIEnabled);
-        a_vm->RegisterFunction("SetIdleAITimeout", className, SetIdleAITimeout);
-        a_vm->RegisterFunction("SetIdleAIPackage", className, SetIdleAIPackage);
+        a_vm->RegisterFunction("GetSetting", className, GetSetting);
+        a_vm->RegisterFunction("GetSettingRange", className, GetSettingRange);
+        a_vm->RegisterFunction("SetSetting", className, SetSetting);
         a_vm->RegisterFunction("GetCurrentSceneName", className, GetCurrentSceneName);
         a_vm->RegisterFunction("GetTemporaryFactionCount", className, GetTemporaryFactionCount);
         a_vm->RegisterFunction("GetTemporaryAliasCount", className, GetTemporaryAliasCount);
-        a_vm->RegisterFunction("SetIdleChatterTime", className, SetIdleChatterTime);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
-        a_vm->RegisterFunction("SetNPCVoiceEnabled", className, SetNPCVoiceEnabled);
-        a_vm->RegisterFunction("SetNativeRedirectEnabled", className, SetNativeRedirectEnabled);
-        a_vm->RegisterFunction("SetPuppetFollowsPlayer", className, SetPuppetFollowsPlayer);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
         a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);
         a_vm->RegisterFunction("GetPluginVersion", className, GetPluginVersion);

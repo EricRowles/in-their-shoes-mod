@@ -33,6 +33,7 @@ namespace InTheirShoes::Forms {
         Lookup(dataHandler, impersonateSpell, 0x000D69, kModPlugin, "ITS_ImpersonateSpell"sv);
         Lookup(dataHandler, revertSpell, 0x000802, kModPlugin, "ITS_RevertSpell"sv);
         Lookup(dataHandler, emptyOutfit, 0x00087C, kModPlugin, "ITS_EmptyOutfit"sv);
+        Lookup(dataHandler, puppetFollows, 0x000878, kModPlugin, "ITS_PuppetFollows"sv);
         Lookup(dataHandler, idlePackageQuest, 0x00087E, kModPlugin, "ITS_PackageManager"sv);
 
         Lookup(dataHandler, playerFaction, 0x000DB1, kSkyrimPlugin, "PlayerFaction"sv);

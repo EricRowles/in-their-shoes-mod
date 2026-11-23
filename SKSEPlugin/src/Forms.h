@@ -19,6 +19,7 @@ namespace InTheirShoes::Forms {
     inline RE::SpellItem* impersonateSpell{ nullptr };     // ITS_ImpersonateSpell
     inline RE::SpellItem* revertSpell{ nullptr };          // ITS_RevertSpell
     inline RE::BGSOutfit* emptyOutfit{ nullptr };          // ITS_EmptyOutfit, given to unique donors
+    inline RE::TESGlobal* puppetFollows{ nullptr };        // ITS_PuppetFollows, which gates the puppet's follow package
     // ITS_PackageManager: one alias per idle AI package the MCM offers, filled with the player while it runs
     inline RE::TESQuest* idlePackageQuest{ nullptr };
 
