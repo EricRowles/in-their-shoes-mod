@@ -96,10 +96,6 @@ namespace InTheirShoes {
         // Puts the player in the desired alias only, if that changed (or always, with a_force)
         void ApplyIdlePackage(bool a_force = false);
 
-        static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
-        using ForceGreet_InitExecState_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
-        inline static REL::Relocation<ForceGreet_InitExecState_t> _origForceGreetInitExecState;
-
         static std::uint64_t Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
         using ForceGreet_Execute_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
         inline static REL::Relocation<ForceGreet_Execute_t> _origForceGreetExecute;
@@ -117,7 +113,6 @@ namespace InTheirShoes {
         // --- Read by hooks on AI threads ---
         // Whether idle AI drives the player. Only the main thread changes it.
         std::atomic<bool> _running{ false };
-        std::atomic<bool> _forceGreetProcedureActive{ false };
         // A ForceGreet package that has had its conversation, and the scene it runs in (0 for none). Its
         // procedure reports done until the scene ends or the player runs another package. The hooks read it.
         std::atomic<RE::FormID> _greetedPackage{ 0 };
@@ -129,7 +124,8 @@ namespace InTheirShoes {
         float _idleSeconds{ 0.0f };
         LogOnChange<PlayerBusy> _blockedBy;
 
-        bool _forceGreetTriggered{ false };
+        // The package that last tried to open self-dialogue at the puppet since idle AI engaged
+        RE::FormID _greetAttemptPackage{ 0 };
         // The ForceGreet package whose arrival opened the current self-dialogue
         RE::FormID _greetingPackage{ 0 };
         RE::FormID _greetedScene{ 0 };

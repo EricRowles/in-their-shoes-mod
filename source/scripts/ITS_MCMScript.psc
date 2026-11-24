@@ -73,7 +73,7 @@ Event OnPageReset(String page)
 	If ITS_NG.IsImpersonating()
 		_oid_revert = AddTextOption("Impersonating: " + ITS_NG.GetDonorName(), "Click to Revert")
 	Else
-		_oid_revert = AddTextOption("Impersonating: Nobody", "Not Impersonating", OPTION_FLAG_DISABLED)
+		_oid_revert = AddTextOption("Impersonating:", "Not Impersonating", OPTION_FLAG_DISABLED)
 	EndIf
 
 	; Gaps between sections use SetCursorPosition, not AddEmptyOption: SkyUI versions disagree on whether
