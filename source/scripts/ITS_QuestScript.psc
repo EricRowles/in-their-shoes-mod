@@ -1,7 +1,5 @@
 Scriptname ITS_QuestScript extends Quest
 
-ITS_MCMScript Property ITS_MCM Auto
-
 ReferenceAlias Property Alias_OriginalDonor Auto 	; Original Donor NPC
 ReferenceAlias Property Alias_PlayerPuppet Auto 	; Temp Actor currently behaving as player
 
@@ -29,9 +27,6 @@ Function ITS_Maintenance()
 	EndIf
 	; The session (donor, puppet) and the settings are restored natively from the co-save
 	SyncWithPlugin()
-
-	; For saves from before the plugin saved its settings
-	ITS_MCM.PushConfig()
 EndFunction
 
 ; The plugin decides whether the player is impersonating (ITS_NG.IsImpersonating). The aliases and the Revert spell
@@ -63,26 +58,6 @@ Function UpdateRevertSpell()
 	ElseIf PlayerRef.HasSpell(ITS_RevertSpell)
 		PlayerRef.RemoveSpell(ITS_RevertSpell)
 	EndIf
-EndFunction
-
-; Why a target can't be impersonated, from a ValidateImpersonateTarget result (the codes are listed in ITS_NG.psc)
-String Function ValidationMessage(Int a_code)
-	If a_code == 3
-		Return "Cannot impersonate: target is dead or dying."
-	ElseIf a_code == 4
-		Return "Cannot impersonate: target is a child."
-	ElseIf a_code == 5
-		Return "Cannot impersonate: target is not humanoid."
-	ElseIf a_code == 6
-		Return "Cannot impersonate: target is mounted."
-	ElseIf a_code == 7
-		Return "Cannot impersonate: target is a ghost."
-	ElseIf a_code == 8
-		Return "Cannot impersonate while transformed."
-	ElseIf a_code == 9
-		Return "Cannot impersonate: target is a temporary spawned actor."
-	EndIf
-	Return "Cannot impersonate this target."
 EndFunction
 
 ; Fades -----------------------------------------------------------------------------------
@@ -124,9 +99,9 @@ Function DoImpersonate(Actor a_donor)
 		Return
 	EndIf
 
-	Int validation = ITS_NG.ValidateImpersonateTarget(a_donor)
-	If validation != 0
-		Debug.Notification(ValidationMessage(validation))
+	String invalid = ITS_NG.ValidateImpersonateTarget(a_donor)
+	If invalid != ""
+		Debug.Notification(invalid)
 		Return
 	EndIf
 
@@ -153,7 +128,8 @@ Function DoImpersonate(Actor a_donor)
 		Utility.Wait(0.1)
 	EndIf
 
-	If ITS_NG.Impersonate(a_donor, puppet)
+	String failure = ITS_NG.Impersonate(a_donor, puppet)
+	If failure == ""
 		; The player takes the donor's spot
 		PlayerRef.MoveTo(ITS_TempMarker)
 		PlayerRef.StopCombat()
@@ -167,7 +143,7 @@ Function DoImpersonate(Actor a_donor)
 			puppet.MoveTo(ITS_StorageMarker)
 			Alias_PlayerPuppet.Clear()
 		EndIf
-		Debug.Notification("Impersonation failed.")
+		Debug.Notification(failure)
 	EndIf
 	ITS_TempMarker.MoveTo(ITS_StorageMarker)
 
@@ -188,19 +164,16 @@ Function DoRevert()
 		SyncWithPlugin()
 		Return
 	EndIf
-	If ITS_NG.IsPlayerTransformed()
-		Debug.Notification("Cannot return to your body while transformed.")
-		Return
-	EndIf
 	Actor donor = ITS_NG.GetDonor()
 	Actor puppet = ITS_NG.GetPuppet()
 
 	FadeToBlack()
 
 	; Restore state first so the native donor leash is off before anyone moves
-	If !ITS_NG.Revert()
+	String failure = ITS_NG.Revert()
+	If failure != ""
 		FadeFromBlack()
-		Debug.Notification("Couldn't return to your body.")
+		Debug.Notification(failure)
 		Return
 	EndIf
 	ReturnActors(donor, puppet)

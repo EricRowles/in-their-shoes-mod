@@ -29,10 +29,12 @@ namespace InTheirShoes {
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
 
-        // 1.6.1170 has three start-speech calls outside UpdateInDialogue; more would mean the search went wrong
-        static constexpr std::size_t kMaxStartSpeechCalls = 6;
-        // The trampoline SKSE::Init allocates: the talking idle call and the start-speech calls, 14 bytes each
-        static constexpr std::size_t kTrampolineSize = 14 * (1 + kMaxStartSpeechCalls);
+        // The engine's Character::UpdateInDialogue and PlayerCharacter::SetSpeakingDone, bypassing the hooks
+        // (for PlayerVoice)
+        static void EngineUpdateInDialogue(RE::Actor* a_actor, RE::DialogueResponse* a_response, bool a_unused) {
+            _origCharUpdateInDialogue(a_actor, a_response, a_unused);
+        }
+        static void EngineSetSpeakingDone(RE::Actor* a_actor, bool a_set) { _origPlayerSetSpeakingDone(a_actor, a_set); }
 
     private:
         friend REX::Singleton<DialogueManager>;
@@ -50,21 +52,20 @@ namespace InTheirShoes {
         using UpdateInDialogue_t = bool(RE::Actor*, RE::DialogueResponse*, bool);
         inline static REL::Relocation<UpdateInDialogue_t> _origCharUpdateInDialogue;
 
-        // The engine's call that plays a speaker's talking idle (gestures): skipped for the puppet
+        // AIProcess::SetupSpecialIdle: the puppet's talking idle (gestures) is skipped
         static bool Hook_TalkingIdle(RE::AIProcess* a_process, RE::Actor* a_actor, RE::DEFAULT_OBJECT a_action,
             RE::TESIdleForm* a_idle, bool a_arg5, bool a_arg6, RE::TESObjectREFR* a_target);
-        inline static REL::Relocation<decltype(Hook_TalkingIdle)> _origTalkingIdle;
+        inline static decltype(Hook_TalkingIdle)* _origTalkingIdle{ nullptr };
 
-        // The engine's function that starts a line's voice, lip sync and talking idle on a speaker. Hooked at its
-        // calls outside Character::UpdateInDialogue, which say lines without a conversation (see the definition).
-        // Its arguments past the speaker are passed through untouched.
+        // The engine's function that starts a line's voice, lip sync and talking idle on a speaker. Its calls
+        // outside Character::UpdateInDialogue say lines without a conversation (see the definition). Its arguments
+        // past the speaker are passed through untouched.
         using StartSpeech_t = float(RE::Actor*, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
             std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t);
         static float Hook_StartSpeech(RE::Actor* a_speaker, std::uint64_t a2, std::uint64_t a3, std::uint64_t a4, std::uint64_t a5,
             std::uint64_t a6, std::uint64_t a7, std::uint64_t a8, std::uint64_t a9, std::uint64_t a10, std::uint64_t a11,
             std::uint64_t a12, std::uint64_t a13, std::uint64_t a14);
-        inline static REL::Relocation<StartSpeech_t> _origStartSpeech;
-        void InstallStartSpeechHooks(std::uintptr_t a_talkingIdleCall);
+        inline static StartSpeech_t* _origStartSpeech{ nullptr };
         // Ends a self-dialogue whose Dialogue Menu never opened (a one-line greeting)
         void EndSelfDialogueWithoutMenu();
 

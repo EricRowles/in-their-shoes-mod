@@ -1,13 +1,11 @@
 #include "PCH.h"
 #include "PlayerMoveSpeed.h"
+#include "HookUtil.h"
 
 #include <atomic>
 #include <bit>
 #include <cstdint>
-#include <cstring>
 #include <limits>
-
-#include <xbyak/xbyak.h>
 
 namespace InTheirShoes::PlayerMoveSpeed {
 
@@ -64,33 +62,8 @@ namespace InTheirShoes::PlayerMoveSpeed {
     }
 
     void Install() {
-        // The function's start is replaced by a jump to the hook. Its first instructions (5 bytes, position
-        // independent) run in a stub that then jumps back; they're checked first, in case another mod hooked it or
-        // the game version differs.
-        const auto function = SetMovementSpeedAddress();
-        constexpr std::uint8_t kFirstInstructions[] = { 0x48, 0x8B, 0xC4, 0x55, 0x57 };  // mov rax, rsp / push rbp / push rdi
-        if (std::memcmp(reinterpret_cast<const void*>(function), kFirstInstructions, sizeof(kFirstInstructions)) != 0) {
-            SKSE::log::warn("Set movement speed starts differently than expected; Always Run won't set idle AI's speed");
-            return;
-        }
-
-        struct Original : Xbyak::CodeGenerator {
-            explicit Original(std::uintptr_t a_resume) {
-                Xbyak::Label resume;
-                mov(rax, rsp);
-                push(rbp);
-                push(rdi);
-                jmp(ptr[rip + resume]);
-                L(resume);
-                dq(a_resume);
-            }
-        } original{ function + sizeof(kFirstInstructions) };
-        original.ready();
-
-        auto& trampoline = SKSE::GetTrampoline();
-        g_original = static_cast<SetMovementSpeed_t*>(trampoline.allocate(original));
-        trampoline.write_branch<5>(function, &Hook_SetMovementSpeed);
-        SKSE::log::info("Hooked set movement speed at SkyrimSE+{:X}", function - REL::Module::get().base());
+        constexpr std::uint8_t kPrologue[] = { 0x48, 0x8B, 0xC4, 0x55, 0x57 };  // mov rax, rsp / push rbp / push rdi
+        g_original = HookUtil::HookFunctionStart(SetMovementSpeedAddress(), kPrologue, &Hook_SetMovementSpeed, "set movement speed"sv);
     }
 
     void Apply(RE::PlayerCharacter* a_player) {

@@ -55,12 +55,10 @@ namespace InTheirShoes {
         return PlayerBusy::kNo;
     }
 
-    void LogPlayerBusy(PlayerBusy& a_last, PlayerBusy a_now, std::string_view a_who) {
-        if (a_now == a_last) return;
-        if (a_now != PlayerBusy::kNo) {
+    void LogPlayerBusy(LogOnChange<PlayerBusy>& a_last, PlayerBusy a_now, std::string_view a_who) {
+        if (a_last.Changed(a_now) && a_now != PlayerBusy::kNo) {
             SKSE::log::info("{} waiting: {}", a_who, ToString(a_now));
         }
-        a_last = a_now;
     }
 
     bool IsBlockingMenuOpen() {

@@ -76,7 +76,6 @@ namespace InTheirShoes {
         auto* skills = a_player ? a_player->GetInfoRuntimeData().skills : nullptr;
         if (!base || !skills || !skills->data) return snapshot;
 
-        snapshot.recorded = true;
         snapshot.level = base->actorData.level;
         snapshot.perkPoints = a_player->GetGameStatsData().perkCount;
         snapshot.skills = *skills->data;
@@ -89,7 +88,7 @@ namespace InTheirShoes {
     void StatManager::RestoreProgress(RE::PlayerCharacter* a_player, const ProgressSnapshot& a_snapshot) {
         auto* base = a_player ? a_player->GetActorBase() : nullptr;
         auto* skills = a_player ? a_player->GetInfoRuntimeData().skills : nullptr;
-        if (!a_snapshot.recorded || !base || !skills || !skills->data) return;
+        if (a_snapshot.level == 0 || !base || !skills || !skills->data) return;
 
         // Perks bought with the session's level-ups. Collected first: RemovePerk changes addedPerks.
         std::vector<RE::BGSPerk*> added;

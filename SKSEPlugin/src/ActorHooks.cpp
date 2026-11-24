@@ -20,6 +20,20 @@ namespace InTheirShoes::ActorHooks {
         using GetEditorLocation2_t = bool(RE::TESObjectREFR*, RE::NiPoint3&, RE::NiPoint3&, RE::TESForm*&, RE::TESObjectCELL*);
         REL::Relocation<GetEditorLocation2_t> _origPlayerGetEditorLocation2;
 
+        REL::Relocation<RE::UI_MESSAGE_RESULTS(RE::RaceSexMenu*, RE::UIMessage&)> _origRaceSexMenuProcessMessage;
+
+        RE::UI_MESSAGE_RESULTS Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message) {
+            // RaceSexMenu reads the player's tint masks at the race's tint indices (ID 52412); with a donor of another race
+            // they run past the Dragonborn's masks and crash. kIgnore on kShow drops the menu before it opens (ID 82082),
+            // so RaceMenu doesn't save the donor's tints either.
+            if (a_message.type == RE::UI_MESSAGE_TYPE::kShow && Session::GetSingleton()->IsActive() && !a_this->AlwaysOpen()) {
+                SKSE::log::info("Refused to open RaceMenu while impersonating");
+                RE::SendHUDMessage::ShowHUDMessage("You can't change your appearance while impersonating.");
+                return RE::UI_MESSAGE_RESULTS::kIgnore;
+            }
+            return _origRaceSexMenuProcessMessage(a_this, a_message);
+        }
+
         RE::BGSVoiceType* Hook_GetObjectVoiceType(const RE::TESNPC* a_this) {
             if (a_this) {
                 auto& session = *Session::GetSingleton();
@@ -108,19 +122,17 @@ namespace InTheirShoes::ActorHooks {
         _origPlayerGetEditorLocation2 = playerVtbl.write_vfunc(0x3D, &Hook_Player_GetEditorLocation2);
         _origPlayerUpdate = playerVtbl.write_vfunc(0xAD, &Hook_Player_Update);
         SKSE::log::info("Hooked PlayerCharacter editor location & update vfuncs (0x3C, 0x3D, 0xAD)");
+
+        REL::Relocation<std::uintptr_t> raceSexVtbl{ RE::VTABLE_RaceSexMenu[0] };
+        _origRaceSexMenuProcessMessage = raceSexVtbl.write_vfunc(0x4, &Hook_RaceSexMenu_ProcessMessage);
+        SKSE::log::info("Hooked RaceSexMenu::ProcessMessage (0x4)");
     }
 
     RE::BGSVoiceType* GetNPCVoiceType(const RE::TESNPC* a_npc) {
         if (!a_npc) return nullptr;
         if (a_npc->voiceType) return a_npc->voiceType;
-        if (_origGetObjectVoiceType.address() != 0) {
-            return _origGetObjectVoiceType(a_npc);
-        }
-        if (a_npc->race) {
-            std::size_t sexIdx = (a_npc->GetSex() == RE::SEX::kFemale) ? 1 : 0;
-            return a_npc->race->defaultVoiceTypes[sexIdx];
-        }
-        return nullptr;
+        // Install runs at data load, before any caller
+        return _origGetObjectVoiceType(a_npc);
     }
 
 }

@@ -43,4 +43,4 @@ Run the build through `build_and_deploy.py`; it sets up the MSVC environment tha
 - Lifecycle work (game load/revert, frame, session begin/end) goes through `Lifecycle`, not calls between managers.
 - Look up forms by ID only in `Forms`.
 - Don't permanently change base records; use runtime state, hooks and alias swaps.
-- State that must survive a save goes in the co-save (`Serialization`). Each record has its own version; bump it when the layout changes.
+- State that must survive a save goes in the co-save (`Serialization`). Each record has its own version; bump it when the layout changes. Only the current version is read.

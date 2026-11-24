@@ -33,6 +33,7 @@ namespace InTheirShoes::Forms {
         Lookup(dataHandler, impersonateSpell, 0x000D69, kModPlugin, "ITS_ImpersonateSpell"sv);
         Lookup(dataHandler, revertSpell, 0x000802, kModPlugin, "ITS_RevertSpell"sv);
         Lookup(dataHandler, emptyOutfit, 0x00087C, kModPlugin, "ITS_EmptyOutfit"sv);
+        Lookup(dataHandler, puppetFollows, 0x000878, kModPlugin, "ITS_PuppetFollows"sv);
         Lookup(dataHandler, idlePackageQuest, 0x00087E, kModPlugin, "ITS_PackageManager"sv);
 
         Lookup(dataHandler, playerFaction, 0x000DB1, kSkyrimPlugin, "PlayerFaction"sv);
@@ -40,29 +41,6 @@ namespace InTheirShoes::Forms {
 
         Lookup(dataHandler, dlc1PlayerVampireQuest, 0x0071D0, kDawnguardPlugin, "DLC1PlayerVampireQuest"sv);
 
-        // Each city's Location and the LocationCenterMarker its record lists (a persistent reference in the city)
-        struct DestinationIDs {
-            RE::FormID location;
-            RE::FormID marker;
-            std::string_view name;
-        };
-        constexpr std::array<DestinationIDs, 9> kDestinations{ {
-            { 0x018A56, 0x029AAF, "WhiterunLocation"sv },
-            { 0x018A5A, 0x04DEB7, "SolitudeLocation"sv },
-            { 0x018A57, 0x02A975, "WindhelmLocation"sv },
-            { 0x018A58, 0x01CDD6, "RiftenLocation"sv },
-            { 0x018A59, 0x01B38D, "MarkarthLocation"sv },
-            { 0x018A49, 0x029DBB, "FalkreathLocation"sv },
-            { 0x018A53, 0x01C1BA, "MorthalLocation"sv },
-            { 0x018A50, 0x0284C5, "DawnstarLocation"sv },
-            { 0x018A51, 0x01C1B1, "WinterholdLocation"sv },
-        } };
-        static_assert(kDestinations.size() == std::tuple_size_v<decltype(travelDestinations)>);
-        for (std::size_t i = 0; i < kDestinations.size(); ++i) {
-            const auto& ids = kDestinations[i];
-            Lookup(dataHandler, travelDestinations[i].location, ids.location, kSkyrimPlugin, ids.name);
-            Lookup(dataHandler, travelDestinations[i].marker, ids.marker, kSkyrimPlugin, "its LocationCenterMarker"sv);
-        }
     }
 
 }

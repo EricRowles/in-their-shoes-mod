@@ -10,8 +10,6 @@ namespace InTheirShoes {
     struct SpellSnapshot {
         std::vector<RE::FormID> addedSpells;
         std::vector<RE::FormID> abilities;
-        // False for sessions saved before abilities were recorded (and copied to the player)
-        bool abilitiesRecorded{ false };
         RE::SpellItem* leftSpell{ nullptr };
         RE::SpellItem* rightSpell{ nullptr };
         RE::TESShout* shout{ nullptr };

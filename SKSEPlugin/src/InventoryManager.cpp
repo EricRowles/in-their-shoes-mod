@@ -242,7 +242,6 @@ namespace InTheirShoes {
         }
         // The Dragonborn keeps its abilities (standing stone, blessings); they're recorded so revert leaves them
         a_outSnapshot.abilities.clear();
-        a_outSnapshot.abilitiesRecorded = true;
         for (auto* ability : GetAddedAbilities(a_player)) {
             a_outSnapshot.abilities.push_back(ability->GetFormID());
         }
@@ -311,7 +310,7 @@ namespace InTheirShoes {
         // Abilities the Dragonborn didn't have are the donor's copies, or were added while impersonating
         // (a script's AddSpell on the donor lands on the player)
         std::int32_t removedAbilities = 0;
-        for (auto* ability : a_dragonborn.abilitiesRecorded ? GetAddedAbilities(a_player) : std::vector<RE::SpellItem*>{}) {
+        for (auto* ability : GetAddedAbilities(a_player)) {
             if (std::ranges::contains(a_dragonborn.abilities, ability->GetFormID())) continue;
             if (a_donor && !IsBaseSpellOf(ability, donorBase) && !a_donor->HasSpell(ability) && a_donor->AddSpell(ability)) {
                 returnedCount++;

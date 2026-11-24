@@ -10,12 +10,10 @@ The ESP holds the few records the plugin and scripts need. It is ESL-flagged, so
 | ↳ alias `Player` (0) | | The player (`ITS_PlayerScript`, and SkyUI's `SKI_PlayerLoadGameAlias`, which reloads the MCM on each load) |
 | ↳ alias `PlayerPuppet` (1) | | The puppet (`ITS_NPCScript`). Packages: `ITS_PuppetFollowPackage`, then vanilla `DefaultSandboxCurrentLocation1024` when following is off |
 | ↳ alias `OriginalDonor` (2) | | The current donor. Package: vanilla `DefaultHoldPositionCurrentLoc64`, which keeps it in the holding cell (its quest aliases have moved to the player, so this outranks what's left) |
-| `ITS_PackageManager` | `87E` | Priority 100, so its alias packages outrank other quests'. The plugin puts the player in one alias while idle AI runs the package picked in the MCM (`ITS_IdlePackage`). Aliases are Optional and empty |
+| `ITS_PackageManager` | `87E` | Priority 100, so its alias packages outrank other quests'. The plugin puts the player in one alias while idle AI runs the package picked in the MCM. Aliases are Optional and empty |
 | ↳ alias `PackageSandboxWide` (0) | | Package: vanilla `DefaultSandboxCurrentLocation1024` |
 | ↳ alias `PackageSandboxClose` (1) | | Package: vanilla `DefaultSandboxCurrentLocation256` |
-| ↳ alias `PackageTravel` (2) | | Package: `ITS_TravelPackage` |
-| ↳ alias `TravelDestination` (3) | | The city center marker the Travel package goes to, filled by the plugin (found by name) |
-| `ITS_TravelPackage` | `881` | Travel (vanilla `Travel` template) to the `TravelDestination` alias. Preferred Speed Run (with its flag set, or the speed is ignored) and Ignore Combat |
+| ↳ aliases `PackageTravel` (2), `TravelDestination` (3) | | Unused since the Travel package was removed; safe to delete with `ITS_TravelPackage` (`881`) |
 | `ITS_PuppetFollows` | `878` | Global set by the MCM; gates the follow package |
 | `ITS_PuppetFollowPackage` | `87B` | Follow the player. A copy of vanilla `HowlSummonedWolfFollowPlayer`, since a templated package needs all of its template's data inputs (check with `scratch/dump_packages.py`) |
 | `ITS_ImpersonateSpell` / `ITS_ImpersonateEffect` | `D69` / `D6B` | Impersonate (`ITS_ImpersonateScript`) |

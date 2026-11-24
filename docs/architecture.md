@@ -8,7 +8,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 |---|---|
 | **Player** | Looks, sounds and fights like the donor (appearance, voice, stats, spells, items). Belongs to the donor's factions, holds its quest aliases and answers its conditions. |
 | **Puppet** (`ITS_TempPlayer`) | Looks like the Dragonborn and follows the player. Talking to it opens the donor's dialogue. |
-| **Donor** | Parked out of sight in a holding cell. Conditions that ask where the donor is get the player's location, and triggers waiting for the donor see it enter or leave when the player does. With the MCM's script redirect on, other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor, and scripts on the donor's own body (its magic effects) still act on it. Scripts that reach the donor through its quest aliases (which the player holds) act on the player: moving it to its package's location moves the player there once any conversation ends, and changing its outfit sets the donor's outfit and dresses the player in it. Actors whose AI packages follow or go to the donor follow or go to the player. |
+| **Donor** | Parked out of sight in a holding cell. Conditions that ask about the donor (another actor's package checking its health, a spell checking its factions, where it is) get the player's answer, except its teammate status, and triggers waiting for the donor see it enter or leave when the player does. With the MCM's script redirect on, other mods' scripts that act on the donor (make it speak, ask where it is, change its factions) act on the player instead; its teammate status and relationships stay on the donor, and scripts on the donor's own body (its magic effects) still act on it. Scripts that reach the donor through its quest aliases (which the player holds) act on the player, except moving it to its package's location, which does nothing; changing its outfit sets the donor's outfit and dresses the player in it. Actors whose AI packages follow or go to the donor follow or go to the player. |
 
 ## What happens
 
@@ -25,7 +25,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
   - The player voices every line the donor would say. See [dialogue_system.md](dialogue_system.md).
   - The donor starts with no bounty. Bounty run up as the donor is dropped when the session ends, and the Dragonborn's comes back.
   - RaceMenu won't open.
-- **Saving:** the session and the MCM's settings are stored in the SKSE co-save and restored on load. The MCM shows the donor's name, or Not Found if a saved session's donor no longer exists.
+- **Saving:** the session and the MCM's settings are stored in the SKSE co-save and restored on load. The MCM shows the donor's name, or Not Found if a saved session's donor no longer exists. Saves made while impersonating with a version before 0.9 aren't read: revert before updating.
 
 ## Code map (`SKSEPlugin/src/`)
 
@@ -34,11 +34,11 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `ImpersonationManager` | Impersonate, switch and revert; keeps the donor parked and the puppet configured |
 | `Lifecycle` | Passes plugin, game and session events to the managers in a fixed order |
 | `Session` | Who is who (donor, puppet, self-dialogue), readable from any thread. Source of truth for whether the player is impersonating |
-| `Settings` | The MCM's settings, saved in the co-save, readable from any thread |
+| `Settings` | The MCM's settings, which the plugin owns and the MCM reads and sets by name; saved in the co-save, readable from any thread |
 | `GameClock` | Time the game has been running, without pauses, loading screens or hitches. Gameplay timers use it |
 | `PlayerBusy` | Why the player can't be given something to do (combat, a menu, a scene, ...), for idle AI and idle chatter |
-| `ConditionHooks` | Identity, relationship and location conditions answer for the right actor |
-| `ActorHooks` | Voice type, editor location and per-frame player update hooks |
+| `ConditionHooks` | Identity, relationship, location and state (health, combat, ...) conditions answer for the right actor |
+| `ActorHooks` | Voice type, editor location, per-frame player update and RaceMenu refusal hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |
 | `DialogueManager` | Self-dialogue, routing the engine's lines to the player |
 | `PlayerVoice` | The player voicing one line at a time, including keeping a stand-in silent while the player voices its line |
@@ -48,12 +48,10 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `PlayerMoveSpeed` | Makes the AI walk or run the idle player as its Always Run setting says |
 | `PackageRetarget` | Owns every runtime package edit: other actors' packages that target the donor (e.g. a companion following it) target the player, and packages the idle player runs that target the player target the puppet |
 | `FaceManager`, `StatManager`, `InventoryManager` | Copy appearance, stats, and items/spells between actors |
-| `FactionManager` | Moves the donor's factions to the player for the session and hands them back |
-| `LinkedRefManager` | Gives the player the donor's linked references for the session and hands them back |
-| `CrimeManager` | Sets the Dragonborn's bounty aside for the session and restores it |
+| `SessionStash` | What the player takes from the donor for the session and hands back, setting the Dragonborn's aside: factions, linked references and bounty |
 | `ScriptEventFilter` | Keeps item and equip events from the plugin's transfers, and the player's menu transfers, from the donor's scripts |
 | `Forms` | Every form looked up by ID |
-| `Serialization` | Co-save records |
+| `Serialization` | Co-save records (each `SessionStash` writes its own) |
 | `Papyrus` | `ITS_NG` natives, and trigger events that fire for the parked donor |
 | `NativeRedirect` | When enabled in the MCM, natives other mods' scripts call on the donor (or on the puppet in self-dialogue) run on the player |
 

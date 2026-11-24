@@ -1,64 +1,32 @@
 ; Native bridge for In Their Shoes NG SKSE64 Plugin
 Scriptname ITS_NG Hidden
 
+; Impersonate and Revert return "" on success, otherwise why they failed (a message for the player). Both refuse
+; while the player is in Werewolf or Vampire Lord form.
+
 ; Impersonates a_donor (or switches to a_donor if already impersonating someone else).
 ; On the first impersonation the puppet takes the Dragonborn's appearance, stats and gear.
 ; The donor is moved to the storage marker. Position the puppet before calling.
-Bool Function Impersonate(Actor a_donor, Actor a_puppet) Global Native
+String Function Impersonate(Actor a_donor, Actor a_puppet) Global Native
 
 ; Ends impersonation: the donor gets the player's current items, spells and stats, and the player
 ; gets their own appearance, stats, spells and gear back. Move the actors afterwards.
-Bool Function Revert() Global Native
+String Function Revert() Global Native
 
-; Settings: the plugin saves them in its co-save. ITS_MCMScript sets them.
-
-; Enables or disables autonomous idle AI pathing on the player when inactive.
-Function SetIdleAIEnabled(Bool a_enabled) Global Native
-
-; Sets the idle timeout in seconds before autonomous AI pathing begins (default 10.0s).
-Function SetIdleAITimeout(Float a_seconds) Global Native
-
-; Picks what the player runs during idle AI: 0 runs the donor's own packages, n puts the player in
-; ITS_PackageManager's alias n - 1, whose package outranks the donor's (a follower's Follow too).
-Function SetIdleAIPackage(Int a_index) Global Native
-
-; Where the Travel idle package goes: 0 Whiterun, 1 Solitude, 2 Windhelm, 3 Riften, 4 Markarth, 5 Falkreath,
-; 6 Morthal, 7 Dawnstar, 8 Winterhold (Forms::travelDestinations in the plugin).
-Function SetIdleTravelDestination(Int a_index) Global Native
-
-; The scene the player is in: its editor ID (or form ID, when editor IDs aren't loaded), or "" when there is none
-String Function GetCurrentSceneName() Global Native
-
-; How many of the donor's factions the player was given for the session (not counting the aliases' factions)
-Int Function GetTemporaryFactionCount() Global Native
-
-; How many of the donor's quest aliases the player holds for the session
-Int Function GetTemporaryAliasCount() Global Native
-
-; Sets the idle chatter cooldown in seconds between ambient dialogue lines while impersonating an NPC (default 60.0s).
-Function SetIdleChatterTime(Float a_seconds) Global Native
+; Settings, by name: IdleAIEnabled, IdleAITimeout, IdleAIPackage, NPCVoiceEnabled, IdleChatterTime,
+; NativeRedirectEnabled, PuppetFollowsPlayer (Settings.h in the plugin). Toggles are 0 or 1. The plugin owns them and
+; saves them in its co-save; values are clamped to the setting's range.
+Float Function GetSetting(String a_name) Global Native
+Function SetSetting(String a_name, Float a_value) Global Native
+; The setting's default, minimum and maximum
+Float[] Function GetSettingRange(String a_name) Global Native
 
 ; Opens the Dialogue Menu with the puppet, showing the donor's topics.
 Bool Function OpenSelfDialogue(Actor a_speaker = None) Global Native
 
-; Enables or disables donor NPC voice comments and voice identity on the player.
-Function SetNPCVoiceEnabled(Bool a_enabled) Global Native
-
-; Enables or disables running other mods' script calls on the donor (and the puppet in self-dialogue) on the player.
-Function SetNativeRedirectEnabled(Bool a_enabled) Global Native
-
-; Sets the puppet's teammate status and teleports it to the player when re-enabled.
-; The follow package itself is gated by the ITS_PuppetFollows global, which the caller sets.
-Function SetPuppetFollowsPlayer(Bool a_follows) Global Native
-
-; Validates whether a_target can be impersonated by the player.
-; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost,
-; 8 = Player is transformed (see IsPlayerTransformed), 9 = Spawned actor (a temporary FF reference).
-Int Function ValidateImpersonateTarget(Actor a_target) Global Native
-
-; Whether the player is in Werewolf or Vampire Lord form, or changing into or out of it.
-; Impersonate and Revert refuse while it is true.
-Bool Function IsPlayerTransformed() Global Native
+; Why the player can't impersonate a_target (a message for the player), or "" if they can.
+; Whether the player is transformed is checked by Impersonate.
+String Function ValidateImpersonateTarget(Actor a_target) Global Native
 
 ; Whether the player is impersonating. The plugin owns this answer; ITS_QuestScript keeps its aliases in line with it.
 Bool Function IsImpersonating() Global Native
@@ -69,11 +37,6 @@ Actor Function GetPuppet() Global Native
 
 ; The donor's name; "None" when not impersonating, "Not Found" when a saved session's donor no longer exists
 String Function GetDonorName() Global Native
-
-; Used by ITS_IdlePackage.Apply: False if call a_sequence was superseded by a later one
-Bool Function BeginIdlePackageApply(Int a_sequence) Global Native
-; Used by ITS_IdlePackage.Apply: call a_sequence has finished
-Function EndIdlePackageApply(Int a_sequence) Global Native
 
 ; The plugin's version, e.g. "0.5.0"
 String Function GetPluginVersion() Global Native

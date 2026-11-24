@@ -42,30 +42,15 @@ namespace InTheirShoes {
     };
 
     // Appearance capture/apply. The Dragonborn's saved appearance lives in ImpersonationManager's Baseline.
-    class FaceManager : public REX::Singleton<FaceManager> {
-    public:
-        // Keeps RaceMenu (the RaceSex Menu) from opening while impersonating
-        void InstallHook();
-
+    namespace FaceManager {
         // Empty if the actor has no NPC base record
         std::optional<FaceSnapshot> CaptureSnapshot(RE::Actor* a_actor);
 
         // a_asPuppet: the puppet gets the Dragonborn's look but no voice type or face template of its own
         bool ApplySnapshot(RE::Actor* a_targetActor, const FaceSnapshot& a_snapshot, bool a_update3D = true, bool a_asPuppet = false);
 
-        // Copies the donor's current appearance onto the target
-        bool CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target);
-
         // Puts back only the snapshot's skin and hair colors, on the actor's current 3D
         void ReapplyTints(RE::Actor* a_actor, const FaceSnapshot& a_snapshot);
-
-    private:
-        friend REX::Singleton<FaceManager>;
-        FaceManager() = default;
-        ~FaceManager() = default;
-
-        static RE::UI_MESSAGE_RESULTS Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message);
-        inline static REL::Relocation<decltype(Hook_RaceSexMenu_ProcessMessage)> _origRaceSexMenuProcessMessage;
-    };
+    }
 
 }

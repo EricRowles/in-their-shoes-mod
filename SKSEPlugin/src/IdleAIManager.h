@@ -32,19 +32,12 @@ namespace InTheirShoes {
         // The MCM's idle package (Settings::GetIdlePackage): 0 runs the donor's own packages, n puts the player in
         // ITS_PackageManager's alias n - 1 while idle AI runs, whose package outranks the donor's (its quests' too)
         void OnIdlePackageChanged();
-        // Where the Travel package goes (Settings::GetTravelDestination)
-        void OnTravelDestinationChanged();
         void OnPostLoadGame();
 
         // Main thread only: self-dialogue is opening, so idle AI stops now rather than next frame
         void StopForSelfDialogue();
 
-        // ITS_IdlePackage.Apply, from a Papyrus thread: whether call a_sequence is still the latest sent (an older
-        // one arriving late is skipped), and that it has finished.
-        bool BeginIdlePackageApply(std::int32_t a_sequence) const;
-        void EndIdlePackageApply(std::int32_t a_sequence);
-
-        // Whether idle AI runs (engaging or driving). Any thread (condition hooks read it).
+        // Whether idle AI drives the player. Any thread (condition hooks read it).
         bool IsDrivingPlayer() const { return _running.load(); }
 
         void Clear();
@@ -54,12 +47,6 @@ namespace InTheirShoes {
         IdleAIManager() = default;
         ~IdleAIManager() override = default;
 
-        enum class State {
-            kManual,    // The player is in control
-            kEngaging,  // The package alias is being set up; AI-driven turns on once Papyrus has applied it
-            kDriving,   // Idle AI has the player AI-driven
-        };
-
         enum class StopReason {
             kInput,         // The player pressed a key that acts in the world
             kCombat,
@@ -68,7 +55,6 @@ namespace InTheirShoes {
             kInactive,      // Idle AI turned off, or no impersonation
             kSessionChanged, // Impersonation began, ended or moved to another donor
             kLostControl,   // Something else turned AI-driven off
-            kOtherControl,  // Something else turned AI-driven on before idle AI did
         };
         static std::string_view ToString(StopReason a_reason);
 
@@ -77,25 +63,23 @@ namespace InTheirShoes {
             kActionInput = 1 << 0,
             kSessionChanged = 1 << 1,
             kPackageChanged = 1 << 2,
-            kDestinationChanged = 1 << 3,
-            kPostLoad = 1 << 4,
-            kSelfDialogueEnded = 1 << 5,
-            kToggleRun = 1 << 6,
+            kPostLoad = 1 << 3,
+            kSelfDialogueEnded = 1 << 4,
+            kToggleRun = 1 << 5,
         };
         void Post(Request a_request) { _requests.fetch_or(a_request, std::memory_order_acq_rel); }
         void HandleRequests(RE::PlayerCharacter* a_player);
         void HandlePostLoad(RE::PlayerCharacter* a_player);
         void HandleSelfDialogueEnded();
 
-        bool IsRunning() const { return _state != State::kManual; }
+        bool IsRunning() const { return _running.load(); }
         void InstallHooks();
         // Whether a_event asks the player to act in the world (move, attack, activate, ...); see the definition
         static bool IsActionInput(const RE::InputEvent* a_event);
         // Whether a_event is a press of Toggle Always Run in gameplay
         static bool IsToggleRunInput(const RE::InputEvent* a_event);
 
-        void BeginEngage(RE::PlayerCharacter* a_player);
-        void FinishEngage(RE::PlayerCharacter* a_player);
+        void Engage(RE::PlayerCharacter* a_player);
         void Disengage(RE::PlayerCharacter* a_player, StopReason a_reason);
         void UpdateIdleTime(RE::PlayerCharacter* a_player);
         void UpdateRunning(RE::PlayerCharacter* a_player);
@@ -105,26 +89,12 @@ namespace InTheirShoes {
         void RetargetAliasPackagesToPuppet();
         void CheckForceGreetReachedPuppet();
         void ReleaseGreetedPackage();
-        bool CombatStopsIdleAI(RE::PlayerCharacter* a_player) const;
-        void CheckTravelArrival();
         void LogRunningPackage();
 
-        // What ITS_IdlePackage.Apply sets: the ITS_PackageManager alias the player is in (-1 for none), and the
-        // Travel package's destination and its alias
-        struct IdlePackageState {
-            std::int32_t aliasID{ -1 };
-            RE::TESObjectREFR* destination{ nullptr };
-            std::int32_t destinationAliasID{ -1 };
-            bool operator==(const IdlePackageState&) const = default;
-        };
-        IdlePackageState DesiredIdlePackageState() const;
-        // Sends the desired state to Papyrus if it differs from the last sent (or always, with a_force). Returns
-        // the call's sequence number, or 0 if nothing was sent.
-        std::int32_t ApplyIdlePackage(bool a_force = false);
-
-        static std::uint64_t Hook_ForceGreet_InitExecState(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
-        using ForceGreet_InitExecState_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
-        inline static REL::Relocation<ForceGreet_InitExecState_t> _origForceGreetInitExecState;
+        // The ITS_PackageManager alias the player should be in (-1 for none)
+        std::int32_t DesiredAliasID() const;
+        // Puts the player in the desired alias only, if that changed (or always, with a_force)
+        void ApplyIdlePackage(bool a_force = false);
 
         static std::uint64_t Hook_ForceGreet_Execute(void* a_this, RE::IProcedureTreeItem::ExecStateContext* a_execState);
         using ForceGreet_Execute_t = std::uint64_t(void*, RE::IProcedureTreeItem::ExecStateContext*);
@@ -139,35 +109,27 @@ namespace InTheirShoes {
 
         // --- Requests (any thread) ---
         std::atomic<std::uint32_t> _requests{ 0 };
-        // The highest ITS_IdlePackage.Apply call that has finished
-        std::atomic<std::int32_t> _appliedSequence{ 0 };
-        std::atomic<std::int32_t> _applySequence{ 0 };
 
         // --- Read by hooks on AI threads ---
-        // Whether idle AI runs (engaging or driving). Read by the alias package hook.
+        // Whether idle AI drives the player. Only the main thread changes it.
         std::atomic<bool> _running{ false };
-        std::atomic<bool> _forceGreetProcedureActive{ false };
         // A ForceGreet package that has had its conversation, and the scene it runs in (0 for none). Its
         // procedure reports done until the scene ends or the player runs another package. The hooks read it.
         std::atomic<RE::FormID> _greetedPackage{ 0 };
 
         // --- Main thread ---
-        State _state{ State::kManual };
         // Idle AI turned AI-driven on (PlayerCharacter::SetAIDriven) and hasn't turned it off
         bool _owned{ false };
-        // The Apply call that sets up the alias for engaging, and the game time spent waiting for it
-        std::int32_t _engageSequence{ 0 };
-        float _engageWaitSeconds{ 0.0f };
         // Game time the player has been eligible for idle AI without acting
         float _idleSeconds{ 0.0f };
-        PlayerBusy _blockedBy{ PlayerBusy::kNo };
+        LogOnChange<PlayerBusy> _blockedBy;
 
-        bool _forceGreetTriggered{ false };
+        // The package that last tried to open self-dialogue at the puppet since idle AI engaged
+        RE::FormID _greetAttemptPackage{ 0 };
         // The ForceGreet package whose arrival opened the current self-dialogue
         RE::FormID _greetingPackage{ 0 };
         RE::FormID _greetedScene{ 0 };
-        RE::TESPackage* _loggedPackage{ nullptr };
-        bool _runningPackageLogged{ false };
+        LogOnChange<RE::TESPackage*> _loggedPackage;
         GameClock::TimePoint _aiStartTime{};
         GameClock::TimePoint _lastPackageSyncTime{};
 
@@ -182,10 +144,8 @@ namespace InTheirShoes {
         // The player runs scene package actions, so the MCM's idle package alias is released until they end
         bool _scenePackagesRunning{ false };
 
-        bool _travelArrived{ false };  // The Travel package reached its city, so the player sandboxes there
-
-        // The state last sent to ITS_IdlePackage.Apply
-        IdlePackageState _sentState{};
+        // The ITS_PackageManager alias the player was last put in (-1 for none)
+        std::int32_t _appliedAliasID{ -1 };
     };
 
 }

@@ -39,19 +39,17 @@ namespace InTheirShoes {
         // Moves outside quest aliases the puppet was forced into during self-dialogue to the player, tracked as swapped
         // so the donor gets them on revert
         void AdoptPuppetAliases(RE::Actor* a_puppet, RE::Actor* a_player);
-        // Moves aliases a quest filled with the donor during the session (or before a save that lacks them) to
-        // the player, tracked as swapped aliases
+        // Moves aliases a quest filled with the donor during the session to the player, tracked as swapped aliases
         void SwapNewDonorAliases();
         // Stops tracking swapped aliases a quest has cleared or given to someone else
         void DropReleasedAliases();
 
         // Any thread (ScriptEventFilter asks from the VM's event hook)
         bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const;
-        std::size_t GetSwappedAliasCount() const { return _swappedAliases.size(); }
         void Clear();
 
         // Whether a swapped alias gives its holder a_faction. The player gets these with the aliases, so
-        // FactionManager leaves them out of the factions it moves.
+        // FactionStash leaves them out of the factions it moves.
         bool IsAliasFaction(const RE::TESFaction* a_faction) const;
 
         // Serialization: the swapped aliases are part of the session ('SESS') record

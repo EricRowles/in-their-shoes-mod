@@ -1,7 +1,6 @@
 #pragma once
 
 #include "GameClock.h"
-#include <functional>
 #include <optional>
 
 namespace InTheirShoes {
@@ -14,18 +13,10 @@ namespace InTheirShoes {
     // A stand-in's line is the engine's: the stand-in runs it unheard and the engine paces the conversation by
     // it. The player's copy only follows, ending when the stand-in's does.
     //
-    // The engine's original UpdateInDialogue and SetSpeakingDone are hooked by DialogueManager; it hands them
-    // over in SetEngineCalls.
+    // UpdateInDialogue and SetSpeakingDone are hooked by DialogueManager, so the engine's originals are called
+    // through it.
     class PlayerVoice : public REX::Singleton<PlayerVoice> {
     public:
-        struct EngineCalls {
-            // Character::UpdateInDialogue run on the given actor, bypassing our hook
-            std::function<void(RE::Actor*, RE::DialogueResponse*, bool)> updateInDialogue;
-            // PlayerCharacter::SetSpeakingDone, bypassing our hook
-            std::function<void(RE::Actor*, bool)> setSpeakingDone;
-        };
-        void SetEngineCalls(EngineCalls a_calls) { _engine = std::move(a_calls); }
-
         // Per frame: ticks the playing line
         void Update();
         void Clear();
@@ -40,7 +31,7 @@ namespace InTheirShoes {
         static bool IsVoiceActive(RE::Actor* a_actor);
 
         // A line for the player to voice (a scene line on a swapped alias)
-        void Speak(RE::DialogueResponse* a_response, bool a_unused);
+        void Speak(RE::DialogueResponse* a_response);
 
         // A line IdleChatter picked: sends the topic info's begin event, speaks each of its responses, and sends
         // its end event when the last ends, then reports back to IdleChatter. The item is kept while it plays.
@@ -51,7 +42,7 @@ namespace InTheirShoes {
         //     and idles.
         //  2. SpeakForStandIn voices the copy, which ends when the stand-in's line does.
         void TakeStandInLine(RE::DialogueResponse* a_engineResponse);
-        void SpeakForStandIn(RE::Actor* a_standIn, bool a_unused);
+        void SpeakForStandIn(RE::Actor* a_standIn);
 
         // Makes the stand-in's voice inaudible and drops its lip sync. The engine may start the voice some
         // frames after the line, so this is called when the line starts and from the stand-in's per-frame update.
@@ -66,14 +57,12 @@ namespace InTheirShoes {
         ~PlayerVoice() = default;
 
         // Ends any line playing, then starts this one
-        void SpeakLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
-        void StartLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter);
+        void SpeakLine(RE::DialogueResponse* a_response, bool a_isIdleChatter);
+        void StartLine(RE::DialogueResponse* a_response, bool a_isIdleChatter);
         // Starts the idle line's next response, keeping its item; false after the last
         bool SpeakNextIdleResponse();
         void StartVoiceLate();
         bool StandInLineDone();
-
-        EngineCalls _engine;
 
         // The line the player is voicing. It exists only while the line plays, and is dropped as a whole
         // when it ends.
@@ -101,7 +90,6 @@ namespace InTheirShoes {
             GameClock::TimePoint created{};
             GameClock::TimePoint soundStart{};
             GameClock::TimePoint lastSoundTick{};
-            GameClock::TimePoint lastVoiceRetry{};
         };
         std::optional<Line> _line;
         // The player's copy of a stand-in's line. Kept outside

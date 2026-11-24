@@ -3,21 +3,18 @@
 #include "ActorHooks.h"
 #include "AliasSwapManager.h"
 #include "ConditionHooks.h"
-#include "CrimeManager.h"
 #include "DialogueManager.h"
-#include "FaceManager.h"
-#include "FactionManager.h"
 #include "GameClock.h"
 #include "Forms.h"
 #include "IdleAIManager.h"
 #include "IdleChatter.h"
-#include "LinkedRefManager.h"
 #include "ImpersonationManager.h"
 #include "NativeRedirect.h"
 #include "PackageRetarget.h"
 #include "PlayerMoveSpeed.h"
 #include "PlayerVoice.h"
 #include "Session.h"
+#include "SessionStash.h"
 #include "Settings.h"
 
 namespace InTheirShoes::Lifecycle {
@@ -38,7 +35,6 @@ namespace InTheirShoes::Lifecycle {
         AliasSwapManager::GetSingleton()->Initialize();
         ActorHooks::Install();
         ConditionHooks::Install();
-        FaceManager::GetSingleton()->InstallHook();
         ImpersonationManager::GetSingleton()->Initialize();
         NativeRedirect::Install();
     }
@@ -47,10 +43,7 @@ namespace InTheirShoes::Lifecycle {
         ImpersonationManager::GetSingleton()->OnPostLoadGame();
         IdleAIManager::GetSingleton()->OnPostLoadGame();
         if (auto& session = *Session::GetSingleton(); session.IsActive()) {
-            // Before FactionManager, which leaves the aliases' factions out of the ones it moves
             AliasSwapManager::GetSingleton()->SwapNewDonorAliases();
-            FactionManager::GetSingleton()->OnPostLoadGame(session.GetDonor(), Session::GetPlayer());
-            LinkedRefManager::GetSingleton()->OnPostLoadGame(session.GetDonor(), RE::PlayerCharacter::GetSingleton());
             IdleAIManager::GetSingleton()->OnImpersonationChanged();
             PackageRetarget::GetSingleton()->RetargetDonorToPlayer(session.GetDonor(), Session::GetPlayer());
         }
@@ -59,15 +52,15 @@ namespace InTheirShoes::Lifecycle {
     void OnGameRevert() {
         ImpersonationManager::GetSingleton()->OnRevert();
         AliasSwapManager::GetSingleton()->Clear();
-        FactionManager::GetSingleton()->Clear();
-        CrimeManager::GetSingleton()->Clear();
-        LinkedRefManager::GetSingleton()->Clear();
+        for (auto* stash : SessionStash::All()) {
+            stash->Clear();
+        }
         IdleAIManager::GetSingleton()->Clear();
         DialogueManager::GetSingleton()->Clear();
         PlayerVoice::GetSingleton()->Clear();
         IdleChatter::GetSingleton()->Clear();
         PackageRetarget::GetSingleton()->RestoreAll();
-        // A save without settings (from an older version) gets the MCM's once it pushes them
+        // A save without settings (a new game) gets the defaults
         Settings::GetSingleton()->Reset();
         SKSE::log::info("Reverted all InTheirShoes saved manager states.");
     }
@@ -84,9 +77,10 @@ namespace InTheirShoes::Lifecycle {
     }
 
     void OnSessionBegin() {
-        CrimeManager::GetSingleton()->OnSessionBegin(RE::PlayerCharacter::GetSingleton());
         // Before idle AI re-evaluates the player's package, whose target may be a linked ref
-        LinkedRefManager::GetSingleton()->OnSessionBegin(Session::GetSingleton()->GetDonor(), RE::PlayerCharacter::GetSingleton());
+        for (auto* stash : SessionStash::All()) {
+            stash->Begin(Session::GetSingleton()->GetDonor(), RE::PlayerCharacter::GetSingleton());
+        }
         IdleChatter::GetSingleton()->InvalidateTopicCache();
         IdleAIManager::GetSingleton()->OnImpersonationChanged();
         PackageRetarget::GetSingleton()->RetargetDonorToPlayer(Session::GetSingleton()->GetDonor(), Session::GetPlayer());
@@ -107,8 +101,9 @@ namespace InTheirShoes::Lifecycle {
     void OnSessionEnd() {
         // The player stops voicing the donor's line on revert or a switch to another donor
         PlayerVoice::GetSingleton()->Finish();
-        CrimeManager::GetSingleton()->OnSessionEnd(RE::PlayerCharacter::GetSingleton());
-        LinkedRefManager::GetSingleton()->OnSessionEnd(Session::GetSingleton()->GetDonor(), RE::PlayerCharacter::GetSingleton());
+        for (auto* stash : SessionStash::All()) {
+            stash->End(Session::GetSingleton()->GetDonor(), RE::PlayerCharacter::GetSingleton());
+        }
         IdleChatter::GetSingleton()->InvalidateTopicCache();
         IdleAIManager::GetSingleton()->OnImpersonationChanged();
         PackageRetarget::GetSingleton()->RestoreDonorToPlayer();

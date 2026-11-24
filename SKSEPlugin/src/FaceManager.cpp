@@ -2,7 +2,6 @@
 #include "FaceManager.h"
 #include "Forms.h"
 #include "ActorHooks.h"
-#include "Session.h"
 
 #include <algorithm>
 
@@ -83,12 +82,7 @@ namespace InTheirShoes {
         template <class Material>
         Material* FindMaterial(RE::NiAVObject* a_root) {
             Material* found = nullptr;
-            if (!a_root) return found;
-            RE::BSVisit::TraverseScenegraphGeometries(a_root, [&](RE::BSGeometry* a_geom) {
-                auto* shaderProp = a_geom ? a_geom->lightingShaderProp_cast() : nullptr;
-                found = shaderProp ? skyrim_cast<Material*>(shaderProp->material) : nullptr;
-                return found ? RE::BSVisit::BSVisitControl::kStop : RE::BSVisit::BSVisitControl::kContinue;
-            });
+            ForEachMaterial<Material>(a_root, [&](Material* a_material) { if (!found) found = a_material; });
             return found;
         }
 
@@ -157,24 +151,6 @@ namespace InTheirShoes {
             }
             a_npc->tintLayers->clear();
         }
-    }
-
-    void FaceManager::InstallHook() {
-        REL::Relocation<std::uintptr_t> vtbl{ RE::VTABLE_RaceSexMenu[0] };
-        _origRaceSexMenuProcessMessage = vtbl.write_vfunc(0x4, &Hook_RaceSexMenu_ProcessMessage);
-        SKSE::log::info("Hooked RaceSexMenu::ProcessMessage (0x4)");
-    }
-
-    RE::UI_MESSAGE_RESULTS FaceManager::Hook_RaceSexMenu_ProcessMessage(RE::RaceSexMenu* a_this, RE::UIMessage& a_message) {
-        // RaceSexMenu reads the player's tint masks at the race's tint indices (ID 52412); with a donor of another race
-        // they run past the Dragonborn's masks and crash. kIgnore on kShow drops the menu before it opens (ID 82082),
-        // so RaceMenu doesn't save the donor's tints either.
-        if (a_message.type == RE::UI_MESSAGE_TYPE::kShow && Session::GetSingleton()->IsActive() && !a_this->AlwaysOpen()) {
-            SKSE::log::info("Refused to open RaceMenu while impersonating");
-            RE::SendHUDMessage::ShowHUDMessage("You can't change your appearance while impersonating.");
-            return RE::UI_MESSAGE_RESULTS::kIgnore;
-        }
-        return _origRaceSexMenuProcessMessage(a_this, a_message);
     }
 
     std::optional<FaceSnapshot> FaceManager::CaptureSnapshot(RE::Actor* a_actor) {
@@ -414,22 +390,6 @@ namespace InTheirShoes {
         );
 
         return true;
-    }
-
-    bool FaceManager::CopyAppearance(RE::Actor* a_donor, RE::Actor* a_target) {
-        if (!a_donor || !a_target) {
-            SKSE::log::warn("CopyAppearance called with null actor pointers.");
-            return false;
-        }
-
-        auto donorSnapshot = CaptureSnapshot(a_donor);
-        if (!donorSnapshot) {
-            SKSE::log::error("Failed to capture appearance of donor actor {:08X}.",
-                a_donor->GetFormID());
-            return false;
-        }
-
-        return ApplySnapshot(a_target, *donorSnapshot);
     }
 
     void FaceManager::ReapplyTints(RE::Actor* a_actor, const FaceSnapshot& a_snapshot) {

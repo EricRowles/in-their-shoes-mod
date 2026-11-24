@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "PlayerVoice.h"
+#include "DialogueManager.h"
 #include "GameClock.h"
 #include "GameUtil.h"
 #include "Session.h"
@@ -17,13 +18,9 @@ namespace InTheirShoes {
     constexpr float kMaxLineSeconds = 30.0f;
     // A line's sound handle may not report as playing on the frame it starts
     constexpr float kLineStartGraceSeconds = 0.2f;
-    // On a voice file's first play it is still loading, so the engine can't voice the line yet. Keep
-    // asking it for this long before falling back to playing the file ourselves, without lip sync.
-    constexpr float kEngineVoiceRetrySeconds = 0.5f;
     // A self-dialogue line that starts before the Dialogue Menu is open (the greeting) waits this long
     // for it: the engine won't voice the player's line until the menu is up
     constexpr float kMenuWaitSeconds = 1.0f;
-    constexpr float kVoiceRetryIntervalSeconds = 0.1f;
     // A voiced line is done this long after its sound's duration has played
     constexpr float kSoundTailSeconds = 0.25f;
     // A stand-in's own voice plays at this volume: the engine times the line by it, and nobody hears it
@@ -101,46 +98,6 @@ namespace InTheirShoes {
             a_actor->SetEmotionValue(0);
         }
 
-        // Plays the response's voice file on the actor, for when the engine didn't start it
-        // (see SpeakLine). It has no lip sync.
-        bool StartVoiceSound(RE::Actor* a_actor, const RE::DialogueResponse* a_response) {
-            auto* process = a_actor->GetActorRuntimeData().currentProcess;
-            auto* audioMgr = RE::BSAudioManager::GetSingleton();
-            if (!process || !process->high || !audioMgr) return false;
-
-            RE::BSSoundHandle handle;
-            if (a_response->voiceSound) {
-                audioMgr->GetSoundHandle(handle, a_response->voiceSound);
-            } else if (!a_response->voice.empty()) {
-                std::string path = a_response->voice.c_str();
-                std::replace(path.begin(), path.end(), '/', '\\');
-                if (path.size() >= 5 && _strnicmp(path.c_str(), "data\\", 5) == 0) {
-                    path = path.substr(5);
-                }
-                auto dot = path.rfind('.');
-                std::string base = dot != std::string::npos ? path.substr(0, dot) : path;
-                // Voice files ship as .fuz in the archives even though the response names the .wav
-                for (const auto& candidate : { base + ".fuz", base + ".wav" }) {
-                    RE::BSResource::ID resID;
-                    resID.GenerateFromPath(candidate.c_str());
-                    audioMgr->GetSoundHandleByFile(handle, resID, 0x10, 64);
-                    if (handle.IsValid()) break;
-                }
-            }
-
-            if (!handle.IsValid()) {
-                return false;
-            }
-            if (auto* head = GetHeadNode(a_actor)) {
-                handle.SetPosition(head->world.translate);
-                handle.SetObjectToFollow(head);
-            }
-            handle.SetVolume(1.0f);
-            handle.Play();
-            process->high->soundHandles[0] = handle;
-            return true;
-        }
-
         void CopyResponse(const RE::DialogueResponse* a_from, RE::DialogueResponse& a_to) {
             a_to.text = a_from->text;
             a_to.animFaceArchType = a_from->animFaceArchType;
@@ -190,14 +147,14 @@ namespace InTheirShoes {
         return IsSoundActive(a_actor);
     }
 
-    void PlayerVoice::Speak(RE::DialogueResponse* a_response, bool a_unused) {
-        SpeakLine(a_response, a_unused, false);
+    void PlayerVoice::Speak(RE::DialogueResponse* a_response) {
+        SpeakLine(a_response, false);
     }
 
     void PlayerVoice::SpeakIdleChatter(RE::BSTSmartPointer<RE::DialogueItem> a_item) {
         if (_line) Finish();
         SendTopicInfoEvent(*a_item, RE::TESTopicInfoEvent::TopicInfoEventType::kTopicBegin);
-        StartLine(a_item->responses.front(), false, true);
+        StartLine(a_item->responses.front(), true);
         _line->item = std::move(a_item);  // the response must outlive the line
     }
 
@@ -209,7 +166,7 @@ namespace InTheirShoes {
         std::size_t index = 0;
         for (auto* response : item->responses) {
             if (index++ == next && response) {
-                StartLine(response, false, true);
+                StartLine(response, true);
                 _line->item = std::move(item);
                 _line->responseIndex = next;
                 return true;
@@ -225,8 +182,8 @@ namespace InTheirShoes {
         StripPerformance(a_engineResponse);
     }
 
-    void PlayerVoice::SpeakForStandIn(RE::Actor* a_standIn, bool a_unused) {
-        SpeakLine(&_standInLine, a_unused, false);
+    void PlayerVoice::SpeakForStandIn(RE::Actor* a_standIn) {
+        SpeakLine(&_standInLine, false);
         _line->standIn = a_standIn->GetHandle();
         _line->followsStandIn = true;
     }
@@ -248,13 +205,13 @@ namespace InTheirShoes {
         }
     }
 
-    void PlayerVoice::SpeakLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
+    void PlayerVoice::SpeakLine(RE::DialogueResponse* a_response, bool a_isIdleChatter) {
         // End the playing line first, so it still sends its end event and reports to IdleChatter.
         if (_line) Finish();
-        StartLine(a_response, a_unused, a_isIdleChatter);
+        StartLine(a_response, a_isIdleChatter);
     }
 
-    void PlayerVoice::StartLine(RE::DialogueResponse* a_response, bool a_unused, bool a_isIdleChatter) {
+    void PlayerVoice::StartLine(RE::DialogueResponse* a_response, bool a_isIdleChatter) {
         auto* player = RE::PlayerCharacter::GetSingleton();
         StopSounds(player);
 
@@ -270,33 +227,21 @@ namespace InTheirShoes {
         runtime.boolBits.set(RE::Actor::BOOL_BITS::kSoundFileDone);
         runtime.boolBits.set(RE::Actor::BOOL_BITS::kVoiceFileDone);
         runtime.voiceTimer = 0.0f;
-        _engine.setSpeakingDone(player, false);
+        DialogueManager::EngineSetSpeakingDone(player, false);
 
-        // PlayerCharacter's own UpdateInDialogue doesn't run lines; the Character version does, and voices
-        // the line itself (with lip sync) when the voice file is loaded. Update retries it while
-        // the file loads, and falls back to playing the file without lip sync.
+        // The engine voices the line from the next frame (StartVoiceLate)
         auto* ui = RE::UI::GetSingleton();
         line.waitsForMenu = Session::GetSingleton()->IsInSelfDialogue() && !(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME));
         if (!line.waitsForMenu) {
-            // Voiced from the frame when called elsewhere: voices started from the Dialogue Menu's job threads
-            // never played (#3)
-            if (IsMainThread()) {
-                _engine.updateInDialogue(player, a_response, a_unused);
-            }
             runtime.soundCallBackSet = 1;
         }
 
         line.start = GameClock::Now();
         line.created = line.start;
-        line.hadSound = IsSoundActive(player);
         line.soundStart = line.start;
         line.lastSoundTick = line.start;
-        line.pendingVoice = (!line.hadSound && HasVoice(a_response)) ? a_response : nullptr;
-        if (line.hadSound) {
-            AttachSoundsToHead(player);
-        }
-        SKSE::log::info("Player line: '{}' (engine voiced={}, idleChatter={})",
-            a_response->text.c_str(), line.hadSound, a_isIdleChatter);
+        line.pendingVoice = HasVoice(a_response) ? a_response : nullptr;
+        SKSE::log::info("Player line: '{}' (idleChatter={})", a_response->text.c_str(), a_isIdleChatter);
 
         float textLen = static_cast<float>(a_response->text.length());
         line.unvoicedDuration = std::max(kUnvoicedMinSeconds, textLen * kUnvoicedSecondsPerChar);
@@ -316,18 +261,12 @@ namespace InTheirShoes {
             player->GetActorRuntimeData().soundCallBackSet = 1;
         }
 
-        float elapsed = GameClock::SecondsSince(line.start);
-
-        if (elapsed < kEngineVoiceRetrySeconds) {
-            if (GameClock::SecondsSince(line.lastVoiceRetry) < kVoiceRetryIntervalSeconds) return;
-            line.lastVoiceRetry = GameClock::Now();
-            _engine.updateInDialogue(player, line.pendingVoice, false);
-            if (!IsSoundActive(player)) return;
-            SKSE::log::info("Engine voiced the player line on retry after {:.2f}s", elapsed);
-        } else if (StartVoiceSound(player, line.pendingVoice)) {
-            SKSE::log::info("Engine didn't voice the player line; playing the voice file without lip sync");
-        } else {
-            SKSE::log::warn("No voice sound could be started for '{}'", line.pendingVoice->voice.c_str());
+        // PlayerCharacter's own UpdateInDialogue doesn't run lines; the Character version does, and voices the line
+        // itself (with lip sync). Asked from the frame: voices started from the Dialogue Menu's job threads never
+        // played (#3), and asked in the call that starts the line, even on the main thread, it rarely voiced it.
+        DialogueManager::EngineUpdateInDialogue(player, line.pendingVoice, false);
+        if (!IsSoundActive(player)) {
+            SKSE::log::warn("Engine didn't voice the player line ('{}'); it is shown unvoiced", line.pendingVoice->voice.c_str());
             line.pendingVoice = nullptr;
             return;
         }
@@ -340,7 +279,7 @@ namespace InTheirShoes {
     }
 
     // A stand-in's line ends when the engine says the stand-in has finished speaking. The player's voice may
-    // have started later than the stand-in's (waiting for the menu or for the voice file), so it gets that
+    // have started later than the stand-in's (waiting for the menu or the next frame), so it gets that
     // long to finish; a new line or the menu closing ends it sooner.
     bool PlayerVoice::StandInLineDone() {
         auto& line = *_line;
@@ -377,7 +316,7 @@ namespace InTheirShoes {
         // The player's line isn't ticked while the Dialogue Menu is open; doing so stalls its lip sync
         auto* ui = RE::UI::GetSingleton();
         if (!(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
-            _engine.updateInDialogue(player, nullptr, false);
+            DialogueManager::EngineUpdateInDialogue(player, nullptr, false);
         }
 
         if (line.pendingVoice) {
@@ -424,7 +363,7 @@ namespace InTheirShoes {
         StopSounds(player);
         player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSpeakingDone);
         player->GetActorRuntimeData().voiceTimer = 0.0f;
-        _engine.setSpeakingDone(player, true);
+        DialogueManager::EngineSetSpeakingDone(player, true);
         ResetFace(player);
 
         if (line.isIdleChatter) {

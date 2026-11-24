@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     InTheirShoes
-    VERSION 0.7.0
+    VERSION 0.8.0
     LANGUAGES CXX
 )
 
@@ -22,6 +22,7 @@ add_library(${PROJECT_NAME} SHARED
     src/Forms.h
     src/Forms.cpp
     src/GameUtil.h
+    src/HookUtil.h
     src/GameClock.h
     src/PlayerBusy.h
     src/PlayerBusy.cpp
@@ -35,10 +36,8 @@ add_library(${PROJECT_NAME} SHARED
     src/ActorHooks.cpp
     src/ConditionHooks.h
     src/ConditionHooks.cpp
-    src/CrimeManager.h
-    src/CrimeManager.cpp
-    src/LinkedRefManager.h
-    src/LinkedRefManager.cpp
+    src/SessionStash.h
+    src/SessionStash.cpp
     src/AliasSwapManager.h
     src/AliasSwapManager.cpp
     src/FaceManager.h
@@ -47,8 +46,6 @@ add_library(${PROJECT_NAME} SHARED
     src/InventoryManager.cpp
     src/StatManager.h
     src/StatManager.cpp
-    src/FactionManager.h
-    src/FactionManager.cpp
     src/IdleAIManager.h
     src/IdleAIManager.cpp
     src/PackageUtil.h

@@ -1,127 +1,55 @@
 Scriptname ITS_MCMScript extends SKI_ConfigBase
 
 ITS_QuestScript Property ITS_Quest Auto
-GlobalVariable Property ITS_PuppetFollows Auto	; gates the follow package on the PlayerPuppet alias
 
-; MCM Property Variables
-Bool Property IdleAIEnabled = True Auto
-Float Property IdleAITimeout = 10.0 Auto
-Int Property IdleAIPackage = 0 Auto
-Int Property IdleTravelDestination = 0 Auto
-Float Property IdleChatterTime = 60.0 Auto
-Bool Property NPCVoiceEnabled = True Auto
-Bool Property NativeRedirectEnabled = True Auto
-Bool Property PuppetFollowsPlayer = True Auto
+; The settings live in the plugin (ITS_NG.GetSetting / SetSetting), which saves them in its co-save
 
 ; Option IDs
 Int _oid_idleAI
 Int _oid_idleTimeout
 Int _oid_idlePackage
-Int _oid_travelDestination
 Int _oid_idleChatterTime
 Int _oid_npcVoice
 Int _oid_nativeRedirect
 Int _oid_puppetFollows
 Int _oid_revert
-Int _oid_scene
-Int _oid_donor
-Int _oid_tempFactions
-Int _oid_tempAliases
 Bool _pendingRevert = False
 
 Int Function GetVersion()
-	Return 1
+	Return 2
 EndFunction
 
-; Pushes every MCM setting to the native plugin, which saves them in its co-save. Runs on first init, on version
-; update and on every game load (via ITS_QuestScript.ITS_Maintenance), for saves made before the plugin saved them.
-Function PushConfig()
-	; Below the slider's minimum, from an old save
-	If IdleChatterTime < 10.0
-		IdleChatterTime = 60.0
-	EndIf
-	If IdleAIPackage < 0 || IdleAIPackage >= GetIdlePackageNames().Length
-		IdleAIPackage = 0
-	EndIf
-	If IdleTravelDestination < 0 || IdleTravelDestination >= GetTravelDestinationNames().Length
-		IdleTravelDestination = 0
-	EndIf
-
-	ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
-	ITS_NG.SetIdleAITimeout(IdleAITimeout)
-	; Destination first, so a Travel package filled by SetIdleAIPackage already has it
-	ITS_NG.SetIdleTravelDestination(IdleTravelDestination)
-	ITS_NG.SetIdleAIPackage(IdleAIPackage)
-	ITS_NG.SetIdleChatterTime(IdleChatterTime)
-	ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
-	ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
-	ApplyPuppetFollows()
-EndFunction
-
-Function ApplyPuppetFollows()
-	If ITS_PuppetFollows
-		If PuppetFollowsPlayer
-			ITS_PuppetFollows.SetValue(1.0)
-		Else
-			ITS_PuppetFollows.SetValue(0.0)
-		EndIf
-	EndIf
-	ITS_NG.SetPuppetFollowsPlayer(PuppetFollowsPlayer)
-EndFunction
-
-; Default, then the ITS_PackageManager aliases in alias ID order
+; Default, then the ITS_PackageManager aliases in alias ID order (the plugin's IdleAIPackage range matches)
 String[] Function GetIdlePackageNames()
-	String[] names = new String[4]
+	String[] names = new String[3]
 	names[0] = "Default"
 	names[1] = "Sandbox (wide)"
 	names[2] = "Sandbox (close)"
-	names[3] = "Travel"
 	Return names
 EndFunction
 
-Int Property IDLE_PACKAGE_TRAVEL = 3 AutoReadOnly
-
-; In the plugin's order (Forms::travelDestinations)
-String[] Function GetTravelDestinationNames()
-	String[] names = new String[9]
-	names[0] = "Whiterun"
-	names[1] = "Solitude"
-	names[2] = "Windhelm"
-	names[3] = "Riften"
-	names[4] = "Markarth"
-	names[5] = "Falkreath"
-	names[6] = "Morthal"
-	names[7] = "Dawnstar"
-	names[8] = "Winterhold"
-	Return names
+Bool Function IsOn(String a_setting)
+	Return ITS_NG.GetSetting(a_setting) != 0.0
 EndFunction
 
-; Each section's options are disabled while its Enabled toggle is off
-Int Function IdleOptionFlags()
-	If IdleAIEnabled
+; Flips a toggle setting and shows its new value. Pass a_noUpdate only when another option update without
+; it follows: SkyUI doesn't redraw until then, so a lone toggle would look unchanged until the cursor moves.
+Function Toggle(Int a_option, String a_setting, Bool a_noUpdate = False)
+	Bool on = !IsOn(a_setting)
+	If on
+		ITS_NG.SetSetting(a_setting, 1.0)
+	Else
+		ITS_NG.SetSetting(a_setting, 0.0)
+	EndIf
+	SetToggleOptionValue(a_option, on, a_noUpdate)
+EndFunction
+
+; A section's options are disabled while its Enabled toggle is off
+Int Function FlagsFor(String a_toggle)
+	If IsOn(a_toggle)
 		Return OPTION_FLAG_NONE
 	EndIf
 	Return OPTION_FLAG_DISABLED
-EndFunction
-
-Int Function TravelDestinationFlags()
-	If IdleAIEnabled && IdleAIPackage == IDLE_PACKAGE_TRAVEL
-		Return OPTION_FLAG_NONE
-	EndIf
-	Return OPTION_FLAG_DISABLED
-EndFunction
-
-Int Function VoiceOptionFlags()
-	If NPCVoiceEnabled
-		Return OPTION_FLAG_NONE
-	EndIf
-	Return OPTION_FLAG_DISABLED
-EndFunction
-
-Function UpdateIdleOptionFlags()
-	SetOptionFlags(_oid_idleTimeout, IdleOptionFlags(), True)
-	SetOptionFlags(_oid_idlePackage, IdleOptionFlags(), True)
-	SetOptionFlags(_oid_travelDestination, TravelDestinationFlags())
 EndFunction
 
 Event OnVersionUpdate(Int a_version)
@@ -135,19 +63,18 @@ EndEvent
 Function SetUpMenu()
 	ModName = "In Their Shoes"
 	Pages = None
-	PushConfig()
 EndFunction
 
 Event OnPageReset(String page)
 	SetCursorPosition(0)
 	SetCursorFillMode(LEFT_TO_RIGHT)
 
-	; Top row: Mod Version (left), Return to Body (right)
+	; Top: Mod Version (left), Return to Body (right)
 	AddTextOption("Mod Version", ITS_NG.GetPluginVersion(), OPTION_FLAG_DISABLED)
 	If ITS_NG.IsImpersonating()
-		_oid_revert = AddTextOption("Return to Body", "Click to Revert")
+		_oid_revert = AddTextOption("Impersonating: " + ITS_NG.GetDonorName(), "Click to Revert")
 	Else
-		_oid_revert = AddTextOption("Return to Body", "Already in Body", OPTION_FLAG_DISABLED)
+		_oid_revert = AddTextOption("Impersonating:", "Not Impersonating", OPTION_FLAG_DISABLED)
 	EndIf
 
 	; Gaps between sections use SetCursorPosition, not AddEmptyOption: SkyUI versions disagree on whether
@@ -157,58 +84,38 @@ Event OnPageReset(String page)
 	SetCursorPosition(4)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("Idle Movement")
-	_oid_idleAI = AddToggleOption("Enabled", IdleAIEnabled)
-	_oid_idleTimeout = AddSliderOption("Idle Delay", IdleAITimeout, "{1} s", IdleOptionFlags())
-	_oid_idlePackage = AddMenuOption("Idle Package", GetIdlePackageNames()[IdleAIPackage], IdleOptionFlags())
-	_oid_travelDestination = AddMenuOption("Travel Destination", GetTravelDestinationNames()[IdleTravelDestination], TravelDestinationFlags())
+	_oid_idleAI = AddToggleOption("Enabled", IsOn("IdleAIEnabled"))
+	_oid_idleTimeout = AddSliderOption("Idle Delay", ITS_NG.GetSetting("IdleAITimeout"), "{1} s", FlagsFor("IdleAIEnabled"))
+	_oid_idlePackage = AddMenuOption("Idle Package", GetIdlePackageNames()[ITS_NG.GetSetting("IdleAIPackage") as Int], FlagsFor("IdleAIEnabled"))
 
-	SetCursorPosition(16)
+	SetCursorPosition(14)
 	AddHeaderOption("Advanced")
-	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", NativeRedirectEnabled)
+	_oid_nativeRedirect = AddToggleOption("Redirect Script Calls", IsOn("NativeRedirectEnabled"))
 
 	; Right column: NPC Voice, then Dragonborn
 	SetCursorPosition(5)
 	SetCursorFillMode(TOP_TO_BOTTOM)
 	AddHeaderOption("NPC Voice")
-	_oid_npcVoice = AddToggleOption("Enabled", NPCVoiceEnabled)
-	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", IdleChatterTime, "{0} s", VoiceOptionFlags())
+	_oid_npcVoice = AddToggleOption("Enabled", IsOn("NPCVoiceEnabled"))
+	_oid_idleChatterTime = AddSliderOption("Idle Chatter Delay", ITS_NG.GetSetting("IdleChatterTime"), "{0} s", FlagsFor("NPCVoiceEnabled"))
 
 	SetCursorPosition(13)
 	AddHeaderOption("Dragonborn")
-	_oid_puppetFollows = AddToggleOption("Dragonborn Follows You", PuppetFollowsPlayer)
-
-	; Read when the page opens; the game is paused while the menu is open
-	SetCursorPosition(17)
-	AddHeaderOption("Informational")
-	_oid_donor = AddTextOption("Donor", ITS_NG.GetDonorName(), OPTION_FLAG_DISABLED)
-	String sceneName = ITS_NG.GetCurrentSceneName()
-	If sceneName == ""
-		sceneName = "None"
-	EndIf
-	_oid_scene = AddTextOption("Current Scene", sceneName, OPTION_FLAG_DISABLED)
-	_oid_tempFactions = AddTextOption("Temporary Factions", ITS_NG.GetTemporaryFactionCount() as String, OPTION_FLAG_DISABLED)
-	_oid_tempAliases = AddTextOption("Temporary Aliases", ITS_NG.GetTemporaryAliasCount() as String, OPTION_FLAG_DISABLED)
+	_oid_puppetFollows = AddToggleOption("Dragonborn Follows You", IsOn("PuppetFollowsPlayer"))
 EndEvent
 
 Event OnOptionSelect(Int option)
 	If option == _oid_idleAI
-		IdleAIEnabled = !IdleAIEnabled
-		SetToggleOptionValue(_oid_idleAI, IdleAIEnabled, True)
-		UpdateIdleOptionFlags()
-		ITS_NG.SetIdleAIEnabled(IdleAIEnabled)
+		Toggle(option, "IdleAIEnabled", True)
+		SetOptionFlags(_oid_idleTimeout, FlagsFor("IdleAIEnabled"), True)
+		SetOptionFlags(_oid_idlePackage, FlagsFor("IdleAIEnabled"))
 	ElseIf option == _oid_npcVoice
-		NPCVoiceEnabled = !NPCVoiceEnabled
-		SetToggleOptionValue(_oid_npcVoice, NPCVoiceEnabled, True)
-		SetOptionFlags(_oid_idleChatterTime, VoiceOptionFlags())
-		ITS_NG.SetNPCVoiceEnabled(NPCVoiceEnabled)
+		Toggle(option, "NPCVoiceEnabled", True)
+		SetOptionFlags(_oid_idleChatterTime, FlagsFor("NPCVoiceEnabled"))
 	ElseIf option == _oid_nativeRedirect
-		NativeRedirectEnabled = !NativeRedirectEnabled
-		SetToggleOptionValue(_oid_nativeRedirect, NativeRedirectEnabled)
-		ITS_NG.SetNativeRedirectEnabled(NativeRedirectEnabled)
+		Toggle(option, "NativeRedirectEnabled")
 	ElseIf option == _oid_puppetFollows
-		PuppetFollowsPlayer = !PuppetFollowsPlayer
-		SetToggleOptionValue(_oid_puppetFollows, PuppetFollowsPlayer)
-		ApplyPuppetFollows()
+		Toggle(option, "PuppetFollowsPlayer")
 	ElseIf option == _oid_revert
 		If ITS_NG.IsImpersonating()
 			Debug.Notification("Close the menu to return to your body.")
@@ -234,54 +141,55 @@ EndEvent
 Event OnOptionKeyMapChange(Int option, Int keyCode, String conflictControl, String conflictName)
 EndEvent
 
+; The slider's setting, or "" for another option
+String Function SliderSetting(Int a_option)
+	If a_option == _oid_idleTimeout
+		Return "IdleAITimeout"
+	ElseIf a_option == _oid_idleChatterTime
+		Return "IdleChatterTime"
+	EndIf
+	Return ""
+EndFunction
+
 Event OnOptionSliderOpen(Int option)
-	If option == _oid_idleTimeout
-		SetSliderDialogStartValue(IdleAITimeout)
-		SetSliderDialogDefaultValue(10.0)
-		SetSliderDialogRange(1.0, 120.0)
-		SetSliderDialogInterval(1.0)
-	ElseIf option == _oid_idleChatterTime
-		SetSliderDialogStartValue(IdleChatterTime)
-		SetSliderDialogDefaultValue(60.0)
-		SetSliderDialogRange(10.0, 600.0)
-		SetSliderDialogInterval(10.0)
+	String setting = SliderSetting(option)
+	If setting != ""
+		Float[] range = ITS_NG.GetSettingRange(setting)
+		SetSliderDialogStartValue(ITS_NG.GetSetting(setting))
+		SetSliderDialogDefaultValue(range[0])
+		SetSliderDialogRange(range[1], range[2])
+		If option == _oid_idleTimeout
+			SetSliderDialogInterval(1.0)
+		Else
+			SetSliderDialogInterval(10.0)
+		EndIf
 	EndIf
 EndEvent
 
 Event OnOptionSliderAccept(Int option, Float value)
-	If option == _oid_idleTimeout
-		IdleAITimeout = value
-		SetSliderOptionValue(_oid_idleTimeout, IdleAITimeout, "{1} s")
-		ITS_NG.SetIdleAITimeout(IdleAITimeout)
-	ElseIf option == _oid_idleChatterTime
-		IdleChatterTime = value
-		SetSliderOptionValue(_oid_idleChatterTime, IdleChatterTime, "{0} s")
-		ITS_NG.SetIdleChatterTime(IdleChatterTime)
+	String setting = SliderSetting(option)
+	If setting != ""
+		ITS_NG.SetSetting(setting, value)
+		If option == _oid_idleTimeout
+			SetSliderOptionValue(option, ITS_NG.GetSetting(setting), "{1} s")
+		Else
+			SetSliderOptionValue(option, ITS_NG.GetSetting(setting), "{0} s")
+		EndIf
 	EndIf
 EndEvent
 
 Event OnOptionMenuOpen(Int option)
 	If option == _oid_idlePackage
 		SetMenuDialogOptions(GetIdlePackageNames())
-		SetMenuDialogStartIndex(IdleAIPackage)
-		SetMenuDialogDefaultIndex(0)
-	ElseIf option == _oid_travelDestination
-		SetMenuDialogOptions(GetTravelDestinationNames())
-		SetMenuDialogStartIndex(IdleTravelDestination)
+		SetMenuDialogStartIndex(ITS_NG.GetSetting("IdleAIPackage") as Int)
 		SetMenuDialogDefaultIndex(0)
 	EndIf
 EndEvent
 
 Event OnOptionMenuAccept(Int option, Int index)
 	If option == _oid_idlePackage && index >= 0
-		IdleAIPackage = index
+		ITS_NG.SetSetting("IdleAIPackage", index)
 		SetMenuOptionValue(_oid_idlePackage, GetIdlePackageNames()[index])
-		SetOptionFlags(_oid_travelDestination, TravelDestinationFlags())
-		ITS_NG.SetIdleAIPackage(IdleAIPackage)
-	ElseIf option == _oid_travelDestination && index >= 0
-		IdleTravelDestination = index
-		SetMenuOptionValue(_oid_travelDestination, GetTravelDestinationNames()[index])
-		ITS_NG.SetIdleTravelDestination(IdleTravelDestination)
 	EndIf
 EndEvent
 
@@ -292,8 +200,6 @@ Event OnOptionHighlight(Int option)
 		SetInfoText("Seconds of player inactivity before idle movement begins.")
 	ElseIf option == _oid_idlePackage
 		SetInfoText("What you do when idle AI starts. Default runs the NPC's own packages. Any other choice runs instead of them, even while the NPC is a follower.")
-	ElseIf option == _oid_travelDestination
-		SetInfoText("Where you go when idle movement starts with the Travel package. Once there, you wander the town.")
 	ElseIf option == _oid_npcVoice
 		SetInfoText("Enables donor NPC voice comments and voice identity on the player while impersonating.")
 	ElseIf option == _oid_idleChatterTime
@@ -301,15 +207,7 @@ Event OnOptionHighlight(Int option)
 	ElseIf option == _oid_nativeRedirect
 		SetInfoText("Papyrus scripts target the player instead of the NPC. SKSE scripts are unaffected.\nDisabling may affect dialogue playback")
 	ElseIf option == _oid_puppetFollows
-		SetInfoText("Controls whether the Dragonborn puppet follows you as a teammate.")
-	ElseIf option == _oid_donor
-		SetInfoText("The NPC you're impersonating. Not Found means a saved session's NPC no longer exists.")
-	ElseIf option == _oid_scene
-		SetInfoText("The scene you're in, if any.")
-	ElseIf option == _oid_tempFactions
-		SetInfoText("The NPC's factions you've joined while impersonating them. They go back to the NPC when you return to your body.")
-	ElseIf option == _oid_tempAliases
-		SetInfoText("The NPC's quest roles you've taken over while impersonating them. They go back to the NPC when you return to your body.")
+		SetInfoText("Controls whether the Dragonborn follows you as a teammate.")
 	ElseIf option == _oid_revert
 		SetInfoText("Immediately return control back to your original character.")
 	EndIf
