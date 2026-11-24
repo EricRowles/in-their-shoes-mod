@@ -1,7 +1,6 @@
 #pragma once
 
 #include "GameClock.h"
-#include <functional>
 #include <optional>
 
 namespace InTheirShoes {
@@ -14,18 +13,10 @@ namespace InTheirShoes {
     // A stand-in's line is the engine's: the stand-in runs it unheard and the engine paces the conversation by
     // it. The player's copy only follows, ending when the stand-in's does.
     //
-    // The engine's original UpdateInDialogue and SetSpeakingDone are hooked by DialogueManager; it hands them
-    // over in SetEngineCalls.
+    // UpdateInDialogue and SetSpeakingDone are hooked by DialogueManager, so the engine's originals are called
+    // through it.
     class PlayerVoice : public REX::Singleton<PlayerVoice> {
     public:
-        struct EngineCalls {
-            // Character::UpdateInDialogue run on the given actor, bypassing our hook
-            std::function<void(RE::Actor*, RE::DialogueResponse*, bool)> updateInDialogue;
-            // PlayerCharacter::SetSpeakingDone, bypassing our hook
-            std::function<void(RE::Actor*, bool)> setSpeakingDone;
-        };
-        void SetEngineCalls(EngineCalls a_calls) { _engine = std::move(a_calls); }
-
         // Per frame: ticks the playing line
         void Update();
         void Clear();
@@ -72,8 +63,6 @@ namespace InTheirShoes {
         bool SpeakNextIdleResponse();
         void StartVoiceLate();
         bool StandInLineDone();
-
-        EngineCalls _engine;
 
         // The line the player is voicing. It exists only while the line plays, and is dropped as a whole
         // when it ends.

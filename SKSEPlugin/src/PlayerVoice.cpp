@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "PlayerVoice.h"
+#include "DialogueManager.h"
 #include "GameClock.h"
 #include "GameUtil.h"
 #include "Session.h"
@@ -270,7 +271,7 @@ namespace InTheirShoes {
         runtime.boolBits.set(RE::Actor::BOOL_BITS::kSoundFileDone);
         runtime.boolBits.set(RE::Actor::BOOL_BITS::kVoiceFileDone);
         runtime.voiceTimer = 0.0f;
-        _engine.setSpeakingDone(player, false);
+        DialogueManager::EngineSetSpeakingDone(player, false);
 
         // PlayerCharacter's own UpdateInDialogue doesn't run lines; the Character version does, and voices
         // the line itself (with lip sync) when the voice file is loaded. Update retries it while
@@ -281,7 +282,7 @@ namespace InTheirShoes {
             // Voiced from the frame when called elsewhere: voices started from the Dialogue Menu's job threads
             // never played (#3)
             if (IsMainThread()) {
-                _engine.updateInDialogue(player, a_response, a_unused);
+                DialogueManager::EngineUpdateInDialogue(player, a_response, a_unused);
             }
             runtime.soundCallBackSet = 1;
         }
@@ -321,7 +322,7 @@ namespace InTheirShoes {
         if (elapsed < kEngineVoiceRetrySeconds) {
             if (GameClock::SecondsSince(line.lastVoiceRetry) < kVoiceRetryIntervalSeconds) return;
             line.lastVoiceRetry = GameClock::Now();
-            _engine.updateInDialogue(player, line.pendingVoice, false);
+            DialogueManager::EngineUpdateInDialogue(player, line.pendingVoice, false);
             if (!IsSoundActive(player)) return;
             SKSE::log::info("Engine voiced the player line on retry after {:.2f}s", elapsed);
         } else if (StartVoiceSound(player, line.pendingVoice)) {
@@ -377,7 +378,7 @@ namespace InTheirShoes {
         // The player's line isn't ticked while the Dialogue Menu is open; doing so stalls its lip sync
         auto* ui = RE::UI::GetSingleton();
         if (!(ui && ui->IsMenuOpen(RE::DialogueMenu::MENU_NAME))) {
-            _engine.updateInDialogue(player, nullptr, false);
+            DialogueManager::EngineUpdateInDialogue(player, nullptr, false);
         }
 
         if (line.pendingVoice) {
@@ -424,7 +425,7 @@ namespace InTheirShoes {
         StopSounds(player);
         player->GetActorRuntimeData().boolBits.set(RE::Actor::BOOL_BITS::kSpeakingDone);
         player->GetActorRuntimeData().voiceTimer = 0.0f;
-        _engine.setSpeakingDone(player, true);
+        DialogueManager::EngineSetSpeakingDone(player, true);
         ResetFace(player);
 
         if (line.isIdleChatter) {

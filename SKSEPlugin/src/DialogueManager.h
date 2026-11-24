@@ -29,6 +29,13 @@ namespace InTheirShoes {
         // Self-dialogue: the player talking to the puppet, seeing the donor's topics
         bool OpenSelfDialogue(RE::Actor* a_speaker = nullptr, RE::TESTopic* a_forceGreetTopic = nullptr);
 
+        // The engine's Character::UpdateInDialogue and PlayerCharacter::SetSpeakingDone, bypassing the hooks
+        // (for PlayerVoice)
+        static void EngineUpdateInDialogue(RE::Actor* a_actor, RE::DialogueResponse* a_response, bool a_unused) {
+            _origCharUpdateInDialogue(a_actor, a_response, a_unused);
+        }
+        static void EngineSetSpeakingDone(RE::Actor* a_actor, bool a_set) { _origPlayerSetSpeakingDone(a_actor, a_set); }
+
     private:
         friend REX::Singleton<DialogueManager>;
         DialogueManager() = default;

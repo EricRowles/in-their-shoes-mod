@@ -4,6 +4,7 @@
 #include "Forms.h"
 #include "HookUtil.h"
 #include "IdleAIManager.h"
+#include "LogUtil.h"
 #include "Session.h"
 #include "Settings.h"
 
@@ -372,14 +373,10 @@ namespace InTheirShoes::ConditionHooks {
             return s_handle.load(std::memory_order_relaxed);
         }
 
-        // Logs the first swap of each condition function in a session, to show what's asked about the donor
+        // Logs the first swap of each condition function for each donor, to show what's asked about the donor
         void LogSwap(RE::Actor* a_donor, std::size_t a_function, std::string_view a_how, const RE::TESObjectREFR* a_subject) {
-            static std::array<std::atomic<bool>, kFunctionCount> s_logged{};
-            static std::atomic<RE::Actor*> s_loggedFor{ nullptr };
-            if (s_loggedFor.exchange(a_donor) != a_donor) {
-                for (auto& logged : s_logged) logged.store(false, std::memory_order_relaxed);
-            }
-            if (s_logged[a_function].exchange(true)) return;
+            static LogOnce<std::pair<const RE::Actor*, std::size_t>> s_logged;
+            if (!s_logged.First({ a_donor, a_function })) return;
             const auto* command = RE::SCRIPT_FUNCTION::GetFirstScriptCommand();
             SKSE::log::info("Condition {} ({}) about the donor through its {} (subject {:08X} '{}'); asked of its stand-in",
                 command ? command[a_function].functionName : "?", a_function, a_how, a_subject ? a_subject->GetFormID() : 0,

@@ -78,8 +78,6 @@ namespace InTheirShoes {
         // While the player holds the donor's factions, the Dragonborn's rank in a_faction (-1 if not a member), for
         // conditions asked of the Dragonborn. nullopt when the player's own membership is the answer. Any thread.
         std::optional<std::int8_t> GetDragonbornFactionRank(const RE::TESFaction* a_faction) const;
-        // How many of the donor's factions the player was given (the MCM shows it)
-        std::size_t GetGivenCount() const { return _given.size(); }
 
         void Save(Serialization::Serde* a_serde) const override;
 

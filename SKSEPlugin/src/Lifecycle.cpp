@@ -4,7 +4,6 @@
 #include "AliasSwapManager.h"
 #include "ConditionHooks.h"
 #include "DialogueManager.h"
-#include "FaceManager.h"
 #include "GameClock.h"
 #include "Forms.h"
 #include "IdleAIManager.h"
@@ -36,7 +35,6 @@ namespace InTheirShoes::Lifecycle {
         AliasSwapManager::GetSingleton()->Initialize();
         ActorHooks::Install();
         ConditionHooks::Install();
-        FaceManager::GetSingleton()->InstallHook();
         ImpersonationManager::GetSingleton()->Initialize();
         NativeRedirect::Install();
     }

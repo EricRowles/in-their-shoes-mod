@@ -65,10 +65,6 @@ namespace InTheirShoes {
             SKSE::log::warn("DialogueManager failed to get UI singleton.");
         }
         InstallHooks();
-        auto& voice = *PlayerVoice::GetSingleton();
-        voice.SetEngineCalls({
-            [](RE::Actor* a_actor, RE::DialogueResponse* a_response, bool a_unused) { _origCharUpdateInDialogue(a_actor, a_response, a_unused); },
-            [](RE::Actor* a_actor, bool a_set) { _origPlayerSetSpeakingDone(a_actor, a_set); } });
         _initialized = true;
     }
 

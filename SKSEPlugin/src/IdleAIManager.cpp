@@ -363,7 +363,7 @@ namespace InTheirShoes {
         _running = true;
         _forceGreetTriggered = false;
         _forceGreetProcedureActive = false;
-        _runningPackageLogged = false;
+        _loggedPackage.Reset();
         _scenePackagesRunning = false;
         _lastPackageSyncTime = GameClock::Now();
         if (auto* scene = GetPlayingScene(a_player)) {
@@ -403,7 +403,7 @@ namespace InTheirShoes {
         ApplyIdlePackage();
         ClearPlayerPackages();
         a_player->EvaluatePackage(false, false);
-        _loggedPackage = nullptr;
+        _loggedPackage.Reset();
         _idleSeconds = 0.0f;
         SKSE::log::info("Disengaged autonomous AI: {}", ToString(a_reason));
     }
@@ -419,9 +419,7 @@ namespace InTheirShoes {
         if (!IsRunning() || GameClock::SecondsSince(_aiStartTime) < 1.0f) return;
         auto* player = RE::PlayerCharacter::GetSingleton();
         auto* pkg = player ? player->GetCurrentPackage() : nullptr;
-        if (_runningPackageLogged && pkg == _loggedPackage) return;
-        _runningPackageLogged = true;
-        _loggedPackage = pkg;
+        if (!_loggedPackage.Changed(pkg)) return;
         _forceGreetTriggered = false;
         _forceGreetProcedureActive = false;
         if (pkg) {
@@ -625,7 +623,7 @@ namespace InTheirShoes {
         _idleSeconds = 0.0f;
         _forceGreetProcedureActive = false;
         _scenePackagesRunning = false;
-        _loggedPackage = nullptr;
+        _loggedPackage.Reset();
         ClearPlayerPackages();
         _appliedAliasID = -1;
         _greetingPackage = 0;

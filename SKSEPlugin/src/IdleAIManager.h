@@ -127,14 +127,13 @@ namespace InTheirShoes {
         bool _owned{ false };
         // Game time the player has been eligible for idle AI without acting
         float _idleSeconds{ 0.0f };
-        PlayerBusy _blockedBy{ PlayerBusy::kNo };
+        LogOnChange<PlayerBusy> _blockedBy;
 
         bool _forceGreetTriggered{ false };
         // The ForceGreet package whose arrival opened the current self-dialogue
         RE::FormID _greetingPackage{ 0 };
         RE::FormID _greetedScene{ 0 };
-        RE::TESPackage* _loggedPackage{ nullptr };
-        bool _runningPackageLogged{ false };
+        LogOnChange<RE::TESPackage*> _loggedPackage;
         GameClock::TimePoint _aiStartTime{};
         GameClock::TimePoint _lastPackageSyncTime{};
 

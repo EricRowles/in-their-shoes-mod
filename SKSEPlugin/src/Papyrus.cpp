@@ -1,24 +1,23 @@
 #include "PCH.h"
 #include "Papyrus.h"
 #include "IdleAIManager.h"
-#include "AliasSwapManager.h"
 #include "DialogueManager.h"
 #include "GameUtil.h"
 #include "ImpersonationManager.h"
 #include "ScriptEventFilter.h"
 #include "Session.h"
-#include "SessionStash.h"
 #include "Settings.h"
 #include "Version.h"
 
 namespace InTheirShoes::Papyrus {
 
     namespace {
-        bool Impersonate(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_puppet) {
+        // Impersonate and Revert return "" on success, otherwise why they failed (shown to the player)
+        RE::BSFixedString Impersonate(RE::StaticFunctionTag*, RE::Actor* a_donor, RE::Actor* a_puppet) {
             return ImpersonationManager::GetSingleton()->Impersonate(a_donor, a_puppet);
         }
 
-        bool Revert(RE::StaticFunctionTag*) {
+        RE::BSFixedString Revert(RE::StaticFunctionTag*) {
             return ImpersonationManager::GetSingleton()->Revert();
         }
 
@@ -54,49 +53,20 @@ namespace InTheirShoes::Papyrus {
             }
         }
 
-        RE::BSFixedString GetCurrentSceneName(RE::StaticFunctionTag*) {
-            auto* scene = GetPlayingScene(RE::PlayerCharacter::GetSingleton());
-            if (!scene) return ""sv;
-            // Editor IDs are only kept in memory with a mod such as powerofthree's Tweaks
-            const std::string_view editorID = scene->GetFormEditorID();
-            return editorID.empty() ? fmt::format("{:08X}", scene->GetFormID()) : std::string(editorID);
-        }
-
-        std::int32_t GetTemporaryFactionCount(RE::StaticFunctionTag*) {
-            return static_cast<std::int32_t>(SessionStashes::Factions().GetGivenCount());
-        }
-
-        std::int32_t GetTemporaryAliasCount(RE::StaticFunctionTag*) {
-            return static_cast<std::int32_t>(AliasSwapManager::GetSingleton()->GetSwappedAliasCount());
-        }
-
         bool OpenSelfDialogue(RE::StaticFunctionTag*, RE::Actor* a_speaker) {
             SKSE::log::info("OpenSelfDialogue called from Papyrus with speaker {:08X}",
                 a_speaker ? a_speaker->GetFormID() : 0u);
             return DialogueManager::GetSingleton()->OpenSelfDialogue(a_speaker);
         }
 
-        // ValidateImpersonateTarget's result. The values are part of the Papyrus API (documented in ITS_NG.psc,
-        // checked in ITS_QuestScript.psc), so never renumber them.
-        enum class TargetValidation : std::int32_t {
-            kValid = 0,
-            kInvalid = 1,
-            kPlayer = 2,
-            kDead = 3,
-            kChild = 4,
-            kNotHumanoid = 5,
-            kMounted = 6,
-            kGhost = 7,
-            kPlayerTransformed = 8,
-            kSpawned = 9,
-        };
-
-        TargetValidation ValidateTarget(RE::Actor* a_target) {
+        // Why a_target can't be impersonated, or "" if it can. Whether the player is transformed is checked by Impersonate.
+        RE::BSFixedString ValidateImpersonateTarget(RE::StaticFunctionTag*, RE::Actor* a_target) {
+            constexpr auto kInvalid = "Cannot impersonate this target."sv;
             if (!a_target) {
-                return TargetValidation::kInvalid;
+                return kInvalid;
             }
             if (a_target->IsPlayerRef()) {
-                return TargetValidation::kPlayer;
+                return "Cannot impersonate yourself."sv;
             }
             auto* actorState = a_target->AsActorState();
             if (actorState) {
@@ -105,49 +75,42 @@ namespace InTheirShoes::Papyrus {
                     lifeState == RE::ACTOR_LIFE_STATE::kDying ||
                     lifeState == RE::ACTOR_LIFE_STATE::kBleedout ||
                     lifeState == RE::ACTOR_LIFE_STATE::kEssentialDown) {
-                    return TargetValidation::kDead;
+                    return "Cannot impersonate: target is dead or dying."sv;
                 }
             }
             if (a_target->IsDead() || a_target->IsInKillMove()) {
-                return TargetValidation::kDead;
+                return "Cannot impersonate: target is dead or dying."sv;
             }
             if (a_target->IsGhost()) {
-                return TargetValidation::kGhost;
+                return "Cannot impersonate: target is a ghost."sv;
             }
             // A spawned actor (FF form ID, e.g. a leveled bandit) can be deleted while parked, and a session saved
             // with a missing donor can't be restored or reverted
             if (a_target->IsDynamicForm()) {
-                return TargetValidation::kSpawned;
+                return "Cannot impersonate: target is a temporary spawned actor."sv;
             }
             auto* base = a_target->GetActorBase();
             if (!base) {
-                return TargetValidation::kInvalid;
+                return kInvalid;
             }
             auto* npc = skyrim_cast<RE::TESNPC*>(base);
             if (!npc) {
-                return TargetValidation::kNotHumanoid;
+                return "Cannot impersonate: target is not humanoid."sv;
             }
             auto* race = npc->GetRace();
             if (!race) {
                 race = a_target->GetRace();
             }
             if (!race || !race->data.flags.all(RE::RACE_DATA::Flag::kFaceGenHead)) {
-                return TargetValidation::kNotHumanoid;
+                return "Cannot impersonate: target is not humanoid."sv;
             }
             if (race->IsChildRace() || race->data.flags.all(RE::RACE_DATA::Flag::kChild)) {
-                return TargetValidation::kChild;
+                return "Cannot impersonate: target is a child."sv;
             }
             if (a_target->IsOnMount()) {
-                return TargetValidation::kMounted;
+                return "Cannot impersonate: target is mounted."sv;
             }
-            if (ImpersonationManager::IsPlayerTransformed()) {
-                return TargetValidation::kPlayerTransformed;
-            }
-            return TargetValidation::kValid;
-        }
-
-        std::int32_t ValidateImpersonateTarget(RE::StaticFunctionTag*, RE::Actor* a_target) {
-            return std::to_underlying(ValidateTarget(a_target));
+            return ""sv;
         }
 
         // The plugin's version (project VERSION in CMakeLists.txt), shown in the MCM
@@ -178,10 +141,6 @@ namespace InTheirShoes::Papyrus {
                 return donor->GetDisplayFullName();
             }
             return ImpersonationManager::GetSingleton()->GetBaseline() ? "Not Found"sv : "None"sv;
-        }
-
-        bool IsPlayerTransformed(RE::StaticFunctionTag*) {
-            return ImpersonationManager::IsPlayerTransformed();
         }
 
         using VM = RE::BSScript::IVirtualMachine;
@@ -257,12 +216,8 @@ namespace InTheirShoes::Papyrus {
         a_vm->RegisterFunction("GetSetting", className, GetSetting);
         a_vm->RegisterFunction("GetSettingRange", className, GetSettingRange);
         a_vm->RegisterFunction("SetSetting", className, SetSetting);
-        a_vm->RegisterFunction("GetCurrentSceneName", className, GetCurrentSceneName);
-        a_vm->RegisterFunction("GetTemporaryFactionCount", className, GetTemporaryFactionCount);
-        a_vm->RegisterFunction("GetTemporaryAliasCount", className, GetTemporaryAliasCount);
         a_vm->RegisterFunction("OpenSelfDialogue", className, OpenSelfDialogue);
         a_vm->RegisterFunction("ValidateImpersonateTarget", className, ValidateImpersonateTarget);
-        a_vm->RegisterFunction("IsPlayerTransformed", className, IsPlayerTransformed);
         a_vm->RegisterFunction("GetPluginVersion", className, GetPluginVersion);
         a_vm->RegisterFunction("IsImpersonating", className, IsImpersonating);
         a_vm->RegisterFunction("GetDonor", className, GetDonor);

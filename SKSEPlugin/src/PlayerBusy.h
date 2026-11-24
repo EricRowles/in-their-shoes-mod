@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string_view>
 
+#include "LogUtil.h"
+
 namespace InTheirShoes {
 
     // Why the player can't be given something to do right now (idle AI, idle chatter)
@@ -35,7 +37,7 @@ namespace InTheirShoes {
     PlayerBusy WhatBlocks(RE::PlayerCharacter* a_player, BusyChecks a_checks);
 
     // Logs when what keeps a_who from acting changes, and remembers it in a_last
-    void LogPlayerBusy(PlayerBusy& a_last, PlayerBusy a_now, std::string_view a_who);
+    void LogPlayerBusy(LogOnChange<PlayerBusy>& a_last, PlayerBusy a_now, std::string_view a_who);
 
     // A menu is open that pauses the game or takes the player's attention (inventory, map, dialogue, ...)
     bool IsBlockingMenuOpen();

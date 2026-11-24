@@ -1,14 +1,17 @@
 ; Native bridge for In Their Shoes NG SKSE64 Plugin
 Scriptname ITS_NG Hidden
 
+; Impersonate and Revert return "" on success, otherwise why they failed (a message for the player). Both refuse
+; while the player is in Werewolf or Vampire Lord form.
+
 ; Impersonates a_donor (or switches to a_donor if already impersonating someone else).
 ; On the first impersonation the puppet takes the Dragonborn's appearance, stats and gear.
 ; The donor is moved to the storage marker. Position the puppet before calling.
-Bool Function Impersonate(Actor a_donor, Actor a_puppet) Global Native
+String Function Impersonate(Actor a_donor, Actor a_puppet) Global Native
 
 ; Ends impersonation: the donor gets the player's current items, spells and stats, and the player
 ; gets their own appearance, stats, spells and gear back. Move the actors afterwards.
-Bool Function Revert() Global Native
+String Function Revert() Global Native
 
 ; Settings, by name: IdleAIEnabled, IdleAITimeout, IdleAIPackage, NPCVoiceEnabled, IdleChatterTime,
 ; NativeRedirectEnabled, PuppetFollowsPlayer (Settings.h in the plugin). Toggles are 0 or 1. The plugin owns them and
@@ -18,26 +21,12 @@ Function SetSetting(String a_name, Float a_value) Global Native
 ; The setting's default, minimum and maximum
 Float[] Function GetSettingRange(String a_name) Global Native
 
-; The scene the player is in: its editor ID (or form ID, when editor IDs aren't loaded), or "" when there is none
-String Function GetCurrentSceneName() Global Native
-
-; How many of the donor's factions the player was given for the session (not counting the aliases' factions)
-Int Function GetTemporaryFactionCount() Global Native
-
-; How many of the donor's quest aliases the player holds for the session
-Int Function GetTemporaryAliasCount() Global Native
-
 ; Opens the Dialogue Menu with the puppet, showing the donor's topics.
 Bool Function OpenSelfDialogue(Actor a_speaker = None) Global Native
 
-; Validates whether a_target can be impersonated by the player.
-; Returns: 0 = Valid, 1 = Invalid, 2 = Player, 3 = Dead/Dying, 4 = Child, 5 = Non-humanoid, 6 = Mounted, 7 = Ghost,
-; 8 = Player is transformed (see IsPlayerTransformed), 9 = Spawned actor (a temporary FF reference).
-Int Function ValidateImpersonateTarget(Actor a_target) Global Native
-
-; Whether the player is in Werewolf or Vampire Lord form, or changing into or out of it.
-; Impersonate and Revert refuse while it is true.
-Bool Function IsPlayerTransformed() Global Native
+; Why the player can't impersonate a_target (a message for the player), or "" if they can.
+; Whether the player is transformed is checked by Impersonate.
+String Function ValidateImpersonateTarget(Actor a_target) Global Native
 
 ; Whether the player is impersonating. The plugin owns this answer; ITS_QuestScript keeps its aliases in line with it.
 Bool Function IsImpersonating() Global Native

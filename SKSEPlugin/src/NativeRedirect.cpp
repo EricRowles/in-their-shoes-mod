@@ -1,12 +1,11 @@
 #include "PCH.h"
 #include "NativeRedirect.h"
 #include "GameUtil.h"
+#include "LogUtil.h"
 #include "Session.h"
 #include "Settings.h"
 
 #include <array>
-#include <mutex>
-#include <set>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
@@ -137,13 +136,9 @@ namespace InTheirShoes::NativeRedirect {
 
         // a_what must be a string literal: it is kept as the key. Keyed by the native and the calling script's
         // type, so a redirect that was already logged costs a lookup, not a formatted string.
-        void LogOnce(const NativeFunction* a_native, const StackFrame& a_caller, std::string_view a_what) {
-            static std::mutex lock;
-            static std::set<std::tuple<const void*, const void*, const char*>> logged;
-            {
-                std::scoped_lock guard(lock);
-                if (!logged.emplace(a_native, a_caller.owningObjectType.get(), a_what.data()).second) return;
-            }
+        void LogRedirect(const NativeFunction* a_native, const StackFrame& a_caller, std::string_view a_what) {
+            static LogOnce<std::tuple<const void*, const void*, const char*>> s_logged;
+            if (!s_logged.First({ a_native, a_caller.owningObjectType.get(), a_what.data() })) return;
             SKSE::log::info("Redirected {}.{} from {}: {}", a_native->GetObjectTypeName().c_str(), a_native->GetName().c_str(),
                 a_caller.owningObjectType->GetName(), a_what);
         }
@@ -166,7 +161,7 @@ namespace InTheirShoes::NativeRedirect {
                     if (!GetObjectFor(a_vm, target, className, replacement)) continue;
                     _swapped.emplace_back(&arg, arg);
                     arg = replacement;
-                    LogOnce(a_native, a_caller, toDonor ? "puppet argument to the donor" : "argument to the player");
+                    LogRedirect(a_native, a_caller, toDonor ? "puppet argument to the donor" : "argument to the player");
                 }
             }
             ~ArgumentSwap() {
@@ -250,7 +245,7 @@ namespace InTheirShoes::NativeRedirect {
                 SKSE::GetTaskInterface()->AddTask([a_stackID] {
                     if (auto* vm = VM::GetSingleton()) vm->ReturnFromLatent(a_stackID, Variable{});
                 });
-                LogOnce(a_this, *caller, "skipped on the player");
+                LogRedirect(a_this, *caller, "skipped on the player");
                 return true;
             }
             if (caller && !IsOurScript(*caller) && a_this->GetName() == SetOutfitName() &&
@@ -285,14 +280,14 @@ namespace InTheirShoes::NativeRedirect {
             switch (kind) {
                 case Kind::kDonor:
                     if (standIn == donor || !GetObjectFor(a_vm, donor, className, target)) return call(a_self);
-                    LogOnce(a_this, *caller, "puppet to the donor");
+                    LogRedirect(a_this, *caller, "puppet to the donor");
                     return call(target);
                 case Kind::kLife:
                     if (standIn == donor) return call(a_self);
                     [[fallthrough]];
                 default:
                     if (!GetObjectFor(a_vm, Session::GetPlayer(), className, target)) return call(a_self);
-                    LogOnce(a_this, *caller, standIn == donor ? "donor to the player" : "puppet to the player");
+                    LogRedirect(a_this, *caller, standIn == donor ? "donor to the player" : "puppet to the player");
                     return call(target);
             }
         }

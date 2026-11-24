@@ -38,7 +38,7 @@ In Their Shoes is an SKSE plugin (C++, CommonLibSSE-NG) with a thin Papyrus laye
 | `GameClock` | Time the game has been running, without pauses, loading screens or hitches. Gameplay timers use it |
 | `PlayerBusy` | Why the player can't be given something to do (combat, a menu, a scene, ...), for idle AI and idle chatter |
 | `ConditionHooks` | Identity, relationship, location and state (health, combat, ...) conditions answer for the right actor |
-| `ActorHooks` | Voice type, editor location and per-frame player update hooks |
+| `ActorHooks` | Voice type, editor location, per-frame player update and RaceMenu refusal hooks |
 | `AliasSwapManager` | Moves the donor's quest aliases to the player and back |
 | `DialogueManager` | Self-dialogue, routing the engine's lines to the player |
 | `PlayerVoice` | The player voicing one line at a time, including keeping a stand-in silent while the player voices its line |

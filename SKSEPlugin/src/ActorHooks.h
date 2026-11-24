@@ -7,6 +7,7 @@ namespace InTheirShoes::ActorHooks {
     // - PlayerCharacter editor location (0x3C, 0x3D): the donor's editor position, so its sandbox packages take
     //   the player home; where the player stands when that is the holding cell (which froze the game)
     // - PlayerCharacter::Update (0xAD): drives Lifecycle::OnFrame
+    // - RaceSexMenu::ProcessMessage: keeps RaceMenu from opening while impersonating
     void Install();
 
     // An NPC's own voice type, bypassing the voice type hook

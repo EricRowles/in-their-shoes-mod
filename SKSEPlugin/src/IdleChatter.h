@@ -43,7 +43,7 @@ namespace InTheirShoes {
         std::vector<IdleTopic> _topics;
         // When an info with reset hours was last said, in game hours (RE::Calendar::GetHoursPassed)
         std::unordered_map<RE::FormID, float> _lastSaidHours;
-        PlayerBusy _blockedBy{ PlayerBusy::kNo };
+        LogOnChange<PlayerBusy> _blockedBy;
         bool _foundNothing{ false };
         // GameClock times, so menus and pauses don't count toward the interval
         GameClock::TimePoint _lastLineTime{ GameClock::Now() };

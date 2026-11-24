@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <string_view>
 #include <unordered_set>
 #include <cstdint>
 
@@ -34,16 +35,16 @@ namespace InTheirShoes {
         // rebuilt (#14)
         RE::BSEventNotifyControl ProcessEvent(const SKSE::NiNodeUpdateEvent* a_event, RE::BSTEventSource<SKSE::NiNodeUpdateEvent>* a_eventSource) override;
 
+        // Impersonate and Revert return "" on success, otherwise why they failed (shown to the player).
+        // Both refuse while the player is in Werewolf or Vampire Lord form, or changing into or out of it.
+
         // Starts impersonating a_donor, or switches to it if already impersonating someone else.
         // Moves the donor to the storage marker; the caller positions the puppet beforehand.
-        bool Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet);
+        std::string_view Impersonate(RE::Actor* a_donor, RE::Actor* a_puppet);
 
         // Ends impersonation: the donor gets the player's current items/spells/stats, and the
         // player gets their baseline back. The caller moves the actors afterwards.
-        bool Revert();
-        // Whether the player is in Werewolf or Vampire Lord form (or changing into or out of it).
-        // Impersonate and Revert refuse while it is true.
-        static bool IsPlayerTransformed();
+        std::string_view Revert();
 
         // Applies Settings::DoesPuppetFollowPlayer to the puppet, bringing it to the player if it now follows
         void OnPuppetFollowsChanged();
@@ -75,6 +76,7 @@ namespace InTheirShoes {
         static RE::Actor* GetPuppet() { return Session::GetSingleton()->GetPuppet(); }
         static RE::Actor* GetPlayer() { return Session::GetPlayer(); }
 
+        static bool IsPlayerTransformed();
         void CaptureBaseline(RE::Actor* a_player);
         void BeginSession(RE::Actor* a_donor);
         void EndSession();

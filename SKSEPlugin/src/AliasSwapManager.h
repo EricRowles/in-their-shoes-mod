@@ -46,7 +46,6 @@ namespace InTheirShoes {
 
         // Any thread (ScriptEventFilter asks from the VM's event hook)
         bool IsSwappedAlias(RE::FormID a_questFormID, std::uint32_t a_aliasID) const;
-        std::size_t GetSwappedAliasCount() const { return _swappedAliases.size(); }
         void Clear();
 
         // Whether a swapped alias gives its holder a_faction. The player gets these with the aliases, so
