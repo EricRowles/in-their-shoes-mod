@@ -32,15 +32,16 @@ Bool Function IsOn(String a_setting)
 	Return ITS_NG.GetSetting(a_setting) != 0.0
 EndFunction
 
-; Flips a toggle setting and shows its new value
-Function Toggle(Int a_option, String a_setting)
+; Flips a toggle setting and shows its new value. Pass a_noUpdate only when another option update without
+; it follows: SkyUI doesn't redraw until then, so a lone toggle would look unchanged until the cursor moves.
+Function Toggle(Int a_option, String a_setting, Bool a_noUpdate = False)
 	Bool on = !IsOn(a_setting)
 	If on
 		ITS_NG.SetSetting(a_setting, 1.0)
 	Else
 		ITS_NG.SetSetting(a_setting, 0.0)
 	EndIf
-	SetToggleOptionValue(a_option, on, True)
+	SetToggleOptionValue(a_option, on, a_noUpdate)
 EndFunction
 
 ; A section's options are disabled while its Enabled toggle is off
@@ -105,11 +106,11 @@ EndEvent
 
 Event OnOptionSelect(Int option)
 	If option == _oid_idleAI
-		Toggle(option, "IdleAIEnabled")
+		Toggle(option, "IdleAIEnabled", True)
 		SetOptionFlags(_oid_idleTimeout, FlagsFor("IdleAIEnabled"), True)
 		SetOptionFlags(_oid_idlePackage, FlagsFor("IdleAIEnabled"))
 	ElseIf option == _oid_npcVoice
-		Toggle(option, "NPCVoiceEnabled")
+		Toggle(option, "NPCVoiceEnabled", True)
 		SetOptionFlags(_oid_idleChatterTime, FlagsFor("NPCVoiceEnabled"))
 	ElseIf option == _oid_nativeRedirect
 		Toggle(option, "NativeRedirectEnabled")
