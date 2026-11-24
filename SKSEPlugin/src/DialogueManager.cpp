@@ -357,7 +357,7 @@ namespace InTheirShoes {
             voice.TakeStandInLine(a_response);
             bool ret = _origCharUpdateInDialogue(a_this, a_response, a_unused);
             PlayerVoice::SilenceStandIn(a_this);
-            voice.SpeakForStandIn(a_this, a_unused);
+            voice.SpeakForStandIn(a_this);
             return ret;
         }
 
@@ -391,7 +391,7 @@ namespace InTheirShoes {
             }
             // A scene line for one of the donor's swapped aliases
             QueueSubtitle(RE::PlayerCharacter::GetSingleton(), a_response);
-            PlayerVoice::GetSingleton()->Speak(a_response, a_unused);
+            PlayerVoice::GetSingleton()->Speak(a_response);
             return true;
         }
         return _origPlayerUpdateInDialogue(a_this, a_response, a_unused);
