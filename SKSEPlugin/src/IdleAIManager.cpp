@@ -114,14 +114,12 @@ namespace InTheirShoes {
                    a_execState->context->actor == RE::PlayerCharacter::GetSingleton() && a_execState->nodeState;
         }
 
-        // Ends a procedure as succeeded, ending its package, as the engine does (AE ID 29479). ExecStateContext extends
-        // past CommonLib's: +0x10 done, +0x11 succeeded, +0x12 also set ProcedureExecContext::unk20.
+        // Ends a procedure as succeeded, ending its package, as the engine does (AE ID 29479)
         void MarkProcedureSucceeded(RE::IProcedureTreeItem::ExecStateContext* a_execState) {
-            auto* raw = reinterpret_cast<std::uint8_t*>(a_execState);
-            raw[0x10] = 1;
-            raw[0x11] = 1;
-            if (raw[0x12]) {
-                a_execState->context->unk20 = true;
+            a_execState->isComplete = true;
+            a_execState->markedComplete = true;
+            if (a_execState->successCompletesPackage) {
+                a_execState->context->packageComplete = true;
             }
         }
 
